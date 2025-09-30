@@ -1,117 +1,120 @@
 <tal:report i18n:domain="senaite.impress">
+  <!-- Assets estándar de Impress -->
   <tal:t replace="structure python:view.render_controls(context, **options)" />
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  <!-- Encabezado -->
-  <div class="row section-header no-gutters">
-    <div class="w-100 mb-2">
-      <table class="w-100 mb-0 noborder">
-        <colgroup><col style="width:65%"/><col style="width:35%"/></colgroup>
-        <tr>
-          <td class="align-middle text-left">
-            <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
-            <div class="font-weight-bold font-size-120">INFOLABSA</div>
-          </td>
-          <td class="align-middle text-right">
-            <img class="logo" tal:attributes="src string:${context/portal_url}/@@site-logo" />
-          </td>
-        </tr>
-      </table>
-    </div>
-  </div>
+  <!--
+    MUY IMPORTANTE: en TAL, las variables definidas solo viven dentro del nodo.
+    Por eso definimos 'ar' en un contenedor que ENVUELVE TODO el informe.
+    ar = AnalysisRequest (AR) robusto: view.model.instance → view.context → context
+  -->
+  <div tal:define="
+         get python:getattr;
+         model python:get(view, 'model', None);
+         ar python:(get(model, 'instance', None) or get(view, 'context', None) or context)">
 
-  <!-- Secciones estándar de Impress -->
-  <tal:t replace="structure python:view.render_info(context, **options)" />
-  <tal:t replace="structure python:view.render_alerts(context, **options)" />
-
-  <!-- Referencia robusta al AnalysisRequest (AR): usa view.model.instance, fallback a view.context y luego a context) -->
-  <tal:globals define="
-      get python:getattr;
-      model python:get(view, 'model', None);
-      ar python:(get(model, 'instance', None) or get(view, 'context', None) or context);
-  " />
-
-  <!-- Datos del Paciente (sin model/instance directos) -->
-  <tal:patient define="
-                       get python:getattr;
-                       mrn python:(get(ar, 'getMedicalRecordNumber', None) and get(ar, 'getMedicalRecordNumber')() or options.get('mrn', ''));
-                       patient_name python:(get(ar, 'getPatientFullName', None) and get(ar, 'getPatientFullName')() or options.get('patient_fullname', ''));
-                       dob python:(get(ar, 'getDateOfBirth', None) and get(ar, 'getDateOfBirth')());
-                       age python:(get(ar, 'getAge', None) and get(ar, 'getAge')());
-                       gender python:(get(ar, 'getGender', None) and get(ar, 'getGender')());
-                       show_patient python:any([mrn, patient_name, dob, age, gender]);">
-    <div class="row section-summary no-gutters" tal:condition="show_patient">
-      <div class="w-100">
-        <h2 class="mb-1" i18n:translate="">Datos del Paciente</h2>
-        <table class="table table-sm table-condensed">
-          <colgroup>
-            <col style="width: 25%"/><col style="width: 25%"/><col style="width: 25%"/><col style="width: 25%"/>
-          </colgroup>
+    <!-- Encabezado -->
+    <div class="row section-header no-gutters">
+      <div class="w-100 mb-2">
+        <table class="w-100 mb-0 noborder">
+          <colgroup><col style="width:65%"/><col style="width:35%"/></colgroup>
           <tr>
-            <td class="label" i18n:translate="">MRN</td>
-            <td><span tal:content="mrn|nothing">—</span></td>
-            <td class="label" i18n:translate="">Nombre completo</td>
-            <td><span tal:content="patient_name|nothing">—</span></td>
-          </tr>
-          <tr>
-            <td class="label" i18n:translate="">Fecha de nacimiento</td>
-            <td>
-              <span tal:condition="dob" tal:content="python:view.to_localized_time(dob)">—</span>
-              <span tal:condition="not:dob">—</span>
+            <td class="align-middle text-left">
+              <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
+              <div class="font-weight-bold font-size-120">INFOLABSA</div>
             </td>
-            <td class="label" i18n:translate="">Edad</td>
-            <td><span tal:content="age|nothing">—</span></td>
-          </tr>
-          <tr>
-            <td class="label" i18n:translate="">Género</td>
-            <td><span tal:content="gender|nothing">—</span></td>
-            <td class="label"></td>
-            <td></td>
+            <td class="align-middle text-right">
+              <img class="logo" tal:attributes="src string:${context/portal_url}/@@site-logo" />
+            </td>
           </tr>
         </table>
       </div>
     </div>
-  </tal:patient>
 
-  <!-- Resumen de la Muestra -->
-  <tal:t replace="structure python:view.render_summary(context, **options)" />
+    <!-- Secciones estándar del View (usar AR como contexto, patrón Default.pt) -->
+    <tal:t replace="structure python:view.render_info(ar, **options)" />
+    <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
-  <!-- Resultados con Estado + Alertas (Δ % y fecha DD/MM/YYYY) -->
-  <!-- Invoca la página sobre el AR para asegurar el contexto correcto -->
-  <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
-
-  <!-- Interpretación de resultados (solo si hay contenido) -->
-  <tal:interp define="get python:getattr;
-                      gen python:(get(ar, 'getResultsInterpretation', None) and get(ar, 'getResultsInterpretation')() or
-                                   get(ar, 'getInterpretation', None) and get(ar, 'getInterpretation')() or
-                                   get(ar, 'getInterpretationGeneral', None) and get(ar, 'getInterpretationGeneral')());
-                      qc  python:(get(ar, 'getInterpretationChemistry', None) and get(ar, 'getInterpretationChemistry')() or
-                                   get(ar, 'getChemistryInterpretation', None) and get(ar, 'getChemistryInterpretation')());
-                      show python:any([gen, qc]);">
-    <div class="row section-interp no-gutters" tal:condition="show">
-      <div class="w-100">
-        <h2 class="mb-1" i18n:translate="">Interpretación de resultados</h2>
-        <tal:gen tal:condition="gen">
-          <h3 class="mb-0" i18n:translate="">General</h3>
-          <div tal:content="structure gen">—</div>
-        </tal:gen>
-        <tal:qc tal:condition="qc">
-          <h3 class="mb-0">Química clínica</h3>
-          <div tal:content="structure qc">—</div>
-        </tal:qc>
+    <!-- Datos del Paciente (sin model/instance directos) -->
+    <tal:patient define="
+                     mrn python:(get(ar, 'getMedicalRecordNumber', None) and ar.getMedicalRecordNumber() or options.get('mrn', ''));
+                     patient_name python:(get(ar, 'getPatientFullName', None) and ar.getPatientFullName() or options.get('patient_fullname', ''));
+                     dob python:(get(ar, 'getDateOfBirth', None) and ar.getDateOfBirth());
+                     age python:(get(ar, 'getAge', None) and ar.getAge());
+                     gender python:(get(ar, 'getGender', None) and ar.getGender());
+                     show_patient python:any([mrn, patient_name, dob, age, gender]);">
+      <div class="row section-summary no-gutters" tal:condition="show_patient">
+        <div class="w-100">
+          <h2 class="mb-1" i18n:translate="">Datos del Paciente</h2>
+          <table class="table table-sm table-condensed">
+            <colgroup>
+              <col style="width: 25%"/><col style="width: 25%"/><col style="width: 25%"/><col style="width: 25%"/>
+            </colgroup>
+            <tr>
+              <td class="label" i18n:translate="">MRN</td>
+              <td><span tal:content="mrn|nothing">—</span></td>
+              <td class="label" i18n:translate="">Nombre completo</td>
+              <td><span tal:content="patient_name|nothing">—</span></td>
+            </tr>
+            <tr>
+              <td class="label" i18n:translate="">Fecha de nacimiento</td>
+              <td>
+                <span tal:condition="dob" tal:content="python:view.to_localized_time(dob)">—</span>
+                <span tal:condition="not:dob">—</span>
+              </td>
+              <td class="label" i18n:translate="">Edad</td>
+              <td><span tal:content="age|nothing">—</span></td>
+            </tr>
+            <tr>
+              <td class="label" i18n:translate="">Género</td>
+              <td><span tal:content="gender|nothing">—</span></td>
+              <td class="label"></td>
+              <td></td>
+            </tr>
+          </table>
+        </div>
       </div>
-    </div>
-  </tal:interp>
+    </tal:patient>
 
-  <!-- Adjuntos, observaciones, firmas (nativas) -->
-  <tal:t replace="structure python:view.render_attachments(context, **options)" />
-  <tal:t replace="structure python:view.render_remarks(context, **options)" />
+    <!-- Resumen de la Muestra (sobre AR) -->
+    <tal:t replace="structure python:view.render_summary(ar, **options)" />
 
-  <!-- Firmas nativas de senaite.impress -->
-  <tal:t replace="structure python:view.render_signatures(context, **options)" />
+    <!-- Resultados con Estado + Alertas (Δ % y fecha DD/MM/YYYY) invocados sobre AR -->
+    <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
 
-  <!-- Discreeter y pie de página estándar -->
-  <tal:t replace="structure python:view.render_discreeter(context, **options)" />
-  <tal:t replace="structure python:view.render_footer(context, **options)" />
+    <!-- Interpretación de resultados (solo si hay contenido) usando AR -->
+    <tal:interp define="
+                      gen python:(get(ar, 'getResultsInterpretation', None) and ar.getResultsInterpretation() or
+                                   get(ar, 'getInterpretation', None) and ar.getInterpretation() or
+                                   get(ar, 'getInterpretationGeneral', None) and ar.getInterpretationGeneral());
+                      qc  python:(get(ar, 'getInterpretationChemistry', None) and ar.getInterpretationChemistry() or
+                                   get(ar, 'getChemistryInterpretation', None) and ar.getChemistryInterpretation());
+                      show python:any([gen, qc]);">
+      <div class="row section-interp no-gutters" tal:condition="show">
+        <div class="w-100">
+          <h2 class="mb-1" i18n:translate="">Interpretación de resultados</h2>
+          <tal:gen tal:condition="gen">
+            <h3 class="mb-0" i18n:translate="">General</h3>
+            <div tal:content="structure gen">—</div>
+          </tal:gen>
+          <tal:qc tal:condition="qc">
+            <h3 class="mb-0">Química clínica</h3>
+            <div tal:content="structure qc">—</div>
+          </tal:qc>
+        </div>
+      </div>
+    </tal:interp>
+
+    <!-- Adjuntos, observaciones, firmas (nativas) sobre AR -->
+    <tal:t replace="structure python:view.render_attachments(ar, **options)" />
+    <tal:t replace="structure python:view.render_remarks(ar, **options)" />
+
+    <!-- Firmas nativas de senaite.impress -->
+    <tal:t replace="structure python:view.render_signatures(ar, **options)" />
+
+    <!-- Discreeter y pie de página estándar -->
+    <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
+    <tal:t replace="structure python:view.render_footer(ar, **options)" />
+  </div>
 </tal:report>
