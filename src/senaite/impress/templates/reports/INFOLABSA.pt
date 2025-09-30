@@ -21,12 +21,18 @@
     </div>
   </div>
 
-  <!-- Info estándar de Impress -->
+  <!-- Secciones estándar de Impress -->
   <tal:t replace="structure python:view.render_info(context, **options)" />
   <tal:t replace="structure python:view.render_alerts(context, **options)" />
 
-  <!-- Datos del Paciente (bloque dedicado, usando getters automáticos, SIN model/instance) -->
-  <tal:def define="ar context" />
+  <!-- Referencia robusta al AnalysisRequest (AR): usa view.model.instance, fallback a view.context y luego a context) -->
+  <tal:globals define="
+      get python:getattr;
+      model python:get(view, 'model', None);
+      ar python:(get(model, 'instance', None) or get(view, 'context', None) or context);
+  " />
+
+  <!-- Datos del Paciente (sin model/instance directos) -->
   <tal:patient define="
                        get python:getattr;
                        mrn python:(get(ar, 'getMedicalRecordNumber', None) and get(ar, 'getMedicalRecordNumber')() or options.get('mrn', ''));
@@ -71,16 +77,17 @@
   <!-- Resumen de la Muestra -->
   <tal:t replace="structure python:view.render_summary(context, **options)" />
 
-  <!-- Resultados con Estado + Alertas (Δ % y fecha) -->
-  <tal:t replace="structure context/@@infolabsa-results-with-state" />
+  <!-- Resultados con Estado + Alertas (Δ % y fecha DD/MM/YYYY) -->
+  <!-- Invoca la página sobre el AR para asegurar el contexto correcto -->
+  <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
 
-  <!-- Interpretación de resultados (se muestra solo si hay contenido) - SIN model/instance -->
+  <!-- Interpretación de resultados (solo si hay contenido) -->
   <tal:interp define="get python:getattr;
-                      gen python:(get(context, 'getResultsInterpretation', None) and get(context, 'getResultsInterpretation')() or
-                                  get(context, 'getInterpretation', None) and get(context, 'getInterpretation')() or
-                                  get(context, 'getInterpretationGeneral', None) and get(context, 'getInterpretationGeneral')());
-                      qc python:(get(context, 'getInterpretationChemistry', None) and get(context, 'getInterpretationChemistry')() or
-                                 get(context, 'getChemistryInterpretation', None) and get(context, 'getChemistryInterpretation')());
+                      gen python:(get(ar, 'getResultsInterpretation', None) and get(ar, 'getResultsInterpretation')() or
+                                   get(ar, 'getInterpretation', None) and get(ar, 'getInterpretation')() or
+                                   get(ar, 'getInterpretationGeneral', None) and get(ar, 'getInterpretationGeneral')());
+                      qc  python:(get(ar, 'getInterpretationChemistry', None) and get(ar, 'getInterpretationChemistry')() or
+                                   get(ar, 'getChemistryInterpretation', None) and get(ar, 'getChemistryInterpretation')());
                       show python:any([gen, qc]);">
     <div class="row section-interp no-gutters" tal:condition="show">
       <div class="w-100">
@@ -97,13 +104,14 @@
     </div>
   </tal:interp>
 
-  <!-- Adjuntos, observaciones, firmas (solo NATIVAS) -->
+  <!-- Adjuntos, observaciones, firmas (nativas) -->
   <tal:t replace="structure python:view.render_attachments(context, **options)" />
   <tal:t replace="structure python:view.render_remarks(context, **options)" />
 
   <!-- Firmas nativas de senaite.impress -->
   <tal:t replace="structure python:view.render_signatures(context, **options)" />
 
+  <!-- Discreeter y pie de página estándar -->
   <tal:t replace="structure python:view.render_discreeter(context, **options)" />
   <tal:t replace="structure python:view.render_footer(context, **options)" />
 </tal:report>
