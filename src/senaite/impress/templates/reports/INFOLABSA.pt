@@ -25,21 +25,22 @@
   <tal:t replace="structure python:view.render_info(context, **options)" />
   <tal:t replace="structure python:view.render_alerts(context, **options)" />
 
-  <!-- Datos del Paciente (bloque dedicado, usando getters automáticos) -->
-  <tal:patient define="model view/model;
-                       instance model/instance;
-                       mrn python:(getattr(model, 'MedicalRecordNumber', '')                                    or getattr(model, 'getMedicalRecordNumberValue', '')                                    or getattr(instance, 'getMedicalRecordNumber', lambda: '')()                                    or options.get('mrn', ''));
-                       patient_name python:(getattr(model, 'PatientFullName', '')                                             or getattr(model, 'getPatientFullName', '')                                             or options.get('patient_fullname', ''));
-                       dob python:(getattr(model, 'DateOfBirth', '') or getattr(instance, 'getDateOfBirth', lambda: '')());
-                       age python:(getattr(model, 'Age', '') or getattr(instance, 'getAge', lambda: '')());
-                       gender python:(getattr(model, 'Gender', '') or getattr(instance, 'getGender', lambda: '')());
+  <!-- Datos del Paciente (bloque dedicado, usando getters automáticos, SIN model/instance) -->
+  <tal:def define="ar context" />
+  <tal:patient define="
+                       get python:getattr;
+                       mrn python:(get(ar, 'getMedicalRecordNumber', None) and get(ar, 'getMedicalRecordNumber')() or options.get('mrn', ''));
+                       patient_name python:(get(ar, 'getPatientFullName', None) and get(ar, 'getPatientFullName')() or options.get('patient_fullname', ''));
+                       dob python:(get(ar, 'getDateOfBirth', None) and get(ar, 'getDateOfBirth')());
+                       age python:(get(ar, 'getAge', None) and get(ar, 'getAge')());
+                       gender python:(get(ar, 'getGender', None) and get(ar, 'getGender')());
                        show_patient python:any([mrn, patient_name, dob, age, gender]);">
     <div class="row section-summary no-gutters" tal:condition="show_patient">
       <div class="w-100">
         <h2 class="mb-1" i18n:translate="">Datos del Paciente</h2>
         <table class="table table-sm table-condensed">
           <colgroup>
-            <col style="width: 25%"><col style="width: 25%"><col style="width: 25%"><col style="width: 25%">
+            <col style="width: 25%"/><col style="width: 25%"/><col style="width: 25%"/><col style="width: 25%"/>
           </colgroup>
           <tr>
             <td class="label" i18n:translate="">MRN</td>
@@ -73,23 +74,13 @@
   <!-- Resultados con Estado + Alertas (Δ % y fecha) -->
   <tal:t replace="structure context/@@infolabsa-results-with-state" />
 
-  <!-- Interpretación de resultados: General y Química clínica (se muestra solo si hay contenido) -->
-  <tal:interp define="model view/model; instance model/instance;
-                      gen python:(getattr(model, 'ResultsInterpretation', '') or
-                                  getattr(model, 'getResultsInterpretation', '') or
-                                  getattr(model, 'Interpretation', '') or
-                                  getattr(model, 'getInterpretation', '') or
-                                  getattr(model, 'InterpretationGeneral', '') or
-                                  getattr(model, 'getInterpretationGeneral', '') or
-                                  getattr(instance, 'getResultsInterpretation', lambda: '')() or
-                                  getattr(instance, 'getInterpretation', lambda: '')() or
-                                  getattr(instance, 'getInterpretationGeneral', lambda: '')());
-                      qc python:(getattr(model, 'InterpretationChemistry', '') or
-                                 getattr(model, 'getInterpretationChemistry', '') or
-                                 getattr(model, 'ChemistryInterpretation', '') or
-                                 getattr(model, 'getChemistryInterpretation', '') or
-                                 getattr(instance, 'getInterpretationChemistry', lambda: '')() or
-                                 getattr(instance, 'getChemistryInterpretation', lambda: '')());
+  <!-- Interpretación de resultados (se muestra solo si hay contenido) - SIN model/instance -->
+  <tal:interp define="get python:getattr;
+                      gen python:(get(context, 'getResultsInterpretation', None) and get(context, 'getResultsInterpretation')() or
+                                  get(context, 'getInterpretation', None) and get(context, 'getInterpretation')() or
+                                  get(context, 'getInterpretationGeneral', None) and get(context, 'getInterpretationGeneral')());
+                      qc python:(get(context, 'getInterpretationChemistry', None) and get(context, 'getInterpretationChemistry')() or
+                                 get(context, 'getChemistryInterpretation', None) and get(context, 'getChemistryInterpretation')());
                       show python:any([gen, qc]);">
     <div class="row section-interp no-gutters" tal:condition="show">
       <div class="w-100">
