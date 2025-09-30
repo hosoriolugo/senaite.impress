@@ -1,0 +1,58 @@
+<tal:results i18n:domain="senaite.impress">
+  <table class="table table-sm table-condensed">
+    <thead>
+      <tr>
+        <th i18n:translate="">Análisis</th>
+        <th i18n:translate="">Resultado</th>
+        <th i18n:translate="">Unidad</th>
+        <th i18n:translate="">Rango de referencia</th>
+        <th i18n:translate="">Estado</th>
+        <th i18n:translate="">Alertas</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tal:loop repeat="a view/analyses">
+        <tal:row define="r python:view.row(a)">
+          <tr>
+            <td tal:content="python:r['name']">Análisis</td>
+            <td tal:content="python:r['result']">—</td>
+            <td tal:content="python:r['unit']">—</td>
+            <td tal:content="python:r['ref_range']">—</td>
+            <td class="text-center">
+              <span tal:attributes="class python:r['estado_class']">
+                <span tal:condition="python:r['estado_symbol']==u'⚠'" style="color:#c00">⚠</span>
+                <span tal:condition="python:r['estado_symbol']==u'✓'">✓</span>
+                <span tal:condition="python:r['estado_symbol']==u'—'">—</span>
+                <span tal:content="python:r['estado_text']">Estado</span>
+              </span>
+            </td>
+            <td class="text-center">
+              <span tal:attributes="class python:r['alert_classes']; title python:r['alert_title']"
+                    tal:content="python:r['alert_text']">—</span>
+            </td>
+          </tr>
+        </tal:row>
+      </tal:loop>
+    </tbody>
+  </table>
+
+  <!-- Línea compacta de claves rápidas -->
+  <div class="mt-1 text-muted" style="font-size: 90%;">
+    <span i18n:translate="">✓ En rango</span> ·
+    <span class="fr-alert" i18n:translate="">⚠ Fuera de rango</span> ·
+    <span class="al-critical" i18n:translate="">❗ Crítico</span> ·
+    <span class="al-delta" i18n:translate="">▲/▼ Δ fuera de límite</span> ·
+    <span i18n:translate="">— No aplica</span>
+  </div>
+
+  <!-- Leyenda para pacientes (técnica y clara) -->
+  <div class="mt-1 text-muted" style="font-size: 90%; margin-top:6px;">
+    <div><strong>Guía de interpretación</strong></div>
+    <div>✓ <strong>En rango</strong>: Resultado dentro del intervalo de referencia establecido para su edad/sexo.</div>
+    <div><span style="color:#c00">⚠</span> <strong>Fuera de rango</strong>: Resultado fuera del intervalo de referencia. Puede requerir correlación clínica.</div>
+    <div><strong>❗ Crítico</strong>: Valor que cumple criterios de alerta crítica del laboratorio. <em>Puede requerir atención médica inmediata.</em></div>
+    <div><strong>▲/▼ Δ fuera de límite</strong>: Cambio relevante respecto al análisis previo del mismo tipo (se muestra porcentaje y fecha).</div>
+    <div>— <strong>No aplica</strong>: Análisis sin intervalo de referencia o de naturaleza cualitativa.</div>
+  </div>
+
+</tal:results>

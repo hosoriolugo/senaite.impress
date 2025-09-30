@@ -1,0 +1,342 @@
+#
+# Translators:
+# Jiří Podhorecký, 2023
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"POT-Creation-Date: 2024-01-03 09:08+0000\n"
+"PO-Revision-Date: 2018-06-06 17:12+0000\n"
+"Last-Translator: Jiří Podhorecký, 2023\n"
+"Language-Team: Czech (https://app.transifex.com/senaite/teams/87187/cs/)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=4; plural=(n == 1 && n % 1 == 0) ? 0 : (n >= 2 && n <= 4 && n % 1 == 0) ? 1: (n % 1 != 0 ) ? 2 : 3;\n"
+"Language-Code: en\n"
+"Language-Name: English\n"
+"Preferred-Encodings: utf-8 latin1\n"
+"Domain: DOMAIN\n"
+"Language: cs\n"
+
+#: senaite/impress/controlpanel.py:51
+msgid "Active templates"
+msgstr "Aktivní šablony"
+
+#: senaite/impress/controlpanel.py:139
+msgid "Advanced"
+msgstr "Pokročilé"
+
+#: senaite/impress/browser/publish/content.py:112
+msgid "All"
+msgstr "Vše"
+
+#: senaite/impress/controlpanel.py:105
+msgid "Allow PDF download"
+msgstr "Povolit stahování PDF"
+
+#: senaite/impress/controlpanel.py:112
+msgid "Allow PDF email share"
+msgstr "Povolit sdílení souborů PDF e-mailem"
+
+#: senaite/impress/controlpanel.py:106
+msgid "Allow direct download of the generated report"
+msgstr "Umožnit přímé stažení vygenerované zprávy"
+
+#: senaite/impress/controlpanel.py:113
+msgid "Allow to share the generated PDF directly via email"
+msgstr "Umožnit sdílení vygenerovaného PDF přímo e-mailem"
+
+#: senaite/impress/analysisrequest/templates/header.pt:14
+msgid "Analysis Report"
+msgstr "Zpráva o analýze"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:34
+msgid "Analysis results relate only to the samples tested."
+msgstr "Výsledky analýzy se týkají pouze testovaných vzorků."
+
+#: senaite/impress/analysisrequest/templates/attachments.pt:29
+msgid "Attachment for"
+msgstr "Příloha pro"
+
+#: senaite/impress/analysisrequest/templates/attachments.pt:13
+msgid "Attachments for ${DYNAMIC_CONTENT}"
+msgstr "Příloha pro ${DYNAMIC_CONTENT}"
+
+#: senaite/impress/analysisrequest/templates/controls.pt:34
+msgid "Attachments per Row"
+msgstr "Přílohy na řádku"
+
+#: senaite/impress/controlpanel.py:46
+msgid "Available Templates"
+msgstr "Dostupné šablony"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:37
+#: senaite/impress/browser/publish/content.py:96
+msgid "Batch ID"
+msgstr "ID Dávky"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:91
+msgid "Batch Labels"
+msgstr "Štítky Dávky"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:49
+#: senaite/impress/browser/publish/content.py:84
+msgid "Client"
+msgstr "Klient"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:45
+msgid "Client Batch ID"
+msgstr "ID Dávky klienta"
+
+#: senaite/impress/browser/publish/content.py:88
+msgid "Client ID"
+msgstr "Client ID"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:56
+msgid "Client SID"
+msgstr "SID Klienta"
+
+#: senaite/impress/browser/publish/content.py:92
+msgid "Contact"
+msgstr "Kontakt"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:76
+msgid "Date Published"
+msgstr "Datum publikování"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:68
+msgid "Date Received"
+msgstr "Datum přijetí"
+
+#: senaite/impress/browser/publish/content.py:80
+msgid "Date Sampled"
+msgstr "Datum odběru vzorku"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:72
+msgid "Date Verified"
+msgstr "Datum ověření"
+
+#: senaite/impress/controlpanel.py:73
+msgid "Default Orientation"
+msgstr "Výchozí orientace"
+
+#: senaite/impress/controlpanel.py:65
+msgid "Default Paper Format"
+msgstr "Výchozí formát papíru"
+
+#: senaite/impress/controlpanel.py:57
+msgid "Default Template"
+msgstr "Výchozí šablona"
+
+#: senaite/impress/controlpanel.py:98
+msgid "Developer Mode"
+msgstr "Vývojářský mód"
+
+#: senaite/impress/adapters.py:81
+msgid "Download the generated PDF to your computer"
+msgstr "Stáhněte si vygenerovaný soubor PDF do počítače"
+
+#: senaite/impress/actions/providers.py:194
+msgid "Email sent"
+msgstr "E-mail odeslán"
+
+#: senaite/impress/actions/providers.py:190
+msgid "Failed to send Email"
+msgstr "E-mail se nepodařilo odeslat"
+
+#: senaite/impress/analysisrequest/templates/attachments.pt:36
+msgid "Filename:"
+msgstr "Název souboru:"
+
+#: senaite/impress/controlpanel.py:81
+msgid "Footer Text"
+msgstr "Text zápatí"
+
+#: senaite/impress/ajax.py:332
+msgid "Generated reports for: {}, "
+msgstr "Generované zprávy pro: {},"
+
+#: senaite/impress/configure.zcml:175
+msgid "HTML to PDF report engine for SENAITE"
+msgstr "Nástroj pro export Zpráv z HTML do PDF pro SENAITE"
+
+#: senaite/impress/browser/publish/content.py:60
+msgid "ID"
+msgstr "ID"
+
+#: senaite/impress/profiles/default/actionicons.xml
+#: senaite/impress/profiles/default/controlpanel.xml
+msgid "Impress Settings"
+msgstr "Nastavení Impress"
+
+#: senaite/impress/controlpanel.py:74
+msgid "Initially loaded orientation"
+msgstr "Počáteční orientace"
+
+#: senaite/impress/controlpanel.py:66
+msgid "Initially loaded paper format"
+msgstr "Počáteční formát papíru"
+
+#: senaite/impress/controlpanel.py:58
+msgid "Initially loaded report template"
+msgstr "Počáteční šablona Zprávy"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:29
+msgid "Methods included in the ${accreditation_body} schedule of Accreditation for this Laboratory. Analysis remarks are not accredited"
+msgstr "Metody zahrnuté v harmonogramu akreditace pro tuto laboratoř ${accreditation_body}. Poznámky k analýze nejsou akreditovány"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:16
+msgid "Not invoiced"
+msgstr "Není fakturováno"
+
+#: senaite/impress/analysisrequest/templates/controls.pt:44
+msgid "Number of attachments rendered within one row per Analysis Request"
+msgstr "Počet příloh vypsaných v jednom řádku na žádost o analýzu"
+
+#: senaite/impress/actions/providers.py:170
+msgid "PDF attachment is missing"
+msgstr "Chybí příloha PDF"
+
+#: senaite/impress/controlpanel.py:47
+msgid "Please choose the templates that can be selected"
+msgstr "Vyberte šablony, které lze vybrat."
+
+#: senaite/impress/analysisrequest/templates/alerts.pt:20
+msgid "Provisional report"
+msgstr "Prozatímní zpráva"
+
+#: senaite/impress/analysisrequest/templates/signatures.pt:31
+#: senaite/impress/analysisrequest/templates/summary.pt:80
+msgid "Published by"
+msgstr "Publikováno od"
+
+#: senaite/impress/analysisrequest/templates/results.pt:47
+msgid "Range"
+msgstr "Rozsah"
+
+#: senaite/impress/browser/publish/content.py:76
+msgid "Registered"
+msgstr "Registrováno"
+
+#: senaite/impress/controlpanel.py:119
+msgid "Reload after reorder"
+msgstr "Znovunačtení po změně pořadí "
+
+#: senaite/impress/controlpanel.py:120
+msgid "Reload report automatically when items order changed"
+msgstr "Automatické načtení sestavy při změně pořadí položek"
+
+#: senaite/impress/analysisrequest/templates/controls.pt:10
+msgid "Report Options"
+msgstr ""
+
+#: senaite/impress/controlpanel.py:130
+msgid "Report Settings"
+msgstr "Nastavení hlášení"
+
+#: senaite/impress/analysisrequest/templates/signatures.pt:7
+msgid "Responsibles"
+msgstr "Odpovědnosti"
+
+#: senaite/impress/analysisrequest/templates/results.pt:41
+msgid "Result"
+msgstr "Výsledek"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:14
+msgid "Result out of client specified range."
+msgstr "Výsledek mimo rozsah zadaný klientem."
+
+#: senaite/impress/analysisrequest/templates/results_transposed.pt:9
+msgid "Results"
+msgstr "Výsledky"
+
+#: senaite/impress/controlpanel.py:99
+msgid "Returns the raw HTML in the report preview."
+msgstr "Vrátí jednoduché HTML v náhledu sestavy."
+
+#: senaite/impress/configure.zcml:175
+#: senaite/impress/templates/publish.pt:9
+msgid "SENAITE IMPRESS"
+msgstr "SENAITE IMPRESS"
+
+#: senaite/impress/controlpanel.py:154
+msgid "SENAITE IMPRESS Settings"
+msgstr "Nastavení SENAITE IMPRESS"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:29
+msgid "Sample ID"
+msgstr "ID vzorku"
+
+#: senaite/impress/browser/publish/content.py:72
+msgid "Sample Point"
+msgstr "Bod vzorku"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:60
+#: senaite/impress/browser/publish/content.py:68
+msgid "Sample Type"
+msgstr "Typ vzorku"
+
+#: senaite/impress/adapters.py:97
+msgid "Share PDF via email"
+msgstr "Sdílení PDF e-mailem"
+
+#: senaite/impress/analysisrequest/templates/controls.pt:26
+msgid "Show Sample Remarks"
+msgstr "Zobrazit poznámky vzorku"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:64
+msgid "Specification"
+msgstr "Specifikace"
+
+#: senaite/impress/controlpanel.py:89
+msgid "Store Multi-Report PDFs Individually"
+msgstr "Ukládat soubory Kombinovaných Zpráv PDF jednotlivě"
+
+#: senaite/impress/controlpanel.py:90
+msgid "Store generated multi-report PDFs individually. Turn off to store the multi-report PDF only for the primary item of the report"
+msgstr "Uložte generované soubory s více zprávami jednotlivě. Vypněte, chcete-li ukládat soubory PDF s více zprávami pouze pro primární položku Zprávy"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:25
+msgid "Summary"
+msgstr "Shrnutí"
+
+#: senaite/impress/analysisrequest/templates/info.pt:59
+msgid "Supervisor"
+msgstr "Vedoucí"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:45
+msgid "Test results are at a ${lab_confidence}% confidence level"
+msgstr "Výsledky testů jsou na úrovni spolehlivosti ${lab_confidence}%"
+
+#: senaite/impress/controlpanel.py:82
+msgid "The footer text will be rendered on every PDF page and may contain arbitrary HTML"
+msgstr "Text zápatí bude umístěn na každé stránce PDF a může obsahovat libovolné HTML"
+
+#: senaite/impress/analysisrequest/templates/alerts.pt:9
+msgid "This Analysis Request has been invalidated due to erroneously published results"
+msgstr "Tento požadavek na analýzu byl zrušen z důvodu chybně zveřejněných výsledků"
+
+#: senaite/impress/analysisrequest/templates/alerts.pt:12
+msgid "This Analysis request has been replaced by"
+msgstr "Tento požadavek na analýzu byl nahrazen"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:41
+msgid "This document shall not be reproduced except in full, without the written approval of ${name_lab}"
+msgstr "Tento dokument smí být reprodukován pouze v plném rozsahu s písemným  souhlasem ${name_lab}"
+
+#: senaite/impress/browser/publish/content.py:64
+msgid "Title"
+msgstr "Název"
+
+#: senaite/impress/analysisrequest/templates/results.pt:44
+msgid "Unit"
+msgstr "Jednotka"
+
+#: senaite/impress/browser/publish/content.py:104
+msgid "Workflow State"
+msgstr "Stav pracovního postupu"
+
+#: senaite/impress/browser/publish/content.py:100
+msgid "Workflow State ID"
+msgstr "ID stavu pracovního postupu"

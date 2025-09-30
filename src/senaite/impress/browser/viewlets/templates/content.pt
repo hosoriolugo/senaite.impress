@@ -1,0 +1,8 @@
+<!-- CONTENTS -->
+<div class="col-sm-12">
+  <div class="mt-3 listing-table">
+    <div id="impress-contents-table"
+         tal:content="structure view/contents_table">
+    </div>
+  </div>
+</div>

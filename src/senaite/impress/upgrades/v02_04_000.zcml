@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:genericsetup="http://namespaces.zope.org/genericsetup"
+    i18n_domain="senaite.impress">
+
+  <genericsetup:upgradeStep
+      title="SENAITE IMPRESS 2.4.0: Import registry"
+      description="Import registry profile for controlpanel settings"
+      source="2400"
+      destination="2401"
+      handler="senaite.impress.upgrades.v02_04_000.import_registry"
+      profile="senaite.impress:default"/>
+
+  <genericsetup:upgradeStep
+      title="SENAITE IMPRESS 2.4.0: Import registry"
+      description="Import registry profile for controlpanel settings"
+      source="2401"
+      destination="2402"
+      handler="senaite.impress.upgrades.v02_04_000.import_registry"
+      profile="senaite.impress:default"/>
+
+  <genericsetup:upgradeStep
+      title="SENAITE IMPRESS 2.4.0: Change default browser layer"
+      description="Change default browser layer from ILayer -> ISenaiteImpressLayer"
+      source="2402"
+      destination="2403"
+      handler="senaite.impress.upgrades.v02_04_000.import_browserlayer"
+      profile="senaite.impress:default"/>
+
+  <genericsetup:upgradeStep
+      title="SENAITE IMPRESS 2.4.0: Import registry"
+      description="Import registry profile for controlpanel settings"
+      source="2403"
+      destination="2404"
+      handler="senaite.impress.upgrades.v02_04_000.import_registry"
+      profile="senaite.impress:default"/>
+
+</configure>

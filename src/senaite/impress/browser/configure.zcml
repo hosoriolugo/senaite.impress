@@ -1,0 +1,21 @@
+<configure
+xmlns="http://namespaces.zope.org/zope"
+xmlns:plone="http://namespaces.plone.org/plone"
+xmlns:browser="http://namespaces.zope.org/browser">
+
+
+<include package=".publish" />
+<include package=".viewlets" />
+
+
+<plone:static directory="static" type="plone" name="senaite.impress.static" />
+
+
+<!-- Tabla de Resultados (Estado/Alertas) -->
+<browser:page
+name="infolabsa-results-with-state"
+for="*"
+permission="zope2.View"
+class="Products.Five.browser.BrowserView"
+template="templates/results_with_state.pt" />
+</configure>

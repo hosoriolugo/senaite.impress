@@ -1,0 +1,118 @@
+<tal:report i18n:domain="senaite.impress">
+  <tal:t replace="structure python:view.render_controls(context, **options)" />
+  <tal:t replace="structure python:view.render_js(context, **options)" />
+  <tal:t replace="structure python:view.render_css(context, **options)" />
+
+  <!-- Encabezado -->
+  <div class="row section-header no-gutters">
+    <div class="w-100 mb-2">
+      <table class="w-100 mb-0 noborder">
+        <colgroup><col style="width:65%"/><col style="width:35%"/></colgroup>
+        <tr>
+          <td class="align-middle text-left">
+            <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
+            <div class="font-weight-bold font-size-120">INFOLABSA</div>
+          </td>
+          <td class="align-middle text-right">
+            <img class="logo" tal:attributes="src string:${context/portal_url}/@@site-logo" />
+          </td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Info estándar de Impress -->
+  <tal:t replace="structure python:view.render_info(context, **options)" />
+  <tal:t replace="structure python:view.render_alerts(context, **options)" />
+
+  <!-- Datos del Paciente (bloque dedicado, usando getters automáticos) -->
+  <tal:patient define="model view/model;
+                       instance model/instance;
+                       mrn python:(getattr(model, 'MedicalRecordNumber', '')                                    or getattr(model, 'getMedicalRecordNumberValue', '')                                    or getattr(instance, 'getMedicalRecordNumber', lambda: '')()                                    or options.get('mrn', ''));
+                       patient_name python:(getattr(model, 'PatientFullName', '')                                             or getattr(model, 'getPatientFullName', '')                                             or options.get('patient_fullname', ''));
+                       dob python:(getattr(model, 'DateOfBirth', '') or getattr(instance, 'getDateOfBirth', lambda: '')());
+                       age python:(getattr(model, 'Age', '') or getattr(instance, 'getAge', lambda: '')());
+                       gender python:(getattr(model, 'Gender', '') or getattr(instance, 'getGender', lambda: '')());
+                       show_patient python:any([mrn, patient_name, dob, age, gender]);">
+    <div class="row section-summary no-gutters" tal:condition="show_patient">
+      <div class="w-100">
+        <h2 class="mb-1" i18n:translate="">Datos del Paciente</h2>
+        <table class="table table-sm table-condensed">
+          <colgroup>
+            <col style="width: 25%"><col style="width: 25%"><col style="width: 25%"><col style="width: 25%">
+          </colgroup>
+          <tr>
+            <td class="label" i18n:translate="">MRN</td>
+            <td><span tal:content="mrn|nothing">—</span></td>
+            <td class="label" i18n:translate="">Nombre completo</td>
+            <td><span tal:content="patient_name|nothing">—</span></td>
+          </tr>
+          <tr>
+            <td class="label" i18n:translate="">Fecha de nacimiento</td>
+            <td>
+              <span tal:condition="dob" tal:content="python:view.to_localized_time(dob)">—</span>
+              <span tal:condition="not:dob">—</span>
+            </td>
+            <td class="label" i18n:translate="">Edad</td>
+            <td><span tal:content="age|nothing">—</span></td>
+          </tr>
+          <tr>
+            <td class="label" i18n:translate="">Género</td>
+            <td><span tal:content="gender|nothing">—</span></td>
+            <td class="label"></td>
+            <td></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </tal:patient>
+
+  <!-- Resumen de la Muestra -->
+  <tal:t replace="structure python:view.render_summary(context, **options)" />
+
+  <!-- Resultados con Estado + Alertas (Δ % y fecha) -->
+  <tal:t replace="structure context/@@infolabsa-results-with-state" />
+
+  <!-- Interpretación de resultados: General y Química clínica (se muestra solo si hay contenido) -->
+  <tal:interp define="model view/model; instance model/instance;
+                      gen python:(getattr(model, 'ResultsInterpretation', '') or
+                                  getattr(model, 'getResultsInterpretation', '') or
+                                  getattr(model, 'Interpretation', '') or
+                                  getattr(model, 'getInterpretation', '') or
+                                  getattr(model, 'InterpretationGeneral', '') or
+                                  getattr(model, 'getInterpretationGeneral', '') or
+                                  getattr(instance, 'getResultsInterpretation', lambda: '')() or
+                                  getattr(instance, 'getInterpretation', lambda: '')() or
+                                  getattr(instance, 'getInterpretationGeneral', lambda: '')());
+                      qc python:(getattr(model, 'InterpretationChemistry', '') or
+                                 getattr(model, 'getInterpretationChemistry', '') or
+                                 getattr(model, 'ChemistryInterpretation', '') or
+                                 getattr(model, 'getChemistryInterpretation', '') or
+                                 getattr(instance, 'getInterpretationChemistry', lambda: '')() or
+                                 getattr(instance, 'getChemistryInterpretation', lambda: '')());
+                      show python:any([gen, qc]);">
+    <div class="row section-interp no-gutters" tal:condition="show">
+      <div class="w-100">
+        <h2 class="mb-1" i18n:translate="">Interpretación de resultados</h2>
+        <tal:gen tal:condition="gen">
+          <h3 class="mb-0" i18n:translate="">General</h3>
+          <div tal:content="structure gen">—</div>
+        </tal:gen>
+        <tal:qc tal:condition="qc">
+          <h3 class="mb-0">Química clínica</h3>
+          <div tal:content="structure qc">—</div>
+        </tal:qc>
+      </div>
+    </div>
+  </tal:interp>
+
+  <!-- Adjuntos, observaciones, firmas (solo NATIVAS) -->
+  <tal:t replace="structure python:view.render_attachments(context, **options)" />
+  <tal:t replace="structure python:view.render_remarks(context, **options)" />
+
+  <!-- Firmas nativas de senaite.impress -->
+  <tal:t replace="structure python:view.render_signatures(context, **options)" />
+
+  <tal:t replace="structure python:view.render_discreeter(context, **options)" />
+  <tal:t replace="structure python:view.render_footer(context, **options)" />
+</tal:report>

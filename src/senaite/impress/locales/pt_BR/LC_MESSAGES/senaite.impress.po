@@ -1,0 +1,343 @@
+#
+# Translators:
+# Fabiano Solari, 2022
+# Bruno Victor, 2023
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"POT-Creation-Date: 2024-01-03 09:08+0000\n"
+"PO-Revision-Date: 2018-06-06 17:12+0000\n"
+"Last-Translator: Bruno Victor, 2023\n"
+"Language-Team: Portuguese (Brazil) (https://app.transifex.com/senaite/teams/87187/pt_BR/)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n == 0 || n == 1) ? 0 : n != 0 && n % 1000000 == 0 ? 1 : 2;\n"
+"Language-Code: en\n"
+"Language-Name: English\n"
+"Preferred-Encodings: utf-8 latin1\n"
+"Domain: DOMAIN\n"
+"Language: pt_BR\n"
+
+#: senaite/impress/controlpanel.py:51
+msgid "Active templates"
+msgstr ""
+
+#: senaite/impress/controlpanel.py:139
+msgid "Advanced"
+msgstr "Avançado"
+
+#: senaite/impress/browser/publish/content.py:112
+msgid "All"
+msgstr ""
+
+#: senaite/impress/controlpanel.py:105
+msgid "Allow PDF download"
+msgstr "Permitir download do PDF"
+
+#: senaite/impress/controlpanel.py:112
+msgid "Allow PDF email share"
+msgstr "Permitir envio do PDF por e-mail"
+
+#: senaite/impress/controlpanel.py:106
+msgid "Allow direct download of the generated report"
+msgstr "Permitir download do relatório gerado"
+
+#: senaite/impress/controlpanel.py:113
+msgid "Allow to share the generated PDF directly via email"
+msgstr ""
+
+#: senaite/impress/analysisrequest/templates/header.pt:14
+msgid "Analysis Report"
+msgstr "Relatório de Análises"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:34
+msgid "Analysis results relate only to the samples tested."
+msgstr "Os resultados da análise referem-se apenas às amostras testadas."
+
+#: senaite/impress/analysisrequest/templates/attachments.pt:29
+msgid "Attachment for"
+msgstr "Anexo para"
+
+#: senaite/impress/analysisrequest/templates/attachments.pt:13
+msgid "Attachments for ${DYNAMIC_CONTENT}"
+msgstr "Anexo para ${DYNAMIC_CONTENT}"
+
+#: senaite/impress/analysisrequest/templates/controls.pt:34
+msgid "Attachments per Row"
+msgstr "Anexos por linhas"
+
+#: senaite/impress/controlpanel.py:46
+msgid "Available Templates"
+msgstr "Modelos Disponíveis "
+
+#: senaite/impress/analysisrequest/templates/summary.pt:37
+#: senaite/impress/browser/publish/content.py:96
+msgid "Batch ID"
+msgstr "ID lote"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:91
+msgid "Batch Labels"
+msgstr "Rótulos do lote"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:49
+#: senaite/impress/browser/publish/content.py:84
+msgid "Client"
+msgstr "Cliente"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:45
+msgid "Client Batch ID"
+msgstr "ID do lote do Cliente"
+
+#: senaite/impress/browser/publish/content.py:88
+msgid "Client ID"
+msgstr "ID do Cliente"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:56
+msgid "Client SID"
+msgstr "ID amostra Cliente"
+
+#: senaite/impress/browser/publish/content.py:92
+msgid "Contact"
+msgstr "Contato"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:76
+msgid "Date Published"
+msgstr "Data da publicação"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:68
+msgid "Date Received"
+msgstr "Data recebimento"
+
+#: senaite/impress/browser/publish/content.py:80
+msgid "Date Sampled"
+msgstr ""
+
+#: senaite/impress/analysisrequest/templates/summary.pt:72
+msgid "Date Verified"
+msgstr "Data verificação"
+
+#: senaite/impress/controlpanel.py:73
+msgid "Default Orientation"
+msgstr "Orientação padrão"
+
+#: senaite/impress/controlpanel.py:65
+msgid "Default Paper Format"
+msgstr "Formato do papel padrão"
+
+#: senaite/impress/controlpanel.py:57
+msgid "Default Template"
+msgstr "Modelo padrão"
+
+#: senaite/impress/controlpanel.py:98
+msgid "Developer Mode"
+msgstr "Mode desenvolvedor"
+
+#: senaite/impress/adapters.py:81
+msgid "Download the generated PDF to your computer"
+msgstr ""
+
+#: senaite/impress/actions/providers.py:194
+msgid "Email sent"
+msgstr "Email enviado"
+
+#: senaite/impress/actions/providers.py:190
+msgid "Failed to send Email"
+msgstr "Falha ao enviar Email"
+
+#: senaite/impress/analysisrequest/templates/attachments.pt:36
+msgid "Filename:"
+msgstr "Nome do arquivo:"
+
+#: senaite/impress/controlpanel.py:81
+msgid "Footer Text"
+msgstr "Texto rodapé"
+
+#: senaite/impress/ajax.py:332
+msgid "Generated reports for: {}, "
+msgstr "Relatórios gerados para: {},"
+
+#: senaite/impress/configure.zcml:175
+msgid "HTML to PDF report engine for SENAITE"
+msgstr "Conversor de  HTML para PDF no SENAITE"
+
+#: senaite/impress/browser/publish/content.py:60
+msgid "ID"
+msgstr "Identificação"
+
+#: senaite/impress/profiles/default/actionicons.xml
+#: senaite/impress/profiles/default/controlpanel.xml
+msgid "Impress Settings"
+msgstr "Definições de impressões"
+
+#: senaite/impress/controlpanel.py:74
+msgid "Initially loaded orientation"
+msgstr "Orientação inicial carregada"
+
+#: senaite/impress/controlpanel.py:66
+msgid "Initially loaded paper format"
+msgstr "Formato do papel inicial carregado"
+
+#: senaite/impress/controlpanel.py:58
+msgid "Initially loaded report template"
+msgstr "Modelo de relatório inicial carregado"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:29
+msgid "Methods included in the ${accreditation_body} schedule of Accreditation for this Laboratory. Analysis remarks are not accredited"
+msgstr "Método incluído na ${accreditation_body} listagem de acreditação para este Laboratório. Análises sinalizadas não são acreditadas."
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:16
+msgid "Not invoiced"
+msgstr "Não faturado"
+
+#: senaite/impress/analysisrequest/templates/controls.pt:44
+msgid "Number of attachments rendered within one row per Analysis Request"
+msgstr "Número de anexos renderizados em uma linha por solicitação de análise"
+
+#: senaite/impress/actions/providers.py:170
+msgid "PDF attachment is missing"
+msgstr ""
+
+#: senaite/impress/controlpanel.py:47
+msgid "Please choose the templates that can be selected"
+msgstr ""
+
+#: senaite/impress/analysisrequest/templates/alerts.pt:20
+msgid "Provisional report"
+msgstr "Relatório provisório"
+
+#: senaite/impress/analysisrequest/templates/signatures.pt:31
+#: senaite/impress/analysisrequest/templates/summary.pt:80
+msgid "Published by"
+msgstr "Publicado por"
+
+#: senaite/impress/analysisrequest/templates/results.pt:47
+msgid "Range"
+msgstr "Variação"
+
+#: senaite/impress/browser/publish/content.py:76
+msgid "Registered"
+msgstr ""
+
+#: senaite/impress/controlpanel.py:119
+msgid "Reload after reorder"
+msgstr ""
+
+#: senaite/impress/controlpanel.py:120
+msgid "Reload report automatically when items order changed"
+msgstr ""
+
+#: senaite/impress/analysisrequest/templates/controls.pt:10
+msgid "Report Options"
+msgstr ""
+
+#: senaite/impress/controlpanel.py:130
+msgid "Report Settings"
+msgstr ""
+
+#: senaite/impress/analysisrequest/templates/signatures.pt:7
+msgid "Responsibles"
+msgstr "Responsáveis"
+
+#: senaite/impress/analysisrequest/templates/results.pt:41
+msgid "Result"
+msgstr "Resultado"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:14
+msgid "Result out of client specified range."
+msgstr "Resultados fora do especificado pelo cliente"
+
+#: senaite/impress/analysisrequest/templates/results_transposed.pt:9
+msgid "Results"
+msgstr "Resultados"
+
+#: senaite/impress/controlpanel.py:99
+msgid "Returns the raw HTML in the report preview."
+msgstr "Retorna o HTML bruto na visualização do relatório."
+
+#: senaite/impress/configure.zcml:175
+#: senaite/impress/templates/publish.pt:9
+msgid "SENAITE IMPRESS"
+msgstr "IMPRESSÃO SENAITE"
+
+#: senaite/impress/controlpanel.py:154
+msgid "SENAITE IMPRESS Settings"
+msgstr "Definissões de IMPRESSÃO SENAITE"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:29
+msgid "Sample ID"
+msgstr "ID Amostra"
+
+#: senaite/impress/browser/publish/content.py:72
+msgid "Sample Point"
+msgstr "Ponto de Amostragem"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:60
+#: senaite/impress/browser/publish/content.py:68
+msgid "Sample Type"
+msgstr "Tipo de amostra"
+
+#: senaite/impress/adapters.py:97
+msgid "Share PDF via email"
+msgstr ""
+
+#: senaite/impress/analysisrequest/templates/controls.pt:26
+msgid "Show Sample Remarks"
+msgstr "Mostrar observações da amostra"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:64
+msgid "Specification"
+msgstr "Especificações"
+
+#: senaite/impress/controlpanel.py:89
+msgid "Store Multi-Report PDFs Individually"
+msgstr "Armazenar PDF de Multi-Relatórios individualmente"
+
+#: senaite/impress/controlpanel.py:90
+msgid "Store generated multi-report PDFs individually. Turn off to store the multi-report PDF only for the primary item of the report"
+msgstr "Armazene PDFs de vários relatórios gerados individualmente. Desative para armazenar o PDF de vários relatórios apenas para o item principal do relatório"
+
+#: senaite/impress/analysisrequest/templates/summary.pt:25
+msgid "Summary"
+msgstr "Resumo"
+
+#: senaite/impress/analysisrequest/templates/info.pt:59
+msgid "Supervisor"
+msgstr "Supervisor"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:45
+msgid "Test results are at a ${lab_confidence}% confidence level"
+msgstr "Os resultados do teste estão em um nível de confiança de ${lab_confidence}%"
+
+#: senaite/impress/controlpanel.py:82
+msgid "The footer text will be rendered on every PDF page and may contain arbitrary HTML"
+msgstr "O texto do rodapé será renderizado em cada página PDF e pode conter HTML arbitrário"
+
+#: senaite/impress/analysisrequest/templates/alerts.pt:9
+msgid "This Analysis Request has been invalidated due to erroneously published results"
+msgstr "Esta solicitação de análise foi invalidada devido a resultados publicados erroneamente"
+
+#: senaite/impress/analysisrequest/templates/alerts.pt:12
+msgid "This Analysis request has been replaced by"
+msgstr "Esta solicitação de análise foi substituída por"
+
+#: senaite/impress/analysisrequest/templates/discreeter.pt:41
+msgid "This document shall not be reproduced except in full, without the written approval of ${name_lab}"
+msgstr "Este documento não deve ser reproduzido, exceto na íntegra, sem a aprovação por escrito de ${name_lab}"
+
+#: senaite/impress/browser/publish/content.py:64
+msgid "Title"
+msgstr ""
+
+#: senaite/impress/analysisrequest/templates/results.pt:44
+msgid "Unit"
+msgstr "Unidade"
+
+#: senaite/impress/browser/publish/content.py:104
+msgid "Workflow State"
+msgstr ""
+
+#: senaite/impress/browser/publish/content.py:100
+msgid "Workflow State ID"
+msgstr ""
