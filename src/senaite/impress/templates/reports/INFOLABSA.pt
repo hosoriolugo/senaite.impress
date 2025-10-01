@@ -31,7 +31,7 @@
     <div class="row section-header no-gutters">
       <div class="w-100 mb-2">
         <table class="w-100 mb-0 noborder">
-          <colgroup><col style="width:65%"/><col style="width:35%"/></colgroup>
+          <colgroup><col style=&quot;width:65%&quot;/><col style=&quot;width:35%&quot;/></colgroup>
           <tr>
             <td class="align-middle text-left">
               <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
@@ -74,7 +74,6 @@
         options.get('expediente','') or
         options.get('nro_expediente','')
       );
-      /* Importante: NO usar IDs de la muestra como MRN */
       mrn python:(mrn_raw or u'');
       p_first python:(patient and get(patient,'getFirstname',None) and patient.getFirstname() or '');
       p_last  python:(patient and get(patient,'getSurname',None) and patient.getSurname() or (patient and get(patient,'getLastname',None) and patient.getLastname()) or '');
