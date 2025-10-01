@@ -4,10 +4,11 @@
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  <!-- Afinado visual: separadores tenues tipo “cool” -->
+  <!-- Afinado visual: separadores tenues uniformes -->
   <style>
+    .section-summary table.table-condensed { border-collapse: collapse; }
     .section-summary table.table-condensed td {
-      border-bottom: 0.4pt solid #e5e5e5;
+      border-bottom: 0.4pt solid #e5e5e5 !important; /* mismo grosor/color en todas */
       padding-top: 2px; padding-bottom: 2px;
       vertical-align: top;
     }
@@ -45,14 +46,6 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
-    <!--
-      Fallbacks incluidos:
-      - MRN/Nro expediente: AR y Patient (diversos getters + id)
-      - Nombre: AR fullname → Patient fullname/Title → composición
-      - DOB: varias variantes; formateo DD/MM/YYYY sin “00:00”
-      - Edad: años/meses; “55 años” o “8 meses”
-      - Género: normalización m/f → Masculino/Femenino
-    -->
     <tal:patient define="
       get python:getattr;
 
@@ -63,6 +56,7 @@
         None
       );
 
+      /* MRN / Nro. de Expediente: AR → Patient → options → AR id */
       mrn_raw python:(
         (get(ar,'getMedicalRecordNumber',None) and ar.getMedicalRecordNumber()) or
         (get(ar,'getClientPatientID',None) and ar.getClientPatientID()) or
@@ -70,6 +64,7 @@
         (get(ar,'getMRN',None) and ar.getMRN()) or
         (get(ar,'getClientReference',None) and ar.getClientReference()) or
         (get(ar,'getClientSampleID',None) and ar.getClientSampleID()) or
+        (get(ar,'getSampleID',None) and ar.getSampleID()) or
         (patient and get(patient,'getMedicalRecordNumber',None) and patient.getMedicalRecordNumber()) or
         (patient and get(patient,'getClientPatientID',None) and patient.getClientPatientID()) or
         (patient and get(patient,'getPatientID',None) and patient.getPatientID()) or
@@ -81,8 +76,15 @@
         options.get('expediente','') or
         options.get('nro_expediente','')
       );
-      mrn python:(mrn_raw or u'');
+      mrn python:(
+        mrn_raw or
+        (get(ar,'getRequestID',None) and ar.getRequestID()) or
+        (get(ar,'getId',None) and ar.getId()) or
+        getattr(ar,'id','') or
+        u''
+      );
 
+      /* Nombre completo */
       p_first python:(patient and get(patient,'getFirstname',None) and patient.getFirstname() or '');
       p_last  python:(patient and get(patient,'getSurname',None) and patient.getSurname() or patient and get(patient,'getLastname',None) and patient.getLastname() or '');
       fullname_comp python:((p_last and p_first) and u'%s, %s' % (p_last, p_first) or (p_first or p_last));
@@ -94,6 +96,7 @@
         options.get('patient_fullname','')
       );
 
+      /* Fecha de nacimiento → DD/MM/YYYY sin “00:00” */
       dob_raw python:(
         (get(ar,'getDateOfBirth',None) and ar.getDateOfBirth()) or
         (get(ar,'getBirthDate',None) and ar.getBirthDate()) or
@@ -103,6 +106,7 @@
       dob_dt python:(dob_raw and (dob_raw if hasattr(dob_raw,'year') else (dob_raw[0] if isinstance(dob_raw,tuple) else None)));
       dob_text python:(dob_dt and (hasattr(dob_dt,'strftime') and dob_dt.strftime('%d/%m/%Y') or view.to_localized_time(dob_dt)) or '');
 
+      /* Edad: “N años” o “N meses” (si <1 año) */
       age_raw python:(
         (get(ar,'getAge',None) and ar.getAge()) or
         (patient and get(patient,'getAge',None) and patient.getAge()) or
@@ -117,6 +121,7 @@
       );
       age_months_int python:(hasattr(age_raw,'months') and int(age_raw.months) or None);
 
+      /* Género normalizado */
       gender_raw python:(
         (get(ar,'getGender',None) and ar.getGender()) or
         (get(ar,'getSex',None) and ar.getSex()) or
