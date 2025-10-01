@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
+except Exception:
+lo = u''
+try:
 hi = u'' if high is None else unicode(high)
+except Exception:
+hi = u''
 ref_range = (lo + u' – ' + hi).strip()
 else:
 ref_range = u''
 
 
+# Estado y alertas
 estado_symbol = u'—'
 estado_text = u'—'
 estado_class = u''
@@ -18,7 +24,7 @@ lnum = self._num(low)
 hnum = self._num(high)
 
 
-if rnum is not None and (lnum is not None or hnum is not None):
+if (rnum is not None) and ((lnum is not None) or (hnum is not None)):
 in_low = (lnum is None) or (rnum >= lnum)
 in_high = (hnum is None) or (rnum <= hnum)
 if in_low and in_high:
@@ -34,6 +40,7 @@ alert_title = u'Resultado fuera de rango de referencia'
 alert_classes = u'fr-alert'
 
 
+# Crítico si el Analysis lo marca
 critical = (self._get(a, 'getCritical') or self._get(a, 'isCritical') or False)
 if critical:
 estado_symbol = u'❗'
