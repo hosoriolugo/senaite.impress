@@ -37,18 +37,21 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente (alineado a default + fallbacks extra) -->
+    <!-- 1) localizar el objeto paciente si existe -->
+    <!-- 2) MRN / ID clínico del paciente (orden de prioridad tipo default) -->
+    <!-- 3) Nombre completo (igual que default: fullname → Title → composición) -->
+    <!-- 4) Fecha de nacimiento (DOB) con variantes típicas -->
+    <!-- 5) Edad (usar del AR/paciente; si no, calcular si la vista lo soporta) -->
+    <!-- 6) Género / Sexo con variantes -->
+    <!-- 7) Mostrar sólo si hay algo que enseñar -->
     <tal:patient define="
       get python:getattr;
-
-      /* 1) localizar el objeto paciente si existe */
       patient python:(
         (get(ar,'getPatient',None) and ar.getPatient()) or
         (get(ar,'Patient',None) and ar.Patient()) or
         (get(ar,'getRelatedPatient',None) and ar.getRelatedPatient()) or
         None
       );
-
-      /* 2) MRN / ID clínico del paciente (orden de prioridad tipo default) */
       mrn python:(
         (get(ar,'getMedicalRecordNumber',None) and ar.getMedicalRecordNumber()) or
         (get(ar,'getClientPatientID',None) and ar.getClientPatientID()) or
@@ -58,12 +61,13 @@
         (patient and get(patient,'getPatientID',None) and patient.getPatientID()) or
         options.get('mrn','')
       );
-
-      /* 3) Nombre completo (igual que default: fullname → Title → composición) */
       p_first python:(patient and get(patient,'getFirstname',None) and patient.getFirstname() or '');
-      p_last  python:(patient and get(patient,'getSurname',None) and patient.getSurname() or patient and get(patient,'getLastname',None) and patient.getLastname() or '');
+      p_last  python:(
+        patient and get(patient,'getSurname',None) and patient.getSurname() or
+        (patient and get(patient,'getLastname',None) and patient.getLastname()) or
+        ''
+      );
       fullname_comp python:((p_last and p_first) and u'%s, %s' % (p_last, p_first) or (p_first or p_last));
-
       patient_name python:(
         (get(ar,'getPatientFullName',None) and ar.getPatientFullName()) or
         (patient and get(patient,'getFullname',None) and patient.getFullname()) or
@@ -71,8 +75,6 @@
         fullname_comp or
         options.get('patient_fullname','')
       );
-
-      /* 4) Fecha de nacimiento (DOB) con variantes típicas */
       dob_raw python:(
         (get(ar,'getDateOfBirth',None) and ar.getDateOfBirth()) or
         (get(ar,'getBirthDate',None) and ar.getBirthDate()) or
@@ -80,16 +82,12 @@
         (patient and get(patient,'getBirthDate',None) and patient.getBirthDate())
       );
       dob_dt python:(dob_raw and (dob_raw if hasattr(dob_raw,'year') else (dob_raw[0] if isinstance(dob_raw,tuple) else None)));
-
-      /* 5) Edad (usar del AR/paciente; si no, intentar calcular si la vista lo soporta) */
       age python:(
         (get(ar,'getAge',None) and ar.getAge()) or
         (patient and get(patient,'getAge',None) and patient.getAge()) or
         (dob_dt and get(view,'age_from_dob',None) and view.age_from_dob(dob_dt)) or
         ''
       );
-
-      /* 6) Género / Sexo con variantes */
       gender python:(
         (get(ar,'getGender',None) and ar.getGender()) or
         (get(ar,'getSex',None) and ar.getSex()) or
@@ -98,8 +96,6 @@
         (patient and get(patient,'getGenderTitle',None) and patient.getGenderTitle()) or
         ''
       );
-
-      /* 7) Mostrar sólo si hay algo que enseñar */
       show_patient python:any([mrn, patient_name, dob_dt, age, gender]);
     ">
       <div class="row section-summary no-gutters" tal:condition="show_patient">
