@@ -20,9 +20,11 @@
     .section-summary td.label { color: #666; font-weight: 700; width: 25%; }
     .section-summary td + td { width: 25%; }
 
-    /* Alineación del contenedor del título con el código de barras */
-    .summary-header-row { display:flex; align-items:center; justify-content:space-between; }
-    .summary-header-row h2 { margin: 0 0 6px 0 !important; }
+    /* Encabezado con barcode a la derecha (mismo nivel que el título) */
+    .section-summary .header-row { width:100%; display:table; margin-bottom:4px; }
+    .section-summary .header-left  { display:table-cell; vertical-align:middle; }
+    .section-summary .header-right { display:table-cell; vertical-align:middle; text-align:right; }
+    .barcode { display:inline-block; }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
@@ -166,7 +168,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra (custom, con código de barras en el título) -->
+    <!-- Resumen de la Muestra (custom, añadido sin ocultar lo demás) -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -196,21 +198,27 @@
     ">
       <div class="row section-summary no-gutters" tal:condition="show_sample">
         <div class="w-100">
-          <div class="summary-header-row">
-            <h2 class="mb-1">Resumen de la Muestra</h2>
-            <!-- Código de barras (alineado a la derecha del título) -->
-            <div class="barcode d-none d-print-inline-block"
-                 tal:attributes="
-                   data-code sid;
-                   data-format string:code128;
-                   data-value sid;
-                   data-type string:code128;
-                   data-barwidth string:2;
-                   data-barheight string:40;
-                   data-showvalue string:false">
-              <tal:t tal:content="sid">-</tal:t>
+
+          <!-- Encabezado con título a la izquierda y CÓDIGO DE BARRAS a la derecha -->
+          <div class="header-row">
+            <div class="header-left">
+              <h2 class="mb-1">Resumen de la Muestra</h2>
+            </div>
+            <div class="header-right">
+              <!-- El plugin jquery-barcode de Senaite procesa .barcode con estos data-* -->
+              <div class="barcode"
+                   tal:condition="sid"
+                   tal:attributes="
+                     data-code sid;
+                     data-type string:code128;
+                     data-barwidth string:2;
+                     data-barheight string:32;
+                     title sid">
+                <span tal:replace="sid">SAMPLE-ID</span>
+              </div>
             </div>
           </div>
+
           <table class="table table-sm table-condensed">
             <colgroup>
               <col style="width: 25%"/><col style="width: 25%"/>
@@ -233,7 +241,7 @@
       </div>
     </tal:sample>
 
-    <!-- Resumen de la Muestra (estándar, COMENTADO pero no borrado) -->
+    <!-- Resumen de la Muestra (estándar) —> COMENTADO, no eliminado -->
     <!--
     <tal:t replace="structure python:view.render_summary(ar, **options)" />
     -->
