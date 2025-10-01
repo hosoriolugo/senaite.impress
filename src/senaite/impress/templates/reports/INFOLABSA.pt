@@ -162,7 +162,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra (custom, añadido sin ocultar el estándar) -->
+    <!-- Resumen de la Muestra (custom, añadimos barcode en el título) -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -192,7 +192,15 @@
     ">
       <div class="row section-summary no-gutters" tal:condition="show_sample">
         <div class="w-100">
-          <h2 class="mb-1">Resumen de la Muestra</h2>
+          <div class="d-flex justify-content-between align-items-end mb-1">
+            <h2 class="mb-0">Resumen de la Muestra</h2>
+            <div class="barcode"
+                 tal:content="sid|nothing"
+                 data-code="code128"
+                 data-format="CODE128"
+                 data-height="28"
+                 data-barwidth="1"></div>
+          </div>
           <table class="table table-sm table-condensed">
             <colgroup>
               <col style="width: 25%"/><col style="width: 25%"/>
@@ -215,8 +223,10 @@
       </div>
     </tal:sample>
 
-    <!-- Resumen de la Muestra (estándar, se mantiene) -->
+    <!-- Resumen de la Muestra (estándar) —> COMENTADO A PETICIÓN -->
+    <!--
     <tal:t replace="structure python:view.render_summary(ar, **options)" />
+    -->
 
     <!-- Resultados con Estado + Alertas -->
     <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
