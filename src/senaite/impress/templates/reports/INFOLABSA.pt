@@ -4,7 +4,7 @@
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  <!-- Afinado visual: separadores tenues uniformes -->
+  <!-- Afinado visual: separadores tenues tipo "cool" -->
   <style>
     .section-summary table.table-condensed { border-collapse: collapse; }
     .section-summary table.table-condensed td {
@@ -17,7 +17,7 @@
     .section-summary td + td { width: 25%; }
   </style>
 
-  <!-- AR robusto (model.instance → view.context → context) -->
+  <!-- AR robusto (model.instance -> view.context -> context) -->
   <div tal:define="
          get python:getattr;
          model python:get(view, 'model', None);
@@ -46,6 +46,14 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
+    <!--
+      Fallbacks incluidos:
+      - MRN/Nro expediente: AR y Patient (diversos getters + id)
+      - Nombre: AR fullname -> Patient fullname/Title -> composición
+      - DOB: varias variantes; formateo DD/MM/YYYY sin "00:00"
+      - Edad: años/meses; "55 años" o "8 meses"
+      - Género: normalización m/f -> Masculino/Femenino
+    -->
     <tal:patient define="
       get python:getattr;
 
@@ -56,7 +64,6 @@
         None
       );
 
-      /* MRN / Nro. de Expediente: AR → Patient → options → AR id */
       mrn_raw python:(
         (get(ar,'getMedicalRecordNumber',None) and ar.getMedicalRecordNumber()) or
         (get(ar,'getClientPatientID',None) and ar.getClientPatientID()) or
@@ -96,7 +103,7 @@
         options.get('patient_fullname','')
       );
 
-      /* Fecha de nacimiento → DD/MM/YYYY sin “00:00” */
+      /* Fecha de nacimiento -> DD/MM/YYYY sin "00:00" */
       dob_raw python:(
         (get(ar,'getDateOfBirth',None) and ar.getDateOfBirth()) or
         (get(ar,'getBirthDate',None) and ar.getBirthDate()) or
@@ -106,7 +113,7 @@
       dob_dt python:(dob_raw and (dob_raw if hasattr(dob_raw,'year') else (dob_raw[0] if isinstance(dob_raw,tuple) else None)));
       dob_text python:(dob_dt and (hasattr(dob_dt,'strftime') and dob_dt.strftime('%d/%m/%Y') or view.to_localized_time(dob_dt)) or '');
 
-      /* Edad: “N años” o “N meses” (si <1 año) */
+      /* Edad: "N años" o "N meses" (si <1 año) */
       age_raw python:(
         (get(ar,'getAge',None) and ar.getAge()) or
         (patient and get(patient,'getAge',None) and patient.getAge()) or
