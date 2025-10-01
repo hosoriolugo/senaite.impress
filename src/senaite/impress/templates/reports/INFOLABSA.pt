@@ -25,6 +25,7 @@
     .section-summary .header-left  { display:table-cell; vertical-align:middle; }
     .section-summary .header-right { display:table-cell; vertical-align:middle; text-align:right; }
     .barcode { display:inline-block; }
+    .barcode-caption { margin-top: 4px; font-size: 10pt; }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
@@ -204,17 +205,19 @@
             <div class="header-left">
               <h2 class="mb-1">Resumen de la Muestra</h2>
             </div>
-            <div class="header-right">
-              <!-- El plugin jquery-barcode de Senaite procesa .barcode con estos data-* -->
+            <div class="header-right" tal:condition="sid">
+              <!-- Código de barras: DIV vacío para que el plugin lo renderice -->
               <div class="barcode"
-                   tal:condition="sid"
                    tal:attributes="
                      data-code sid;
                      data-type string:code128;
                      data-barwidth string:2;
                      data-barheight string:32;
                      title sid">
-                <span tal:replace="sid">SAMPLE-ID</span>
+              </div>
+              <!-- Leyenda debajo del código -->
+              <div class="barcode-caption">
+                <small tal:content="sid">SAMPLE-ID</small>
               </div>
             </div>
           </div>
