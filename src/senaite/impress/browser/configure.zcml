@@ -4,18 +4,30 @@ xmlns:plone="http://namespaces.plone.org/plone"
 xmlns:browser="http://namespaces.zope.org/browser">
 
 
+<!-- Includes existentes -->
 <include package=".publish" />
 <include package=".viewlets" />
 
 
+<!-- Recursos estáticos de impress -->
 <plone:static directory="static" type="plone" name="senaite.impress.static" />
 
 
-<!-- Tabla de Resultados (Estado/Alertas) -->
+<!-- ========================================================= -->
+<!-- Vista de tabla de resultados con estado/alertas (INFOLABSA)
+Sigue el patrón Default: BrowserView (clase Python) + plantilla ZPT
+Clase Python esperada en:
+senaite/impress/browser/results/infolabsa_results.py
+Plantilla esperada en:
+senaite/impress/browser/templates/results_with_state.pt
+(ajusta la ruta 'template=' si tu archivo está en otra carpeta)
+-->
 <browser:page
 name="infolabsa-results-with-state"
 for="*"
-permission="zope2.View"
-class="Products.Five.browser.BrowserView"
-template="templates/results_with_state.pt" />
+class="senaite.impress.browser.results.infolabsa_results.InfolabsaResults"
+template="templates/results_with_state.pt"
+permission="zope2.View" />
+
+
 </configure>
