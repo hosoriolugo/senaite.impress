@@ -6,13 +6,13 @@
 
   <!-- Afinado visual: separadores tenues estilo cool -->
   <style>
-    .section-summary table.table-condensed { 
-      border-collapse: collapse; 
+    .section-summary table.table-condensed {
+      border-collapse: collapse;
       border-spacing: 0;
     }
     .section-summary table.table-condensed td {
       border-bottom: 1px solid #dee2e6 !important;
-      padding-top: 2px; 
+      padding-top: 2px;
       padding-bottom: 2px;
       vertical-align: top;
     }
@@ -45,8 +45,8 @@
       </div>
     </div>
 
-    <!-- Secciones estandar -->
-    <tal:t replace="structure python:view.render_info(ar, **options)" />
+    <!-- Secciones estandar (dejamos alerts) -->
+    <!-- tal:t replace="structure python:view.render_info(ar, **options)" /-->
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
@@ -58,13 +58,10 @@
         (get(ar,'getRelatedPatient',None) and ar.getRelatedPatient()) or
         None
       );
-      mrn_raw python:(
+      mrn python:(
         (get(ar,'getMedicalRecordNumber',None) and ar.getMedicalRecordNumber()) or
         (get(ar,'getClientPatientID',None) and ar.getClientPatientID()) or
         (get(ar,'getPatientID',None) and ar.getPatientID()) or
-        (get(ar,'getMRN',None) and ar.getMRN()) or
-        (get(ar,'getClientReference',None) and ar.getClientReference()) or
-        (get(ar,'getClientSampleID',None) and ar.getClientSampleID()) or
         (patient and get(patient,'getMedicalRecordNumber',None) and patient.getMedicalRecordNumber()) or
         (patient and get(patient,'getClientPatientID',None) and patient.getClientPatientID()) or
         (patient and get(patient,'getPatientID',None) and patient.getPatientID()) or
@@ -74,13 +71,7 @@
         (patient and get(patient,'id',None)) or
         options.get('mrn','') or
         options.get('expediente','') or
-        options.get('nro_expediente','')
-      );
-      mrn python:(
-        mrn_raw or
-        (get(ar,'getRequestID',None) and ar.getRequestID()) or
-        (get(ar,'getId',None) and ar.getId()) or
-        (hasattr(ar,'id') and ar.id) or
+        options.get('nro_expediente','') or
         u''
       );
       p_first python:(patient and get(patient,'getFirstname',None) and patient.getFirstname() or '');
@@ -170,22 +161,73 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra (sobre AR) -->
-    <tal:t replace="structure python:view.render_summary(ar, **options)" />
+    <!-- Resumen de la Muestra (custom) -->
+    <tal:sample define="
+      get python:getattr;
+      sid python:(
+        (get(ar,'getId',None) and ar.getId()) or
+        (hasattr(ar,'id') and ar.id) or
+        (get(ar,'getRequestID',None) and ar.getRequestID()) or
+        u''
+      );
+      stype python:(
+        (get(ar,'getSampleTypeTitle',None) and ar.getSampleTypeTitle()) or
+        (get(ar,'getSampleType',None) and ar.getSampleType() and ar.getSampleType().Title()) or
+        u''
+      );
+      rec_dt python:(
+        (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
+        (get(ar,'getReceptionDate',None) and ar.getReceptionDate()) or
+        None
+      );
+      pub_dt python:(
+        (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
+        (get(ar,'getPublicationDate',None) and ar.getPublicationDate()) or
+        None
+      );
+      rec_txt python:(rec_dt and view.to_localized_time(rec_dt) or u'');
+      pub_txt python:(pub_dt and view.to_localized_time(pub_dt) or u'');
+      show_sample python:any([sid, stype, rec_dt, pub_dt]);
+    ">
+      <div class="row section-summary no-gutters" tal:condition="show_sample">
+        <div class="w-100">
+          <h2 class="mb-1">Resumen de la Muestra</h2>
+          <table class="table table-sm table-condensed">
+            <colgroup>
+              <col style="width: 25%"/><col style="width: 25%"/>
+              <col style="width: 25%"/><col style="width: 25%"/>
+            </colgroup>
+            <tr>
+              <td class="label">ID de muestra</td>
+              <td><span tal:content="sid|nothing">-</span></td>
+              <td class="label">Tipo</td>
+              <td><span tal:content="stype|nothing">-</span></td>
+            </tr>
+            <tr>
+              <td class="label">Recepción</td>
+              <td><span tal:content="rec_txt|nothing">-</span></td>
+              <td class="label">Publicación</td>
+              <td><span tal:content="pub_txt|nothing">-</span></td>
+            </tr>
+          </table>
+        </div>
+      </div>
+    </tal:sample>
 
     <!-- Resultados con Estado + Alertas -->
     <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
 
     <!-- Interpretacion de resultados -->
     <tal:interp define="
+      get python:getattr;
       gen python:(
-        get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation() or
-        get(ar,'getInterpretation',None) and ar.getInterpretation() or
-        get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()
+        (get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation()) or
+        (get(ar,'getInterpretation',None) and ar.getInterpretation()) or
+        (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral())
       );
       qc  python:(
-        get(ar,'getInterpretationChemistry',None) and ar.getInterpretationChemistry() or
-        get(ar,'getChemistryInterpretation',None) and ar.getChemistryInterpretation()
+        (get(ar,'getInterpretationChemistry',None) and ar.getInterpretationChemistry()) or
+        (get(ar,'getChemistryInterpretation',None) and ar.getChemistryInterpretation())
       );
       show python:any([gen, qc]);
     ">
