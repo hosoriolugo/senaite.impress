@@ -36,15 +36,44 @@
     <tal:t replace="structure python:view.render_info(ar, **options)" />
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
-    <!-- Datos del Paciente (DOB normalizado para evitar errores de formato) -->
+    <!-- Datos del Paciente (DOB normalizado + fallbacks de getters AR/Paciente) -->
     <tal:patient define="
-                     mrn python:(get(ar, 'getMedicalRecordNumber', None) and ar.getMedicalRecordNumber() or options.get('mrn', ''));
-                     patient_name python:(get(ar, 'getPatientFullName', None) and ar.getPatientFullName() or options.get('patient_fullname', ''));
-                     dob_raw python:(get(ar, 'getDateOfBirth', None) and ar.getDateOfBirth());
-                     dob_dt python:(dob_raw and (dob_raw if hasattr(dob_raw, 'year') else (dob_raw[0] if isinstance(dob_raw, tuple) else None)));
-                     age python:(get(ar, 'getAge', None) and ar.getAge());
-                     gender python:(get(ar, 'getGender', None) and ar.getGender());
-                     show_patient python:any([mrn, patient_name, dob_dt, age, gender]);">
+      get python:getattr;
+      patient python:(get(ar,'getPatient',None) and ar.getPatient() or get(ar,'Patient',None) and ar.Patient() or None);
+
+      mrn python:(
+        (get(ar,'getMedicalRecordNumber',None) and ar.getMedicalRecordNumber()) or
+        (patient and get(patient,'getPatientID',None) and patient.getPatientID()) or
+        (patient and get(patient,'getMedicalRecordNumber',None) and patient.getMedicalRecordNumber()) or
+        options.get('mrn','')
+      );
+
+      patient_name python:(
+        (get(ar,'getPatientFullName',None) and ar.getPatientFullName()) or
+        (patient and get(patient,'Title',None) and patient.Title()) or
+        (patient and get(patient,'getFullname',None) and patient.getFullname()) or
+        options.get('patient_fullname','')
+      );
+
+      dob_raw python:(
+        (get(ar,'getDateOfBirth',None) and ar.getDateOfBirth()) or
+        (patient and get(patient,'getDateOfBirth',None) and patient.getDateOfBirth())
+      );
+
+      dob_dt python:(dob_raw and (dob_raw if hasattr(dob_raw,'year') else (dob_raw[0] if isinstance(dob_raw,tuple) else None)));
+
+      age python:(
+        (get(ar,'getAge',None) and ar.getAge()) or
+        (patient and get(patient,'getAge',None) and patient.getAge())
+      );
+
+      gender python:(
+        (get(ar,'getGender',None) and ar.getGender()) or
+        (patient and get(patient,'getGender',None) and patient.getGender())
+      );
+
+      show_patient python:any([mrn, patient_name, dob_dt, age, gender]);
+    ">
       <div class="row section-summary no-gutters" tal:condition="show_patient">
         <div class="w-100">
           <h2 class="mb-1" i18n:translate="">Datos del Paciente</h2>
@@ -87,12 +116,17 @@
 
     <!-- Interpretación de resultados (solo si hay contenido) usando AR -->
     <tal:interp define="
-                      gen python:(get(ar, 'getResultsInterpretation', None) and ar.getResultsInterpretation() or
-                                   get(ar, 'getInterpretation', None) and ar.getInterpretation() or
-                                   get(ar, 'getInterpretationGeneral', None) and ar.getInterpretationGeneral());
-                      qc  python:(get(ar, 'getInterpretationChemistry', None) and ar.getInterpretationChemistry() or
-                                   get(ar, 'getChemistryInterpretation', None) and ar.getChemistryInterpretation());
-                      show python:any([gen, qc]);">
+      gen python:(
+        get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation() or
+        get(ar,'getInterpretation',None) and ar.getInterpretation() or
+        get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()
+      );
+      qc  python:(
+        get(ar,'getInterpretationChemistry',None) and ar.getInterpretationChemistry() or
+        get(ar,'getChemistryInterpretation',None) and ar.getChemistryInterpretation()
+      );
+      show python:any([gen, qc]);
+    ">
       <div class="row section-interp no-gutters" tal:condition="show">
         <div class="w-100">
           <h2 class="mb-1" i18n:translate="">Interpretación de resultados</h2>
