@@ -6,26 +6,17 @@
 
   <!-- Afinado visual: separadores tenues tipo “cool” -->
   <style>
-    /* Líneas muy finas y color tenue para secciones de resumen */
     .section-summary table.table-condensed td {
-      border-bottom: 0.4pt solid #e5e5e5;  /* funciona bien en WeasyPrint */
+      border-bottom: 0.4pt solid #e5e5e5;
       padding-top: 2px; padding-bottom: 2px;
       vertical-align: top;
     }
     .section-summary h2 { margin-bottom: 6px !important; }
-    /* Etiquetas más sutiles */
-    .section-summary td.label {
-      color: #666; font-weight: 600; width: 25%;
-      border-right: none; /* limpia */
-    }
+    .section-summary td.label { color: #666; font-weight: 600; width: 25%; }
     .section-summary td + td { width: 25%; }
   </style>
 
-  <!--
-    IMPORTANTE: Definimos un AR (AnalysisRequest) robusto que envuelve TODO el informe.
-    Orden de resolución: view.model.instance → view.context → context.
-    Así evitamos NameError/Undefined y mantenemos el patrón de Default.pt.
-  -->
+  <!-- AR robusto (model.instance → view.context → context) -->
   <div tal:define="
          get python:getattr;
          model python:get(view, 'model', None);
@@ -49,11 +40,19 @@
       </div>
     </div>
 
-    <!-- Secciones estándar del View sobre el AR (como Default.pt) -->
+    <!-- Secciones estándar -->
     <tal:t replace="structure python:view.render_info(ar, **options)" />
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
+    <!--
+      Fallbacks incluidos:
+      - MRN/Nro expediente: AR y Patient (diversos getters + id)
+      - Nombre: AR fullname → Patient fullname/Title → composición
+      - DOB: varias variantes; formateo DD/MM/YYYY sin “00:00”
+      - Edad: años/meses; “55 años” o “8 meses”
+      - Género: normalización m/f → Masculino/Femenino
+    -->
     <tal:patient define="
       get python:getattr;
 
@@ -64,7 +63,6 @@
         None
       );
 
-      /* ---------- MRN / Nro. Expediente: ampliar fallbacks ---------- */
       mrn_raw python:(
         (get(ar,'getMedicalRecordNumber',None) and ar.getMedicalRecordNumber()) or
         (get(ar,'getClientPatientID',None) and ar.getClientPatientID()) or
@@ -78,14 +76,13 @@
         (patient and get(patient,'getMRN',None) and patient.getMRN()) or
         (patient and get(patient,'getIdentifier',None) and patient.getIdentifier()) or
         (patient and get(patient,'getId',None) and patient.getId()) or
-        (patient and getattr(patient,'id',None)) or
+        (patient and get(patient,'id',None)) or
         options.get('mrn','') or
         options.get('expediente','') or
         options.get('nro_expediente','')
       );
       mrn python:(mrn_raw or u'');
 
-      /* ---------- Nombre completo (ya correcto) ---------- */
       p_first python:(patient and get(patient,'getFirstname',None) and patient.getFirstname() or '');
       p_last  python:(patient and get(patient,'getSurname',None) and patient.getSurname() or patient and get(patient,'getLastname',None) and patient.getLastname() or '');
       fullname_comp python:((p_last and p_first) and u'%s, %s' % (p_last, p_first) or (p_first or p_last));
@@ -97,7 +94,6 @@
         options.get('patient_fullname','')
       );
 
-      /* ---------- DOB y Edad formateadas ---------- */
       dob_raw python:(
         (get(ar,'getDateOfBirth',None) and ar.getDateOfBirth()) or
         (get(ar,'getBirthDate',None) and ar.getBirthDate()) or
@@ -121,7 +117,6 @@
       );
       age_months_int python:(hasattr(age_raw,'months') and int(age_raw.months) or None);
 
-      /* ---------- Género normalizado ---------- */
       gender_raw python:(
         (get(ar,'getGender',None) and ar.getGender()) or
         (get(ar,'getSex',None) and ar.getSex()) or
@@ -182,10 +177,10 @@
     <!-- Resumen de la Muestra (sobre AR) -->
     <tal:t replace="structure python:view.render_summary(ar, **options)" />
 
-    <!-- Resultados con Estado + Alertas (Δ % y fecha DD/MM/YYYY) invocados sobre AR -->
+    <!-- Resultados con Estado + Alertas -->
     <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
 
-    <!-- Interpretación de resultados (solo si hay contenido) usando AR -->
+    <!-- Interpretación de resultados -->
     <tal:interp define="
       gen python:(
         get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation() or
@@ -213,14 +208,14 @@
       </div>
     </tal:interp>
 
-    <!-- Adjuntos, observaciones, firmas (nativas) sobre AR -->
+    <!-- Adjuntos, observaciones, firmas -->
     <tal:t replace="structure python:view.render_attachments(ar, **options)" />
     <tal:t replace="structure python:view.render_remarks(ar, **options)" />
 
-    <!-- Firmas nativas de senaite.impress -->
+    <!-- Firmas -->
     <tal:t replace="structure python:view.render_signatures(ar, **options)" />
 
-    <!-- Discreeter y pie de página estándar -->
+    <!-- Discreeter y pie -->
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
   </div>
