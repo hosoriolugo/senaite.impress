@@ -36,14 +36,7 @@
     <tal:t replace="structure python:view.render_info(ar, **options)" />
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
-    <!-- Datos del Paciente (alineado a default + fallbacks extra) -->
-    <!-- 1) localizar el objeto paciente si existe -->
-    <!-- 2) MRN / ID clínico del paciente (orden de prioridad tipo default) -->
-    <!-- 3) Nombre completo (igual que default: fullname → Title → composición) -->
-    <!-- 4) Fecha de nacimiento (DOB) con variantes típicas -->
-    <!-- 5) Edad (usar del AR/paciente; si no, calcular si la vista lo soporta) -->
-    <!-- 6) Género / Sexo con variantes -->
-    <!-- 7) Mostrar sólo si hay algo que enseñar -->
+    <!-- Datos del Paciente -->
     <tal:patient define="
       get python:getattr;
       patient python:(
@@ -62,11 +55,7 @@
         options.get('mrn','')
       );
       p_first python:(patient and get(patient,'getFirstname',None) and patient.getFirstname() or '');
-      p_last  python:(
-        patient and get(patient,'getSurname',None) and patient.getSurname() or
-        (patient and get(patient,'getLastname',None) and patient.getLastname()) or
-        ''
-      );
+      p_last  python:(patient and get(patient,'getSurname',None) and patient.getSurname() or patient and get(patient,'getLastname',None) and patient.getLastname() or '');
       fullname_comp python:((p_last and p_first) and u'%s, %s' % (p_last, p_first) or (p_first or p_last));
       patient_name python:(
         (get(ar,'getPatientFullName',None) and ar.getPatientFullName()) or
@@ -82,13 +71,21 @@
         (patient and get(patient,'getBirthDate',None) and patient.getBirthDate())
       );
       dob_dt python:(dob_raw and (dob_raw if hasattr(dob_raw,'year') else (dob_raw[0] if isinstance(dob_raw,tuple) else None)));
-      age python:(
+      dob_text python:(dob_dt and (hasattr(dob_dt,'strftime') and dob_dt.strftime('%d/%m/%Y') or view.to_localized_time(dob_dt)) or '');
+      age_raw python:(
         (get(ar,'getAge',None) and ar.getAge()) or
         (patient and get(patient,'getAge',None) and patient.getAge()) or
-        (dob_dt and get(view,'age_from_dob',None) and view.age_from_dob(dob_dt)) or
-        ''
+        None
       );
-      gender python:(
+      age_from_dob python:(dob_dt and get(view,'age_from_dob',None) and view.age_from_dob(dob_dt) or None);
+      age_years_int python:(
+        (hasattr(age_raw,'years') and int(age_raw.years)) or
+        (isinstance(age_raw,int) and age_raw) or
+        (isinstance(age_from_dob,int) and age_from_dob) or
+        None
+      );
+      age_months_int python:(hasattr(age_raw,'months') and int(age_raw.months) or None);
+      gender_raw python:(
         (get(ar,'getGender',None) and ar.getGender()) or
         (get(ar,'getSex',None) and ar.getSex()) or
         (patient and get(patient,'getGender',None) and patient.getGender()) or
@@ -96,7 +93,12 @@
         (patient and get(patient,'getGenderTitle',None) and patient.getGenderTitle()) or
         ''
       );
-      show_patient python:any([mrn, patient_name, dob_dt, age, gender]);
+      gender_norm python:(
+        (gender_raw in ('m','M','male','Male')) and u'Masculino' or
+        (gender_raw in ('f','F','female','Female')) and u'Femenino' or
+        gender_raw
+      );
+      show_patient python:any([mrn, patient_name, dob_dt, age_raw, age_from_dob, gender_norm]);
     ">
       <div class="row section-summary no-gutters" tal:condition="show_patient">
         <div class="w-100">
@@ -107,7 +109,7 @@
               <col style="width: 25%"/><col style="width: 25%"/>
             </colgroup>
             <tr>
-              <td class="label" i18n:translate="">MRN</td>
+              <td class="label">Nro. Expediente</td>
               <td><span tal:content="mrn|nothing">—</span></td>
               <td class="label" i18n:translate="">Nombre completo</td>
               <td><span tal:content="patient_name|nothing">—</span></td>
@@ -115,15 +117,22 @@
             <tr>
               <td class="label" i18n:translate="">Fecha de nacimiento</td>
               <td>
-                <span tal:condition="dob_dt" tal:content="python:view.to_localized_time(dob_dt)">—</span>
-                <span tal:condition="not:dob_dt">—</span>
+                <span tal:condition="dob_text" tal:content="dob_text">—</span>
+                <span tal:condition="not:dob_text">—</span>
               </td>
               <td class="label" i18n:translate="">Edad</td>
-              <td><span tal:content="age|nothing">—</span></td>
+              <td>
+                <span tal:condition="python:(age_years_int not in (None,0))"
+                      tal:content="python:u'%s años' % age_years_int">—</span>
+                <span tal:condition="python:( (age_years_int in (None,0)) and (age_months_int not in (None,0)) )"
+                      tal:content="python:u'%s meses' % age_months_int">—</span>
+                <span tal:condition="python:( (age_years_int in (None,0)) and (age_months_int in (None,0)) )"
+                      tal:content="age_raw|nothing">—</span>
+              </td>
             </tr>
             <tr>
               <td class="label" i18n:translate="">Género</td>
-              <td><span tal:content="gender|nothing">—</span></td>
+              <td><span tal:content="gender_norm|nothing">—</span></td>
               <td class="label"></td>
               <td></td>
             </tr>
