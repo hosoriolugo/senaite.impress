@@ -4,7 +4,11 @@
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  <!-- Contenedor GLOBAL: define 'ar' (AnalysisRequest) para todo el informe -->
+  <!--
+    IMPORTANTE: Definimos un AR (AnalysisRequest) robusto que envuelve TODO el informe.
+    Orden de resolución: view.model.instance → view.context → context.
+    Así evitamos NameError/Undefined y mantenemos el patrón de Default.pt.
+  -->
   <div tal:define="
          get python:getattr;
          model python:get(view, 'model', None);
@@ -28,16 +32,16 @@
       </div>
     </div>
 
-    <!-- Secciones estándar del View (usar AR como contexto) -->
+    <!-- Secciones estándar del View sobre el AR (como Default.pt) -->
     <tal:t replace="structure python:view.render_info(ar, **options)" />
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
-    <!-- Datos del Paciente (normaliza DOB por si viene como tupla) -->
+    <!-- Datos del Paciente (DOB normalizado para evitar errores de formato) -->
     <tal:patient define="
                      mrn python:(get(ar, 'getMedicalRecordNumber', None) and ar.getMedicalRecordNumber() or options.get('mrn', ''));
                      patient_name python:(get(ar, 'getPatientFullName', None) and ar.getPatientFullName() or options.get('patient_fullname', ''));
                      dob_raw python:(get(ar, 'getDateOfBirth', None) and ar.getDateOfBirth());
-                     dob_dt python:(dob_raw and (isinstance(dob_raw, tuple) and dob_raw[0] or dob_raw));
+                     dob_dt python:(dob_raw and (dob_raw if hasattr(dob_raw, 'year') else (dob_raw[0] if isinstance(dob_raw, tuple) else None)));
                      age python:(get(ar, 'getAge', None) and ar.getAge());
                      gender python:(get(ar, 'getGender', None) and ar.getGender());
                      show_patient python:any([mrn, patient_name, dob_dt, age, gender]);">
@@ -46,7 +50,8 @@
           <h2 class="mb-1" i18n:translate="">Datos del Paciente</h2>
           <table class="table table-sm table-condensed">
             <colgroup>
-              <col style="width: 25%"/><col style="width: 25%"/><col style="width: 25%"/><col style="width: 25%"/>
+              <col style="width: 25%"/><col style="width: 25%"/>
+              <col style="width: 25%"/><col style="width: 25%"/>
             </colgroup>
             <tr>
               <td class="label" i18n:translate="">MRN</td>
@@ -61,12 +66,7 @@
                 <span tal:condition="not:dob_dt">—</span>
               </td>
               <td class="label" i18n:translate="">Edad</td>
-              <td>
-                <tal:age define="fmt python:get(view, 'format_age', None)">
-                  <span tal:condition="fmt" tal:content="python:fmt(age)">—</span>
-                  <span tal:condition="not:fmt" tal:content="python:age and unicode(age) or u'—'">—</span>
-                </tal:age>
-              </td>
+              <td><span tal:content="age|nothing">—</span></td>
             </tr>
             <tr>
               <td class="label" i18n:translate="">Género</td>
