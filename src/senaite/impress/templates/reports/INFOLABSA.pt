@@ -19,6 +19,10 @@
     .section-summary h2 { margin-bottom: 6px !important; }
     .section-summary td.label { color: #666; font-weight: 700; width: 25%; }
     .section-summary td + td { width: 25%; }
+
+    /* Alineación del contenedor del título con el código de barras */
+    .summary-header-row { display:flex; align-items:center; justify-content:space-between; }
+    .summary-header-row h2 { margin: 0 0 6px 0 !important; }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
@@ -162,7 +166,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra (custom, añadimos barcode en el título) -->
+    <!-- Resumen de la Muestra (custom, con código de barras en el título) -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -192,14 +196,20 @@
     ">
       <div class="row section-summary no-gutters" tal:condition="show_sample">
         <div class="w-100">
-          <div class="d-flex justify-content-between align-items-end mb-1">
-            <h2 class="mb-0">Resumen de la Muestra</h2>
-            <div class="barcode"
-                 tal:content="sid|nothing"
-                 data-code="code128"
-                 data-format="CODE128"
-                 data-height="28"
-                 data-barwidth="1"></div>
+          <div class="summary-header-row">
+            <h2 class="mb-1">Resumen de la Muestra</h2>
+            <!-- Código de barras (alineado a la derecha del título) -->
+            <div class="barcode d-none d-print-inline-block"
+                 tal:attributes="
+                   data-code sid;
+                   data-format string:code128;
+                   data-value sid;
+                   data-type string:code128;
+                   data-barwidth string:2;
+                   data-barheight string:40;
+                   data-showvalue string:false">
+              <tal:t tal:content="sid">-</tal:t>
+            </div>
           </div>
           <table class="table table-sm table-condensed">
             <colgroup>
@@ -223,7 +233,7 @@
       </div>
     </tal:sample>
 
-    <!-- Resumen de la Muestra (estándar) —> COMENTADO A PETICIÓN -->
+    <!-- Resumen de la Muestra (estándar, COMENTADO pero no borrado) -->
     <!--
     <tal:t replace="structure python:view.render_summary(ar, **options)" />
     -->
