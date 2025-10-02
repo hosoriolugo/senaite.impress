@@ -355,30 +355,49 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretacion de resultados -->
+    <!-- Interpretación de resultados (solo si hay contenido real) -->
     <tal:interp define="
       get python:getattr;
-      gen python:(
+      re  python:modules['re'];
+
+      sid python:(
+        (get(ar,'getId',None) and ar.getId()) or
+        (hasattr(ar,'id') and ar.id) or
+        (get(ar,'getRequestID',None) and ar.getRequestID()) or
+        u''
+      );
+
+      gen_raw python:(
         (get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation()) or
         (get(ar,'getInterpretation',None) and ar.getInterpretation()) or
         (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral())
       );
-      qc  python:(
+      qc_raw  python:(
         (get(ar,'getInterpretationChemistry',None) and ar.getInterpretationChemistry()) or
         (get(ar,'getChemistryInterpretation',None) and ar.getChemistryInterpretation())
       );
-      show python:any([gen, qc]);
+
+      to_text   python:(lambda s: (s and re.sub(u'<[^>]+>', u'', unicode(s))) or u'');
+      has_text  python:(lambda s: bool(to_text(s).strip()));
+
+      gen_has python:has_text(gen_raw);
+      qc_has  python:has_text(qc_raw);
+      show    python:any([gen_has, qc_has]);
     ">
       <div class="row section-interp no-gutters" tal:condition="show">
         <div class="w-100">
-          <h2 class="mb-1 section-title" i18n:translate="">Interpretación de resultados</h2>
-          <tal:gen tal:condition="gen">
+          <h2 class="mb-1 section-title">
+            <span i18n:translate="">Interpretación de resultados para </span><span tal:replace="sid">AR-ID</span>
+          </h2>
+
+          <tal:gen tal:condition="gen_has">
             <h3 class="mb-0" i18n:translate="">General</h3>
-            <div tal:content="structure gen">-</div>
+            <div tal:content="structure gen_raw">-</div>
           </tal:gen>
-          <tal:qc tal:condition="qc">
-            <h3 class="mb-0">Química clínica</h3>
-            <div tal:content="structure qc">-</div>
+
+          <tal:qc tal:condition="qc_has">
+            <h3 class="mb-0" i18n:translate="">Análisis Clínicos o Químicos</h3>
+            <div tal:content="structure qc_raw">-</div>
           </tal:qc>
         </div>
       </div>
