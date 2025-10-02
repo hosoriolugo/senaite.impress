@@ -23,17 +23,20 @@
     /* Titulares en negro y negritas */
     .section-title { color: #000; font-weight: 800; }
 
-    /* Tabla de encabezado “como default”: sin bordes ni padding extra */
+    /* Layout antiguo (lo dejamos, pero ya no se usa para el encabezado) */
+    .header-row { width:100%; display:table; margin-bottom:4px; }
+    .header-left  { display:table-cell; vertical-align:middle; }
+    .header-right { display:table-cell; vertical-align:middle; text-align:right; white-space:nowrap; }
+
+    /* Encabezado tipo default: tabla sin bordes/padding */
     .noborder { border: 0; }
-    .noborder td, .noborder th { border: 0 !important; }
-    .pr-0 { padding-right: 0 !important; }
+    .noborder td, .noborder th { border: 0 !important; padding: 0 !important; }
 
-    /* Contenedor base del barcode: dejarlo inline-block como en default */
-    .barcode { display: inline-block; line-height: 1; color: #000; } /* HRI en negro */
-    .barcode canvas, .barcode svg { display: inline-block; vertical-align: bottom; margin: 0; padding: 0; }
-    .barcode * { margin: 0; padding: 0; } /* HRI sin márgenes extra */
+    /* Contenedor del código de barras: igual al default (inline-block) */
+    .barcode { display:inline-block; line-height:1; }
+    .barcode canvas, .barcode svg { display:inline-block; vertical-align:bottom; margin:0; padding:0; }
 
-    /* Celda del ID (en la tabla de datos) alineada a la derecha */
+    /* Celda con el ID textual (debajo, en tabla de datos) a la derecha */
     .barcode-cell { text-align: right; }
   </style>
 
@@ -178,7 +181,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra (custom, con encabezado tipo default) -->
+    <!-- Resumen de la Muestra -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -209,26 +212,50 @@
       <div class="row section-summary no-gutters" tal:condition="show_sample">
         <div class="w-100">
 
-          <!-- Encabezado con la misma técnica que el default -->
+          <!-- Encabezado tipo default: título izq / barcode + HRI der -->
           <table class="w-100 mb-1 noborder">
             <colgroup><col style="width:70%"/><col style="width:30%"/></colgroup>
             <tr>
               <td class="align-middle">
                 <h2 class="mb-1 section-title">Resumen de la Muestra</h2>
               </td>
-              <td class="align-middle text-right pr-0" tal:condition="sid">
-                <div class="barcode"
+              <td class="align-middle text-right" tal:condition="sid">
+                <div id="sample-barcode" class="barcode"
                      tal:attributes="
                        data-code sid;
                        data-type string:code128;
                        data-barwidth string:2;
                        data-barheight string:26;
                        data-showhri string:true;
-                       data-color string:#000000;
-                       data-bgcolor string:#ffffff;
                        title sid">
-                  <!-- No texto aquí: el plugin generará el HRI debajo -->
+                  <span tal:replace="sid">SAMPLE-ID</span>
                 </div>
+                <script type="text/javascript">
+                  (function() {
+                    if (window.jQuery) {
+                      var $ = window.jQuery;
+                      $(function(){
+                        var $el = $('#sample-barcode');
+                        if ($el.length && typeof $el.barcode === 'function') {
+                          var code = $el.attr('data-code') || $el.data('code') || $.trim($el.text());
+                          if (code && !$el.find('canvas, svg').length) {
+                            try {
+                              $el.empty().barcode(
+                                code,
+                                $el.attr('data-type') || 'code128',
+                                {
+                                  barWidth: parseInt($el.attr('data-barwidth') || 2, 10),
+                                  barHeight: parseInt($el.attr('data-barheight') || 26, 10),
+                                  showHRI: String($el.attr('data-showhri') || 'true') !== 'false'
+                                }
+                              );
+                            } catch(e) { /* no-op */ }
+                          }
+                        }
+                      });
+                    }
+                  })();
+                </script>
               </td>
             </tr>
           </table>
