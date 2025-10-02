@@ -47,7 +47,22 @@
     /* Celda con el ID textual (tabla de datos) a la derecha */
     .barcode-cell { text-align: right; }
 
-    /* === Fuerza el barcode del encabezado a pegarse a la derecha (sin tocar nada más) === */
+    /* === Alineación exacta del bloque "Resumen de la muestra" como "Datos del Paciente" === */
+    /* Resetea cualquier margen/sangría lateral del bloque y sus tablas */
+    .section-summary .w-100 { margin-left: 0 !important; margin-right: 0 !important; }
+    .section-summary .w-100 > table { margin-left: 0 !important; margin-right: 0 !important; width: 100% !important; }
+    .section-summary .w-100 > table.noborder {
+      border-collapse: collapse !important;
+      table-layout: fixed; /* evita desplazamientos por contenido en celdas */
+    }
+    .section-summary .w-100 > table.table { margin-top: 0 !important; }
+
+    /* Asegura que la primera columna de etiquetas y la de valores arranquen "al ras" */
+    .section-summary table.table-condensed colgroup col { width: 25% !important; }
+    .section-summary table.table-condensed td,
+    .section-summary table.table-condensed th { padding-left: .5rem; padding-right: .5rem; }
+
+    /* Mantén la celda del encabezado (barcode) alineada a la derecha sin empujar márgenes */
     td.text-right #sample-barcode { display: block; margin-left: auto; float: right; }
     td.text-right #sample-barcode canvas,
     td.text-right #sample-barcode svg,
