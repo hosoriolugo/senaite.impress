@@ -31,7 +31,7 @@
     .barcode { display: inline-block; line-height: 1; }
     .barcode canvas, .barcode svg, .barcode img {
       display: block;
-      margin-left: auto;
+      margin-left: auto; /* empuja el gráfico a la derecha dentro de su celda */
       height: auto;
     }
     /* Leyenda (HRI) manual debajo del barcode, alineada totalmente a la derecha */
@@ -44,23 +44,25 @@
       line-height: 1.1;
     }
 
-    /* Celda con el ID textual (tabla de datos) a la derecha */
-    .barcode-cell { text-align: right; }
+    /* === Alineación por defecto a la IZQUIERDA (como en Datos del Paciente) === */
+    .section-summary table.table-condensed td,
+    .section-summary table.table-condensed th {
+      text-align: left;            /* fuerza izquierda por defecto */
+      padding-left: .5rem;
+      padding-right: .5rem;
+    }
 
-    /* === Alineación exacta del bloque "Resumen de la muestra" como "Datos del Paciente" === */
-    /* Resetea cualquier margen/sangría lateral del bloque y sus tablas */
+    /* Celda con el ID textual (tabla de datos) a la izquierda */
+    .barcode-cell { text-align: left; }
+
+    /* Resetea márgenes/sangrías del bloque y sus tablas */
     .section-summary .w-100 { margin-left: 0 !important; margin-right: 0 !important; }
     .section-summary .w-100 > table { margin-left: 0 !important; margin-right: 0 !important; width: 100% !important; }
     .section-summary .w-100 > table.noborder {
       border-collapse: collapse !important;
-      table-layout: fixed; /* evita desplazamientos por contenido en celdas */
+      table-layout: fixed;
     }
     .section-summary .w-100 > table.table { margin-top: 0 !important; }
-
-    /* Asegura que la primera columna de etiquetas y la de valores arranquen "al ras" */
-    .section-summary table.table-condensed colgroup col { width: 25% !important; }
-    .section-summary table.table-condensed td,
-    .section-summary table.table-condensed th { padding-left: .5rem; padding-right: .5rem; }
 
     /* Mantén la celda del encabezado (barcode) alineada a la derecha sin empujar márgenes */
     td.text-right #sample-barcode { display: block; margin-left: auto; float: right; }
@@ -259,10 +261,8 @@
                   <!-- Fallback textual (lo limpia el init si corre) -->
                   <span tal:replace="sid">SAMPLE-ID</span>
                 </div>
-                <!-- HRI manual para alineación perfecta a la derecha -->
                 <div class="barcode-hri"><span tal:replace="sid">SAMPLE-ID</span></div>
 
-                <!-- Init defensivo: showHRI en false porque usamos HRI manual -->
                 <script type="text/javascript">
                   (function() {
                     if (window.jQuery) {
