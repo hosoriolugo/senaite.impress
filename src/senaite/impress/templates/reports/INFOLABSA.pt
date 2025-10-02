@@ -23,14 +23,16 @@
     /* Titulares en negro y negritas */
     .section-title { color: #000; font-weight: 800; }
 
-    /* Celda del ID cuando se use dentro de tabla */
-    .barcode-cell { text-align: right; }
-
-    /* Encabezado con barcode a la derecha, igual a default */
+    /* Layout del encabezado “Resumen de la Muestra”: título izq, barcode der */
     .header-row { width:100%; display:table; margin-bottom:4px; }
     .header-left  { display:table-cell; vertical-align:middle; }
-    .header-right { display:table-cell; vertical-align:middle; text-align:right; }
-    .barcode { display:inline-block; }
+    .header-right { display:table-cell; vertical-align:middle; text-align:right; white-space:nowrap; }
+
+    /* Contenedor del código de barras: igual al default (inline-block) */
+    .barcode { display:inline-block; line-height:1; }
+
+    /* Celda del ID cuando se use solo texto */
+    .barcode-cell { text-align: right; }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
@@ -174,7 +176,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra (custom, con barcode en encabezado a la derecha como el default) -->
+    <!-- Resumen de la Muestra -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -205,13 +207,12 @@
       <div class="row section-summary no-gutters" tal:condition="show_sample">
         <div class="w-100">
 
-          <!-- Encabezado: título a la izquierda, CÓDIGO DE BARRAS + HRI a la derecha (igual que default) -->
+          <!-- Encabezado: título izq, código de barras der (con HRI automático) -->
           <div class="header-row">
             <div class="header-left">
               <h2 class="mb-1 section-title">Resumen de la Muestra</h2>
             </div>
             <div class="header-right" tal:condition="sid">
-              <!-- Único contenedor: el bundle lo inicializa y dibuja el HRI (ID debajo) -->
               <div class="barcode"
                    tal:attributes="
                      data-code sid;
@@ -220,8 +221,40 @@
                      data-barheight string:26;
                      data-showhri string:true;
                      title sid">
+                <!-- Texto interno de respaldo para el init (evita “undefined”) -->
                 <span tal:replace="sid">SAMPLE-ID</span>
               </div>
+
+              <!-- Init defensivo (por si el auto-init del bundle no corre a tiempo) -->
+              <script type="text/javascript">
+                (function() {
+                  if (window.jQuery) {
+                    var $ = window.jQuery;
+                    $(function(){
+                      $('.section-summary .header-right .barcode').each(function(){
+                        var $el = $(this);
+                        if (typeof $el.barcode === 'function') {
+                          // Usa data-code o el texto interno como fallback
+                          var code = $el.attr('data-code') || $el.data('code') || $.trim($el.text());
+                          if (code && !$el.find('canvas, svg').length) {
+                            try {
+                              $el.empty().barcode(
+                                code,
+                                $el.attr('data-type') || 'code128',
+                                {
+                                  barWidth: parseInt($el.attr('data-barwidth') || 2, 10),
+                                  barHeight: parseInt($el.attr('data-barheight') || 26, 10),
+                                  showHRI: String($el.attr('data-showhri') || 'true') !== 'false'
+                                }
+                              );
+                            } catch (e) { /* no-op */ }
+                          }
+                        }
+                      });
+                    });
+                  }
+                })();
+              </script>
             </div>
           </div>
 
@@ -232,7 +265,8 @@
             </colgroup>
             <tr>
               <td class="label">ID de muestra</td>
-              <td><span tal:content="sid|nothing">-</span></td>
+              <!-- SOLO texto, sin .barcode, para evitar duplicados -->
+              <td class="barcode-cell"><span tal:content="sid|nothing">-</span></td>
               <td class="label">Tipo</td>
               <td><span tal:content="stype|nothing">-</span></td>
             </tr>
