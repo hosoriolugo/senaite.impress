@@ -118,7 +118,9 @@
                        ('mrn','medical record','medical record #','medical record number','expediente')) ]) or u''
       );
 
+      /* Prioriza el MRN real expuesto por senaite.patient en AR */
       mrn_raw python:(
+        (get(ar,'getMedicalRecordNumberValue',None) and ar.getMedicalRecordNumberValue()) or
         (get(ar,'getMedicalRecordNumber',None) and ar.getMedicalRecordNumber()) or
         (get(ar,'getMRN',None) and ar.getMRN()) or
         (patient and get(patient,'getMRN',None) and patient.getMRN()) or
@@ -360,6 +362,12 @@
         u''
       );
 
+      /* Tomar la fila 'General' desde ResultsInterpretationDepts si existe */
+      _bydept0 python:(get(ar,'getResultsInterpretationByDepartment',None) and ar.getResultsInterpretationByDepartment or None);
+      gen_dept_dict python:(_bydept0 and _bydept0(None) or {});
+      gen_dept_html python:_rich(gen_dept_dict.get('richtext'));
+
+      /* Legado como respaldo */
       gen_raw python:(
         (get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation()) or
         (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()) or
@@ -367,7 +375,8 @@
         (get(ar,'getInterpretation',None) and ar.getInterpretation()) or
         u''
       );
-      gen_html python:_rich(gen_raw);
+      gen_html_legacy python:_rich(gen_raw);
+      gen_html python:(gen_dept_html or gen_html_legacy);
       gen python:((gen_html and (hasattr(gen_html,'strip') and gen_html.strip() or gen_html)) or u'');
 
       qc_raw  python:(
