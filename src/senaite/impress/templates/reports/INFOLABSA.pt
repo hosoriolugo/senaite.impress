@@ -23,20 +23,28 @@
     /* Titulares en negro y negritas */
     .section-title { color: #000; font-weight: 800; }
 
-    /* Layout antiguo (lo dejamos, pero ya no se usa para el encabezado) */
-    .header-row { width:100%; display:table; margin-bottom:4px; }
-    .header-left  { display:table-cell; vertical-align:middle; }
-    .header-right { display:table-cell; vertical-align:middle; text-align:right; white-space:nowrap; }
-
     /* Encabezado tipo default: tabla sin bordes/padding */
     .noborder { border: 0; }
     .noborder td, .noborder th { border: 0 !important; padding: 0 !important; }
 
-    /* Contenedor del código de barras: igual al default (inline-block) */
-    .barcode { display:inline-block; line-height:1; }
-    .barcode canvas, .barcode svg { display:inline-block; vertical-align:bottom; margin:0; padding:0; }
+    /* Contenedor de barcode como en default, pero forzando derecha */
+    .barcode { display: inline-block; line-height: 1; }
+    .barcode canvas, .barcode svg, .barcode img {
+      display: block;       /* ocupa línea propia */
+      margin-left: auto;    /* lo empuja todo a la derecha dentro de la celda */
+      height: auto;
+    }
+    /* Leyenda (HRI) manual debajo del barcode, alineada totalmente a la derecha */
+    .barcode-hri {
+      text-align: right;
+      font-size: 11px;
+      font-weight: 600;
+      color: #000;
+      margin-top: 2px;
+      line-height: 1.1;
+    }
 
-    /* Celda con el ID textual (debajo, en tabla de datos) a la derecha */
+    /* Celda con el ID textual (tabla de datos) a la derecha */
     .barcode-cell { text-align: right; }
   </style>
 
@@ -226,10 +234,14 @@
                        data-type string:code128;
                        data-barwidth string:2;
                        data-barheight string:26;
-                       data-showhri string:true;
                        title sid">
+                  <!-- Fallback textual (lo limpia el init si corre) -->
                   <span tal:replace="sid">SAMPLE-ID</span>
                 </div>
+                <!-- HRI manual para alineación perfecta a la derecha -->
+                <div class="barcode-hri"><span tal:replace="sid">SAMPLE-ID</span></div>
+
+                <!-- Init defensivo: showHRI en false porque usamos HRI manual -->
                 <script type="text/javascript">
                   (function() {
                     if (window.jQuery) {
@@ -238,7 +250,7 @@
                         var $el = $('#sample-barcode');
                         if ($el.length && typeof $el.barcode === 'function') {
                           var code = $el.attr('data-code') || $el.data('code') || $.trim($el.text());
-                          if (code && !$el.find('canvas, svg').length) {
+                          if (code && !$el.find('canvas, svg, img').length) {
                             try {
                               $el.empty().barcode(
                                 code,
@@ -246,7 +258,7 @@
                                 {
                                   barWidth: parseInt($el.attr('data-barwidth') || 2, 10),
                                   barHeight: parseInt($el.attr('data-barheight') || 26, 10),
-                                  showHRI: String($el.attr('data-showhri') || 'true') !== 'false'
+                                  showHRI: false
                                 }
                               );
                             } catch(e) { /* no-op */ }
