@@ -25,7 +25,7 @@
     .section-summary .header-left  { display:table-cell; vertical-align:middle; }
     .section-summary .header-right { display:table-cell; vertical-align:middle; text-align:right; }
     .barcode { display:inline-block; }
-    .barcode-caption { margin-top: 4px; font-size: 10pt; }
+    .barcode-hri { font-size: 10px; color: #666; margin-top: 2px; }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
@@ -206,19 +206,48 @@
               <h2 class="mb-1">Resumen de la Muestra</h2>
             </div>
             <div class="header-right" tal:condition="sid">
-              <!-- Código de barras: DIV vacío para que el plugin lo renderice -->
-              <div class="barcode"
+              <!-- Contenedor del código de barras -->
+              <div id="sample-barcode" class="barcode"
                    tal:attributes="
                      data-code sid;
                      data-type string:code128;
                      data-barwidth string:2;
                      data-barheight string:32;
                      title sid">
+                <span tal:replace="sid">SAMPLE-ID</span>
               </div>
-              <!-- Leyenda debajo del código -->
-              <div class="barcode-caption">
-                <small tal:content="sid">SAMPLE-ID</small>
-              </div>
+              <!-- Leyenda (HRI) debajo del código -->
+              <div class="barcode-hri"><span tal:replace="sid">SAMPLE-ID</span></div>
+
+              <!-- Inicialización explícita del plugin (por si el auto-init no corre) -->
+              <script type="text/javascript">
+                (function() {
+                  if (window.jQuery) {
+                    var $ = window.jQuery;
+                    $(function(){
+                      var $el = $('#sample-barcode');
+                      if ($el.length && typeof $el.barcode === 'function') {
+                        var code = $el.attr('data-code') || $el.data('code');
+                        if (code) {
+                          try {
+                            $el.empty().barcode(
+                              code,
+                              $el.attr('data-type') || 'code128',
+                              {
+                                barWidth: parseInt($el.attr('data-barwidth') || 2, 10),
+                                barHeight: parseInt($el.attr('data-barheight') || 32, 10),
+                                showHRI: false
+                              }
+                            );
+                          } catch(e) {
+                            /* noop: si falla, se verá el texto tal como viene */
+                          }
+                        }
+                      }
+                    });
+                  }
+                })();
+              </script>
             </div>
           </div>
 
