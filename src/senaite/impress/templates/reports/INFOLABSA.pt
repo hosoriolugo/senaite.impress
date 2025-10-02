@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
   <!-- Assets estandar de Impress -->
   <tal:t replace="structure python:view.render_controls(context, **options)" />
@@ -90,8 +91,8 @@
 
     /* AJUSTE: utilidades de corte de página para impresión */
     @media print {
-      .pagebreak { page-break-before: always; }          /* utilidad suelta */
-      .pagebreak-before { page-break-before: always; }   /* clase semántica */
+      .pagebreak { page-break-before: always; }
+      .pagebreak-before { page-break-before: always; }
       .avoid-break-inside { page-break-inside: avoid; }
       .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
     }
@@ -128,7 +129,7 @@
     <!-- Datos del Paciente -->
     <tal:patient define="
       get python:getattr;
-      /* AJUSTE MRN: resolvemos por múltiples accesores/atributos y paciente relacionado */
+      /* MRN robusto: AR + Paciente (+ variantes) */
       patient python:(
         (get(ar,'getPatient',None) and ar.getPatient()) or
         (get(ar,'Patient',None) and ar.Patient()) or
@@ -136,14 +137,11 @@
         None
       );
       mrn_raw python:(
-        /* 1) en el AR (algunas integraciones lo copian ahí) */
         (get(ar,'getMedicalRecordNumber',None) and ar.getMedicalRecordNumber()) or
         (get(ar,'getMRN',None) and ar.getMRN()) or
-        /* 2) en el Paciente (métodos Dexterity convencionales) */
         (patient and get(patient,'getMedicalRecordNumber',None) and patient.getMedicalRecordNumber()) or
         (patient and get(patient,'getMRN',None) and patient.getMRN()) or
         (patient and hasattr(patient,'mrn') and patient.mrn) or
-        /* 3) fallback a otros IDs que a veces se usan como MRN */
         (get(ar,'getClientPatientID',None) and ar.getClientPatientID()) or
         (patient and get(patient,'getClientPatientID',None) and patient.getClientPatientID()) or
         (get(ar,'getPatientID',None) and ar.getPatientID()) or
@@ -361,15 +359,12 @@
     <tal:interp define="
       get python:getattr;
 
-      /* Normalizadores sin lambda para Chameleon */
-      _strip python:lambda x: x;  /* marcador */
       gen_raw python:(
         (get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation()) or
         (get(ar,'getInterpretation',None) and ar.getInterpretation()) or
         (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()) or
         u''
       );
-      /* si trae HTML vacío, que quede cadena vacía */
       gen python:((gen_raw and (hasattr(gen_raw,'strip') and gen_raw.strip() or gen_raw)) or u'');
 
       qc_raw  python:(
@@ -398,14 +393,14 @@
              (((_bydept(d) or {}).get('richtext')) and
                (hasattr((_bydept(d) or {}).get('richtext'),'strip') and (_bydept(d).get('richtext').strip()) or (_bydept(d).get('richtext')))
              ) and
-             (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'química', u'química clínica'))))
+             (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'qu\u00edmica', u'qu\u00edmica cl\u00ednica'))))
         ]
       );
       has_dept python:any([i.get('text') for i in dept_items]);
 
       show python:any([gen, qc, has_dept]);
     ">
-      <!-- AJUSTE: salto de página antes de Interpretación -->
+      <!-- Salto de página antes de Interpretación -->
       <div class="row section-interp no-gutters pagebreak-before" tal:condition="show">
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Interpretación de resultados</h2>
@@ -434,12 +429,10 @@
     </tal:interp>
 
     <!-- Adjuntos, observaciones, firmas -->
-    <!-- (si quieres que Adjuntos comiencen otra página, añade class="pagebreak-before" al contenedor) -->
     <tal:t replace="structure python:view.render_attachments(ar, **options)" />
     <tal:t replace="structure python:view.render_remarks(ar, **options)" />
 
     <!-- Firmas -->
-    <!-- (ídem: puedes forzar salto en la vista de firmas si tu plantilla lo permite) -->
     <tal:t replace="structure python:view.render_signatures(ar, **options)" />
 
     <!-- Discreeter y pie -->
