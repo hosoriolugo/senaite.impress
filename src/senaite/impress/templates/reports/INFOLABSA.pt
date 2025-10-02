@@ -37,23 +37,22 @@
     /* ===== Pegado total a la derecha del código de barras ===== */
     .barcode-box{
       display:inline-block;
-      text-align:right;    /* HRI sigue alineado a la derecha en este wrapper */
+      text-align:right;    /* mantiene el bloque a la derecha */
       float:right;         /* ancla al borde derecho del <td> */
       margin-right:0;
     }
     .section-summary .noborder td.text-right { padding-right: 0 !important; }
 
-    /* Leyenda (HRI) debajo del barcode, alineada 100% a la derecha y "negrita" */
+    /* === SOLO CAMBIO: HRI centrado bajo el código de barras === */
     .barcode-hri {
-      text-align: right;
+      display: block;
+      text-align: center;  /* centra el ID */
       font-size: 11px;
       font-weight: 800;
       color: #000;
       margin-top: 2px;
       line-height: 1.1;
-      width: max-content;
-      margin-left: auto;
-      padding-right: 0 !important;
+      /* quitamos width:max-content y margin-left:auto para permitir centrado */
     }
 
     /* === Alineación por defecto a la IZQUIERDA (como en Datos del Paciente) === */
