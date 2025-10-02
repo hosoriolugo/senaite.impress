@@ -23,9 +23,14 @@
     /* Titulares en negro y negritas */
     .section-title { color: #000; font-weight: 800; }
 
-    /* Celda del ID: alineación derecha como en default */
+    /* Celda del ID cuando se use dentro de tabla */
     .barcode-cell { text-align: right; }
-    /* No tocar márgenes/altura del contenedor .barcode: que lo gestione el init por defecto */
+
+    /* Encabezado con barcode a la derecha, igual a default */
+    .header-row { width:100%; display:table; margin-bottom:4px; }
+    .header-left  { display:table-cell; vertical-align:middle; }
+    .header-right { display:table-cell; vertical-align:middle; text-align:right; }
+    .barcode { display:inline-block; }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
@@ -169,7 +174,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra (custom, añadido sin ocultar lo demás) -->
+    <!-- Resumen de la Muestra (custom, con barcode en encabezado a la derecha como el default) -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -200,7 +205,25 @@
       <div class="row section-summary no-gutters" tal:condition="show_sample">
         <div class="w-100">
 
-          <h2 class="mb-1 section-title">Resumen de la Muestra</h2>
+          <!-- Encabezado: título a la izquierda, CÓDIGO DE BARRAS + HRI a la derecha (igual que default) -->
+          <div class="header-row">
+            <div class="header-left">
+              <h2 class="mb-1 section-title">Resumen de la Muestra</h2>
+            </div>
+            <div class="header-right" tal:condition="sid">
+              <!-- Único contenedor: el bundle lo inicializa y dibuja el HRI (ID debajo) -->
+              <div class="barcode"
+                   tal:attributes="
+                     data-code sid;
+                     data-type string:code128;
+                     data-barwidth string:2;
+                     data-barheight string:26;
+                     data-showhri string:true;
+                     title sid">
+                <span tal:replace="sid">SAMPLE-ID</span>
+              </div>
+            </div>
+          </div>
 
           <table class="table table-sm table-condensed">
             <colgroup>
@@ -209,20 +232,7 @@
             </colgroup>
             <tr>
               <td class="label">ID de muestra</td>
-              <td class="barcode-cell">
-                <!-- ÚNICO contenedor como en el default: el init del bundle dibuja barras y HRI -->
-                <div class="barcode"
-                     tal:condition="sid"
-                     tal:attributes="
-                       data-code sid;
-                       data-type string:code128;
-                       data-barwidth string:2;
-                       data-barheight string:32;
-                       data-showhri string:true;
-                       title sid">
-                  <span tal:replace="sid">SAMPLE-ID</span>
-                </div>
-              </td>
+              <td><span tal:content="sid|nothing">-</span></td>
               <td class="label">Tipo</td>
               <td><span tal:content="stype|nothing">-</span></td>
             </tr>
