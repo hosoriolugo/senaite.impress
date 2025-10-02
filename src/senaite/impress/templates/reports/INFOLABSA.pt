@@ -127,9 +127,9 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
+    <!-- MRN robusto: AR + Paciente (+ variantes) -->
     <tal:patient define="
       get python:getattr;
-      /* MRN robusto: AR + Paciente (+ variantes) */
       patient python:(
         (get(ar,'getPatient',None) and ar.getPatient()) or
         (get(ar,'Patient',None) and ar.Patient()) or
@@ -219,7 +219,7 @@
               <td class="label" i18n:translate="">Edad</td>
               <td>
                 <span tal:condition="python:(age_years_int not in (None,0))"
-                      tal:content="python:u'%s años' % age_years_int">-</span>
+                      tal:content="python:u'%s a\u00f1os' % age_years_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int not in (None,0)))"
                       tal:content="python:u'%s meses' % age_months_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)))"
