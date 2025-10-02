@@ -87,6 +87,14 @@
     .results-center-cells table.table thead th:nth-child(n+2):nth-child(-n+6) {
       text-align: center !important;
     }
+
+    /* AJUSTE: utilidades de corte de página para impresión */
+    @media print {
+      .pagebreak { page-break-before: always; }          /* utilidad suelta */
+      .pagebreak-before { page-break-before: always; }   /* clase semántica */
+      .avoid-break-inside { page-break-inside: avoid; }
+      .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
+    }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
@@ -120,6 +128,7 @@
     <!-- Datos del Paciente -->
     <tal:patient define="
       get python:getattr;
+      /* AJUSTE MRN: resolvemos por múltiples accesores/atributos y paciente relacionado */
       patient python:(
         (get(ar,'getPatient',None) and ar.getPatient()) or
         (get(ar,'Patient',None) and ar.Patient()) or
@@ -127,20 +136,20 @@
         None
       );
       mrn_raw python:(
+        /* 1) en el AR (algunas integraciones lo copian ahí) */
         (get(ar,'getMedicalRecordNumber',None) and ar.getMedicalRecordNumber()) or
-        (get(ar,'getClientPatientID',None) and ar.getClientPatientID()) or
-        (get(ar,'getPatientID',None) and ar.getPatientID()) or
         (get(ar,'getMRN',None) and ar.getMRN()) or
+        /* 2) en el Paciente (métodos Dexterity convencionales) */
         (patient and get(patient,'getMedicalRecordNumber',None) and patient.getMedicalRecordNumber()) or
-        (patient and get(patient,'getClientPatientID',None) and patient.getClientPatientID()) or
-        (patient and get(patient,'getPatientID',None) and patient.getPatientID()) or
         (patient and get(patient,'getMRN',None) and patient.getMRN()) or
+        (patient and hasattr(patient,'mrn') and patient.mrn) or
+        /* 3) fallback a otros IDs que a veces se usan como MRN */
+        (get(ar,'getClientPatientID',None) and ar.getClientPatientID()) or
+        (patient and get(patient,'getClientPatientID',None) and patient.getClientPatientID()) or
+        (get(ar,'getPatientID',None) and ar.getPatientID()) or
+        (patient and get(patient,'getPatientID',None) and patient.getPatientID()) or
         (patient and get(patient,'getIdentifier',None) and patient.getIdentifier()) or
-        (patient and get(patient,'getId',None) and patient.getId()) or
-        (patient and get(patient,'id',None)) or
-        options.get('mrn','') or
-        options.get('expediente','') or
-        options.get('nro_expediente','')
+        options.get('mrn','') or options.get('expediente','') or options.get('nro_expediente','')
       );
       mrn python:(mrn_raw or u'');
       p_first python:(patient and get(patient,'getFirstname',None) and patient.getFirstname() or '');
@@ -269,7 +278,6 @@
                 <h2 class="mb-1 section-title">Resumen de la Muestra</h2>
               </td>
               <td class="align-middle text-right" tal:condition="sid">
-                <!-- Wrapper para pegar el barcode al borde derecho -->
                 <div class="barcode-box">
                   <div id="sample-barcode" class="barcode"
                        tal:attributes="
@@ -278,7 +286,6 @@
                          data-barwidth string:1;
                          data-barheight string:26;
                          title sid">
-                    <!-- Fallback textual (lo limpia el init si corre) -->
                     <span tal:replace="sid">SAMPLE-ID</span>
                   </div>
                   <div class="barcode-hri"><span tal:replace="sid">SAMPLE-ID</span></div>
@@ -298,7 +305,6 @@
                                 code,
                                 $el.attr('data-type') || 'code128',
                                 {
-                                  /* === MEDIDA DEFAULT === */
                                   barWidth: parseInt($el.attr('data-barwidth') || 1, 10),
                                   barHeight: parseInt($el.attr('data-barheight') || 26, 10),
                                   bgColor: '#ffffff',
@@ -351,16 +357,19 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretacion de resultados (dinámico y compatible con Chameleon) -->
+    <!-- Interpretacion de resultados (dinámico + salto de página antes) -->
     <tal:interp define="
       get python:getattr;
 
+      /* Normalizadores sin lambda para Chameleon */
+      _strip python:lambda x: x;  /* marcador */
       gen_raw python:(
         (get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation()) or
         (get(ar,'getInterpretation',None) and ar.getInterpretation()) or
         (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()) or
         u''
       );
+      /* si trae HTML vacío, que quede cadena vacía */
       gen python:((gen_raw and (hasattr(gen_raw,'strip') and gen_raw.strip() or gen_raw)) or u'');
 
       qc_raw  python:(
@@ -379,15 +388,15 @@
           {
             'title': (get(d,'Title',None) and d.Title() or u''),
             'text': (
-              ( (_bydept and _bydept(d) or {}).get('richtext') ) and
-              (hasattr( (_bydept(d) or {}).get('richtext'), 'strip') and (_bydept(d).get('richtext').strip()) or (_bydept(d).get('richtext')) )
+              ((_bydept and _bydept(d) or {}).get('richtext')) and
+              (hasattr((_bydept(d) or {}).get('richtext'),'strip') and (_bydept(d).get('richtext').strip()) or (_bydept(d).get('richtext')))
               or u''
             )
           }
           for d in depts
           if _bydept and
-             ( ( (_bydept(d) or {}).get('richtext') ) and
-               (hasattr( (_bydept(d) or {}).get('richtext'), 'strip') and (_bydept(d).get('richtext').strip()) or (_bydept(d).get('richtext')) )
+             (((_bydept(d) or {}).get('richtext')) and
+               (hasattr((_bydept(d) or {}).get('richtext'),'strip') and (_bydept(d).get('richtext').strip()) or (_bydept(d).get('richtext')))
              ) and
              (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'química', u'química clínica'))))
         ]
@@ -396,7 +405,8 @@
 
       show python:any([gen, qc, has_dept]);
     ">
-      <div class="row section-interp no-gutters" tal:condition="show">
+      <!-- AJUSTE: salto de página antes de Interpretación -->
+      <div class="row section-interp no-gutters pagebreak-before" tal:condition="show">
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Interpretación de resultados</h2>
 
@@ -424,10 +434,12 @@
     </tal:interp>
 
     <!-- Adjuntos, observaciones, firmas -->
+    <!-- (si quieres que Adjuntos comiencen otra página, añade class="pagebreak-before" al contenedor) -->
     <tal:t replace="structure python:view.render_attachments(ar, **options)" />
     <tal:t replace="structure python:view.render_remarks(ar, **options)" />
 
     <!-- Firmas -->
+    <!-- (ídem: puedes forzar salto en la vista de firmas si tu plantilla lo permite) -->
     <tal:t replace="structure python:view.render_signatures(ar, **options)" />
 
     <!-- Discreeter y pie -->
