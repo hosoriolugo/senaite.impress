@@ -31,23 +31,28 @@
     .barcode { display: inline-block; line-height: 1; }
     .barcode canvas, .barcode svg, .barcode img {
       display: block;
-      margin-left: auto; /* empuja el gráfico a la derecha dentro de su celda */
       height: auto;
-      float: right;      /* ancla totalmente al borde derecho */
     }
-    /* Quita cualquier sangría en la celda del barcode del encabezado */
+
+    /* ===== Pegado total a la derecha del código de barras ===== */
+    .barcode-box{
+      display:inline-block;
+      text-align:right;
+      float:right;             /* ancla al borde derecho del <td> */
+      margin-right:0;
+    }
     .section-summary .noborder td.text-right { padding-right: 0 !important; }
 
-    /* Leyenda (HRI) debajo del barcode, alineada 100% a la derecha */
+    /* Leyenda (HRI) debajo del barcode, alineada 100% a la derecha y "negrita" */
     .barcode-hri {
       text-align: right;
       font-size: 11px;
-      font-weight: 600;
+      font-weight: 800;        /* más “bold” */
       color: #000;
       margin-top: 2px;
       line-height: 1.1;
       width: max-content;
-      margin-left: auto; /* pega la leyenda al borde derecho */
+      margin-left: auto;
       padding-right: 0 !important;
     }
 
@@ -71,18 +76,18 @@
     }
     .section-summary .w-100 > table.table { margin-top: 0 !important; }
 
-    /* Mantén la celda del encabezado (barcode) alineada a la derecha */
-    td.text-right #sample-barcode { display: block; margin-left: auto; float: right; }
-    td.text-right #sample-barcode canvas,
-    td.text-right #sample-barcode svg,
-    td.text-right #sample-barcode img { display: block; }
+    /* Mantén la celda del encabezado (barcode) con el contenedor visible */
+    td.text-right #sample-barcode { display: block; }
 
-    /* ====== SOLO CONTENIDOS centrados en RESULTADOS (no encabezados) ======
-       Asumiendo 6 columnas: 1=Análisis (izq), 2=Resultado, 3=Unidad,
-       4=Rango Ref, 5=Estado, 6=Alerta => centramos 2..6 del TBODY. */
+    /* ====== CONTENIDOS centrados (ya lo tenías) ====== */
     .results-center-cells table.table tbody td:nth-child(n+2):nth-child(-n+6) {
       text-align: center !important;
       vertical-align: middle;
+    }
+
+    /* ====== NUEVO: ENCABEZADOS centrados en las mismas 5 columnas ====== */
+    .results-center-cells table.table thead th:nth-child(n+2):nth-child(-n+6) {
+      text-align: center !important;
     }
   </style>
 
@@ -266,17 +271,20 @@
                 <h2 class="mb-1 section-title">Resumen de la Muestra</h2>
               </td>
               <td class="align-middle text-right" tal:condition="sid">
-                <div id="sample-barcode" class="barcode"
-                     tal:attributes="
-                       data-code sid;
-                       data-type string:code128;
-                       data-barwidth string:2;
-                       data-barheight string:32;
-                       title sid">
-                  <!-- Fallback textual (lo limpia el init si corre) -->
-                  <span tal:replace="sid">SAMPLE-ID</span>
+                <!-- Wrapper para pegar el barcode al borde derecho -->
+                <div class="barcode-box">
+                  <div id="sample-barcode" class="barcode"
+                       tal:attributes="
+                         data-code sid;
+                         data-type string:code128;
+                         data-barwidth string:3;
+                         data-barheight string:38;
+                         title sid">
+                    <!-- Fallback textual (lo limpia el init si corre) -->
+                    <span tal:replace="sid">SAMPLE-ID</span>
+                  </div>
+                  <div class="barcode-hri"><span tal:replace="sid">SAMPLE-ID</span></div>
                 </div>
-                <div class="barcode-hri"><span tal:replace="sid">SAMPLE-ID</span></div>
 
                 <script type="text/javascript">
                   (function() {
@@ -292,10 +300,14 @@
                                 code,
                                 $el.attr('data-type') || 'code128',
                                 {
-                                  barWidth: parseInt($el.attr('data-barwidth') || 2, 10),
-                                  barHeight: parseInt($el.attr('data-barheight') || 32, 10),
+                                  /* Más “negrita” (barras gruesas) y alto para buena lectura */
+                                  barWidth: parseInt($el.attr('data-barwidth') || 3, 10),
+                                  barHeight: parseInt($el.attr('data-barheight') || 38, 10),
                                   bgColor: '#ffffff',
                                   color: '#000000',
+                                  /* Si el plugin soporta SVG, mejor calidad en impresión */
+                                  output: 'svg',
+                                  /* Usamos HRI manual para alinearlo perfecto */
                                   showHRI: false
                                 }
                               );
