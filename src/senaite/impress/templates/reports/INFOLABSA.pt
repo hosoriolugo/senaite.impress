@@ -37,8 +37,8 @@
     /* ===== Pegado total a la derecha del código de barras ===== */
     .barcode-box{
       display:inline-block;
-      text-align:right;    /* mantiene el bloque a la derecha */
-      float:right;         /* ancla al borde derecho del <td> */
+      text-align:right;
+      float:right;
       margin-right:0;
     }
     .section-summary .noborder td.text-right { padding-right: 0 !important; }
@@ -46,19 +46,18 @@
     /* === SOLO CAMBIO: HRI centrado bajo el código de barras === */
     .barcode-hri {
       display: block;
-      text-align: center;  /* centra el ID */
+      text-align: center;
       font-size: 11px;
       font-weight: 800;
       color: #000;
       margin-top: 2px;
       line-height: 1.1;
-      /* quitamos width:max-content y margin-left:auto para permitir centrado */
     }
 
     /* === Alineación por defecto a la IZQUIERDA (como en Datos del Paciente) === */
     .section-summary table.table-condensed td,
     .section-summary table.table-condensed th {
-      text-align: left; /* fuerza izquierda por defecto */
+      text-align: left;
       padding-left: .5rem;
       padding-right: .5rem;
     }
@@ -302,12 +301,9 @@
                                   /* === MEDIDA DEFAULT === */
                                   barWidth: parseInt($el.attr('data-barwidth') || 1, 10),
                                   barHeight: parseInt($el.attr('data-barheight') || 26, 10),
-                                  /* Alta legibilidad impresa */
                                   bgColor: '#ffffff',
                                   color: '#000000',
-                                  /* Si el plugin soporta SVG, deja mejor rasterizado al imprimir */
                                   output: 'svg',
-                                  /* Usamos HRI manual (debajo) */
                                   showHRI: false
                                 }
                               );
@@ -355,73 +351,68 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretacion de resultados (reemplazado por versión dinámica) -->
+    <!-- Interpretacion de resultados (dinámico y compatible con Chameleon) -->
     <tal:interp define="
       get python:getattr;
 
-      /* Normalizador: evita strings con solo espacios/<br> */
-      _norm python:lambda x: (x or u'').strip() if not hasattr(x, 'strip') else x.strip();
-
-      /* === General (mismos getters que tenías) === */
       gen_raw python:(
         (get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation()) or
         (get(ar,'getInterpretation',None) and ar.getInterpretation()) or
         (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()) or
         u''
       );
-      gen python:_norm(gen_raw);
+      gen python:((gen_raw and (hasattr(gen_raw,'strip') and gen_raw.strip() or gen_raw)) or u'');
 
-      /* === Química clínica (mismos getters) === */
       qc_raw  python:(
         (get(ar,'getInterpretationChemistry',None) and ar.getInterpretationChemistry()) or
         (get(ar,'getChemistryInterpretation',None) and ar.getChemistryInterpretation()) or
         u''
       );
-      qc  python:_norm(qc_raw);
+      qc  python:((qc_raw and (hasattr(qc_raw,'strip') and qc_raw.strip() or qc_raw)) or u'');
       qc_shown python:bool(qc);
 
-      /* === Por Departamento (nuevo) === */
       depts python:(get(ar,'getDepartments',None) and ar.getDepartments() or []);
       _bydept python:(get(ar,'getResultsInterpretationByDepartment',None) and ar.getResultsInterpretationByDepartment or None);
-
-      /* Evitar duplicar Química si ya mostramos 'qc' */
-      _is_qc python:lambda title: title and title.strip().lower() in (
-        'chemistry', u'química', u'química clínica'
-      );
 
       dept_items python:(
         [
           {
             'title': (get(d,'Title',None) and d.Title() or u''),
-            'text': _norm((_bydept and _bydept(d) or {}).get('richtext'))
+            'text': (
+              ( (_bydept and _bydept(d) or {}).get('richtext') ) and
+              (hasattr( (_bydept(d) or {}).get('richtext'), 'strip') and (_bydept(d).get('richtext').strip()) or (_bydept(d).get('richtext')) )
+              or u''
+            )
           }
           for d in depts
-          if _bydept and _norm((_bydept(d) or {}).get('richtext'))
-             and (not qc_shown or not _is_qc((get(d,'Title',None) and d.Title() or u'')))
+          if _bydept and
+             ( ( (_bydept(d) or {}).get('richtext') ) and
+               (hasattr( (_bydept(d) or {}).get('richtext'), 'strip') and (_bydept(d).get('richtext').strip()) or (_bydept(d).get('richtext')) )
+             ) and
+             (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'química', u'química clínica'))))
         ]
       );
       has_dept python:any([i.get('text') for i in dept_items]);
 
-      /* Mostrar si hay algo en general, química o por depto */
       show python:any([gen, qc, has_dept]);
     ">
       <div class="row section-interp no-gutters" tal:condition="show">
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Interpretación de resultados</h2>
 
-          <!-- General (conservado) -->
+          <!-- General -->
           <tal:gen tal:condition="gen">
             <h3 class="mb-0" i18n:translate="">General</h3>
             <div tal:content="structure gen">-</div>
           </tal:gen>
 
-          <!-- Química clínica (conservado) -->
+          <!-- Química clínica -->
           <tal:qc tal:condition="qc">
             <h3 class="mb-0">Química clínica</h3>
             <div tal:content="structure qc">-</div>
           </tal:qc>
 
-          <!-- Nuevo: interpretación por Departamento -->
+          <!-- Por Departamento -->
           <tal:dept tal:condition="has_dept">
             <tal:loop tal:repeat="item dept_items">
               <h3 class="mb-0" tal:content="python:item.get('title') or u'Departamento'">Departamento</h3>
