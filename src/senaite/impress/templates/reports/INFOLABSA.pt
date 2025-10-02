@@ -27,11 +27,11 @@
     .noborder { border: 0; }
     .noborder td, .noborder th { border: 0 !important; padding: 0 !important; }
 
-    /* Contenedor de barcode como en default, pero forzando derecha */
+    /* Contenedor de barcode como en default */
     .barcode { display: inline-block; line-height: 1; }
     .barcode canvas, .barcode svg, .barcode img {
-      display: block;       /* ocupa línea propia */
-      margin-left: auto;    /* lo empuja todo a la derecha dentro de la celda */
+      display: block;
+      margin-left: auto;
       height: auto;
     }
     /* Leyenda (HRI) manual debajo del barcode, alineada totalmente a la derecha */
@@ -46,6 +46,12 @@
 
     /* Celda con el ID textual (tabla de datos) a la derecha */
     .barcode-cell { text-align: right; }
+
+    /* === Fuerza el barcode del encabezado a pegarse a la derecha (sin tocar nada más) === */
+    td.text-right #sample-barcode { display: block; margin-left: auto; float: right; }
+    td.text-right #sample-barcode canvas,
+    td.text-right #sample-barcode svg,
+    td.text-right #sample-barcode img { display: block; }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
