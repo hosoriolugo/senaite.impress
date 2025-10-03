@@ -1,31 +1,37 @@
 <configure
-xmlns="http://namespaces.zope.org/zope"
-xmlns:plone="http://namespaces.plone.org/plone"
-xmlns:browser="http://namespaces.zope.org/browser">
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:plone="http://namespaces.plone.org/plone"
+    xmlns:browser="http://namespaces.zope.org/browser">
 
+  <!-- Includes existentes -->
+  <include package=".publish" />
+  <include package=".viewlets" />
 
-<!-- Includes existentes -->
-<include package=".publish" />
-<include package=".viewlets" />
+  <!-- Recursos estáticos de impress -->
+  <plone:static directory="static" type="plone" name="senaite.impress.static" />
 
+  <!-- ========================================================= -->
+  <!-- Vista de tabla de resultados con estado/alertas (INFOLABSA)
+       Patrón Default: BrowserView (clase Python) + plantilla ZPT
+       Clase Python: senaite/impress/browser/results/infolabsa_results.py
+       Plantilla   : senaite/impress/browser/templates/results_with_state.pt
+       ⚠ Si tu plantilla está en otra ruta relativa a 'browser', ajusta 'template='
+  -->
+  <browser:page
+      name="infolabsa-results-with-state"
+      for="*"
+      class="senaite.impress.browser.results.infolabsa_results.InfolabsaResults"
+      template="templates/results_with_state.pt"
+      permission="zope2.View" />
 
-<!-- Recursos estáticos de impress -->
-<plone:static directory="static" type="plone" name="senaite.impress.static" />
-
-
-<!-- ========================================================= -->
-<!-- Vista de tabla de resultados con estado/alertas (INFOLABSA)
-Patrón Default: BrowserView (clase Python) + plantilla ZPT
-Clase Python: senaite/impress/browser/results/infolabsa_results.py
-Plantilla : senaite/impress/browser/templates/results_with_state.pt
-⚠ Si tu plantilla está en otra ruta relativa a 'browser', ajusta 'template='
--->
-<browser:page
-name="infolabsa-results-with-state"
-for="*"
-class="senaite.impress.browser.results.infolabsa_results.InfolabsaResults"
-template="templates/results_with_state.pt"
-permission="zope2.View" />
-
+  <!-- ========================================================= -->
+  <!-- NUEVO: Mini-panel Delta Check (devuelve un dict consumido por INFOLABSA.pt)
+       No usa plantilla: llama al __call__ de la clase y retorna los datos.
+  -->
+  <browser:page
+      name="infolabsa-delta-check"
+      for="*"
+      class="senaite.impress.browser.results.infolabsa_results.InfolabsaDeltaCheck"
+      permission="zope2.View" />
 
 </configure>
