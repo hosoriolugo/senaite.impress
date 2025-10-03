@@ -309,7 +309,7 @@ msgstr "Supervisor"
 
 #: senaite/impress/analysisrequest/templates/discreeter.pt:45
 msgid "Test results are at a ${lab_confidence}% confidence level"
-msgstr "Los resultados se expresan con un ${lab_confidence}% de nivel de confidencia"
+msgstr "Los resultados se informan con incertidumbre expandida (k≈2), equivalente a ~${lab_confidence}% de nivel de confianza, salvo se indique lo contrario."
 
 #: senaite/impress/controlpanel.py:82
 msgid "The footer text will be rendered on every PDF page and may contain arbitrary HTML"
