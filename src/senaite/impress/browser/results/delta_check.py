@@ -40,39 +40,29 @@ def _safe_get(obj, name, default=None):
 
 
 def _as_dt(v):
-    """Convierte v a DateTime de Zope, aceptando DateTime, datetime, string, tuple/list, etc."""
+    """Convierte v a Zope DateTime de forma segura."""
     try:
         if isinstance(v, DateTime):
             return v
-        # Tupla/lista (algunos campos de SENAITE pueden venir así)
         if isinstance(v, (tuple, list)) and v:
             return _as_dt(v[0])
-        # datetime de python o string convertible
         return DateTime(v)
     except Exception:
-        try:
-            return DateTime()  # fallback a HOY para no romper
-        except Exception:
-            return DateTime()  # doble fallback
+        return DateTime()  # HOY como fallback
 
 
 def _fmt_date(dt):
     try:
-        dt = _as_dt(dt)
-        return dt.strftime("%d/%m/%Y")
+        return _as_dt(dt).strftime("%d/%m/%Y")
     except Exception:
         return u""
 
 
 class InfolabsaDeltaCheck(BrowserView):
-    """
-    Devuelve un dict con:
-    - period_label: "6 meses" o "12 meses" (detectado respecto a HOY)
-    - rows: lista de analitos con delta vs AR previo más cercano (dentro de [HOY-días, HOY] y anterior al AR actual)
-    """
+    """Devuelve {'period_label': '6/12 meses', 'rows': [...]} calculado respecto a HOY."""
 
     def _pick_period_days(self, ar):
-        """Usa HOY: si hay >=2 AR del paciente en los últimos 180 días -> 6 meses; si no -> 12 meses."""
+        """Si el paciente tiene ≥2 AR en últimos 180 días -> 6m; si no -> 12m."""
         try:
             pc = getattr(ar, "portal_catalog", None)
             patient = _safe_get(ar, "getPatient", None)
@@ -84,7 +74,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 return 365
 
             today = DateTime()
-            six_months_ago = today - 180  # en DateTime, restar número = días
+            six_months_ago = today - 180.0  # DateTime - float(días) => DateTime
 
             brains = pc.searchResults(
                 portal_type="AnalysisRequest",
@@ -96,10 +86,7 @@ class InfolabsaDeltaCheck(BrowserView):
             return 365
 
     def _fetch_prev_for_keyword(self, pc, patient_uid, keyword, ar_created, days):
-        """
-        Busca el AR previo con el mismo analito dentro de [HOY-días, HOY]
-        y que sea estrictamente anterior al AR actual.
-        """
+        """Busca AR previo con el mismo analito dentro de [HOY-días, HOY] y anterior al AR actual."""
         try:
             today = DateTime()
             window_start = today - float(days)
@@ -126,9 +113,8 @@ class InfolabsaDeltaCheck(BrowserView):
                                 _safe_get(ar_prev, "getDatePublished", None))
                 if ar_ts is not None and prev_created:
                     prev_ts = _as_dt(prev_created).timeTime()
-                    # debe ser anterior al AR actual
                     if prev_ts >= ar_ts:
-                        continue
+                        continue  # Debe ser anterior al actual
 
                 analyses = (_safe_get(ar_prev, "getAnalyses", None) or
                             _safe_get(ar_prev, "analyses", None) or [])
@@ -220,10 +206,7 @@ class InfolabsaDeltaCheck(BrowserView):
     def __call__(self):
         try:
             rows, period_label = self.rows()
-            return {
-                "rows": rows,
-                "period_label": period_label,
-            }
+            return {"rows": rows, "period_label": period_label}
         except Exception as e:
             try:
                 logger.exception("DeltaCheck failed: %s", e)
