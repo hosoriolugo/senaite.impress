@@ -8,6 +8,7 @@ except Exception:
     import logging
     logger = logging.getLogger("senaite.impress")
 
+
 def _u(x):
     try:
         return x if isinstance(x, unicode) else unicode(x)
@@ -17,15 +18,16 @@ def _u(x):
         except Exception:
             return u""
 
+
 def _num(x):
     try:
         if x is None or x == u"":
             return None
-        # quita comas/espacios si te llegan como "1,234.5"
         s = _u(x).replace(u",", u"").strip()
         return float(s)
     except Exception:
         return None
+
 
 def _safe_get(obj, name, default=None):
     attr = getattr(obj, name, None)
@@ -36,12 +38,12 @@ def _safe_get(obj, name, default=None):
             return default
     return attr if attr is not None else default
 
+
 def _fmt_date(dt):
     try:
-        # dt puede ser DateTime, datetime o tupla
-        if hasattr(dt, "strftime"):
-            return dt.strftime("%d/%m/%Y")
         if isinstance(dt, DateTime):
+            return dt.strftime("%d/%m/%Y")
+        if hasattr(dt, "strftime"):
             return dt.strftime("%d/%m/%Y")
         if isinstance(dt, (tuple, list)) and dt:
             return _fmt_date(dt[0])
@@ -49,65 +51,79 @@ def _fmt_date(dt):
         pass
     return u""
 
+
 class InfolabsaDeltaCheck(BrowserView):
     """
     Devuelve un dict con:
-    - period_label: "6 meses" o "12 meses" (detectado)
-    - rows: lista de analitos con serie temporal + delta vs previo más cercano
+    - period_label: "6 meses" o "12 meses" (detectado respecto a HOY)
+    - rows: lista de analitos con delta vs AR previo más cercano (dentro de la ventana [HOY-días, HOY] y anterior al AR actual)
     """
 
     def _pick_period_days(self, ar):
-        """Heurística: si hay >=2 puntos en <=180 días para la mayoría de analitos, usa 6m; si no, 12m."""
+        """Usa HOY: si hay >=2 AR del paciente en los últimos 180 días, 6 meses; si no, 12 meses."""
         try:
-            created = _safe_get(ar, "getDateSubmitted", None) or _safe_get(ar, "created", None)
-            if not created:
-                return 365  # conservador
-            # Busca conteo simple por catálogo si existe
-            pc = ar.portal_catalog
+            pc = getattr(ar, "portal_catalog", None)
             patient = _safe_get(ar, "getPatient", None)
-            if not patient:
+            if not pc or not patient:
                 return 365
-            patient_uid = _safe_get(patient, "UID", lambda: None)()
+            try:
+                patient_uid = patient.UID()
+            except Exception:
+                return 365
+
+            today = DateTime()
+            six_months_ago = today - 180
+
             brains = pc.searchResults(
                 portal_type="AnalysisRequest",
                 getPatientUID=patient_uid,
-                sort_on="created",
-                sort_order="descending",
-                created={"query": [DateTime(created) - 365, DateTime(created)], "range": "min:max"},
+                created={"query": [six_months_ago, today], "range": "min:max"},
             )
-            # ¿hay múltiples ARs en los últimos 180 días?
-            within_180 = [b for b in brains if (DateTime(created) - b.created) <= 180]
-            return 180 if len(within_180) >= 2 else 365
+            return 180 if len(brains or []) >= 2 else 365
         except Exception:
             return 365
 
     def _fetch_prev_for_keyword(self, pc, patient_uid, keyword, ar_created, days):
-        """Encuentra el AR previo con el mismo analito (keyword) dentro del período."""
+        """
+        Busca el AR previo con el mismo analito dentro de [HOY-días, HOY]
+        y que sea anterior a la fecha del AR actual.
+        """
         try:
+            today = DateTime()
+            window_start = today - days
             brains = pc.searchResults(
                 portal_type="AnalysisRequest",
                 getPatientUID=patient_uid,
                 sort_on="created",
                 sort_order="descending",
-                created={"query": [DateTime(ar_created) - days, DateTime(ar_created)], "range": "min:max"},
+                created={"query": [window_start, today], "range": "min:max"},
             )
         except Exception:
             return None, None, None
 
-        # Recorre ARs desde el más reciente hacia atrás y busca el primer que tenga el analito
         for b in brains:
             try:
                 ar_prev = b.getObject()
                 if ar_prev == self.context:
                     continue
+
+                prev_created = (_safe_get(ar_prev, "created", None) or
+                                _safe_get(ar_prev, "getDateReceived", None) or
+                                _safe_get(ar_prev, "getDatePublished", None))
+                if ar_created and prev_created:
+                    try:
+                        if DateTime(prev_created) >= DateTime(ar_created):
+                            continue
+                    except Exception:
+                        pass
+
                 analyses = (_safe_get(ar_prev, "getAnalyses", None) or
                             _safe_get(ar_prev, "analyses", None) or [])
                 for a in analyses:
                     kw = _safe_get(a, "getKeyword", None) or _safe_get(a, "Title", None)
                     if not kw:
                         continue
-                    kwu = _u(kw).strip().lower()
-                    if kwu == _u(keyword).strip().lower():
+                    if _u(kw).strip().lower() == _u(keyword).strip().lower():
                         val = (_safe_get(a, "getResult", None) or
                                _safe_get(a, "Result", None) or
                                _safe_get(a, "getFormattedResult", None))
@@ -119,20 +135,19 @@ class InfolabsaDeltaCheck(BrowserView):
         return None, None, None
 
     def rows(self):
-        ctx = self.context
-        ar = ctx
+        ar = self.context
         items = (_safe_get(ar, "getAnalyses", None) or
                  _safe_get(ar, "analyses", None) or [])
         rows = []
 
-        # Detecta período (6m/12m) a partir de densidad histórica
         days = self._pick_period_days(ar)
         period_label = u"6 meses" if days <= 180 else u"12 meses"
 
-        # Datos del paciente para búsqueda
         patient = _safe_get(ar, "getPatient", None)
         pc = getattr(ar, "portal_catalog", None)
-        ar_created = _safe_get(ar, "created", None) or _safe_get(ar, "getDateReceived", None)
+        ar_created = (_safe_get(ar, "created", None) or
+                      _safe_get(ar, "getDateReceived", None) or
+                      _safe_get(ar, "getDatePublished", None))
 
         patient_uid = None
         if patient:
@@ -155,7 +170,9 @@ class InfolabsaDeltaCheck(BrowserView):
                 delta_pct_txt, delta_dir = u"—", u""
 
                 if pc and patient_uid and keyword and ar_created:
-                    ar_prev, pid, prev_val = self._fetch_prev_for_keyword(pc, patient_uid, keyword, ar_created, days)
+                    ar_prev, pid, prev_val = self._fetch_prev_for_keyword(
+                        pc, patient_uid, keyword, ar_created, days
+                    )
                     if ar_prev:
                         prev_id = pid or u"—"
                         prev_dt = (_safe_get(ar_prev, "getDatePublished", None) or
@@ -164,7 +181,6 @@ class InfolabsaDeltaCheck(BrowserView):
                         prev_date_txt = _fmt_date(prev_dt) or u"—"
                         v_prev = _num(prev_val)
 
-                # Calcula Δ%
                 if v_now is not None and v_prev is not None and v_prev != 0:
                     dpct = ((v_now - v_prev) / abs(v_prev)) * 100.0
                     delta_dir = u"▲" if dpct > 0 else (u"▼" if dpct < 0 else u"=")
@@ -184,7 +200,6 @@ class InfolabsaDeltaCheck(BrowserView):
                     "period_label": period_label,
                 })
             except Exception:
-                # no rompas el informe por un analito malformado
                 continue
 
         return rows, period_label
@@ -201,5 +216,4 @@ class InfolabsaDeltaCheck(BrowserView):
                 logger.exception("DeltaCheck failed: %s", e)
             except Exception:
                 pass
-            # Falla suave
             return {"rows": [], "period_label": u"12 meses"}
