@@ -62,19 +62,21 @@
     .results-center-cells table.table tbody td:nth-child(n+2):nth-child(-n+6) { text-align: center !important; vertical-align: middle; }
     .results-center-cells table.table thead th:nth-child(n+2):nth-child(-n+6) { text-align: center !important; }
 
-    /* === Unificación: la línea bajo los encabezados igual a la del cuerpo === */
+    /* === AJUSTE: misma línea bajo los encabezados que en las demás secciones === */
     .results-center-cells table.table.table-condensed {
       border-collapse: collapse;
       border-spacing: 0;
     }
-    /* Asegura que TODO el encabezado tenga la misma línea tenue que las filas */
-    .results-center-cells table.table.table-condensed thead tr,
+    /* Evitamos doble borde por celda y aplicamos uno solo al renglón */
     .results-center-cells table.table.table-condensed thead th {
-      border-bottom: 1px solid #dee2e6 !important;
-      padding-top: 2px; padding-bottom: 2px;
+      border-bottom: 0 !important;
+      padding-top: 2px; 
+      padding-bottom: 2px;
       vertical-align: bottom;
     }
-    /* Cuerpo (se mantiene igual) */
+    .results-center-cells table.table.table-condensed thead tr {
+      border-bottom: 1px solid #dee2e6 !important;  /* ← igual que en “Resultados”, “Datos del Paciente” y “Resumen de la Muestra” */
+    }
     .results-center-cells table.table.table-condensed tbody td {
       border-bottom: 1px solid #dee2e6 !important;
       padding-top: 2px; padding-bottom: 2px;
