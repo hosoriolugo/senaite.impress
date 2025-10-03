@@ -86,12 +86,21 @@
     /* === NUEVO: Subtítulos "General" y "Química clínica" como título en negro === */
     .section-interp h3 { color: #000; font-weight: 800; }
 
+    /* === NUEVO: Mini-panel Delta Check (última página) === */
+    .section-delta h2 { color:#000; font-weight:800; margin-bottom:6px !important; }
+    .section-delta .small { font-size:90%; color:#6c757d; }
+    .section-delta table.table-sm td, .section-delta table.table-sm th { padding-top:2px; padding-bottom:2px; }
+    .section-delta .delta-up   { color:#fd7e14; font-weight:700; } /* ▲ */
+    .section-delta .delta-down { color:#0d6efd; font-weight:700; } /* ▼ */
+    .section-delta .spark { width:120px; height:36px; }
+
     /* AJUSTE: utilidades de corte de página para impresión */
     @media print {
       .pagebreak { page-break-before: always; }
       .pagebreak-before { page-break-before: always; }
       .avoid-break-inside { page-break-inside: avoid; }
       .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
+      .section-delta { page-break-before: always; } /* fuerza que el panel vaya en su propia hoja al final */
     }
   </style>
 
@@ -465,6 +474,144 @@
     <!-- Discreeter y pie -->
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
+
+    <!-- =========== NUEVO: Delta Check al final (última página) =========== -->
+    <tal:delta define="
+      _trv python:getattr(context, 'restrictedTraverse', None);
+      delta python:(_trv and context.restrictedTraverse('@@infolabsa-delta-check')() or {});
+      rows python:(delta and delta.get('rows') or []);
+      hasrows python:bool(rows);
+    ">
+      <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
+        <div class="w-100">
+          <h2 class="mb-1 section-title" i18n:translate="">Tendencia (Delta check)</h2>
+          <div class="small" tal:condition="delta/period_label">
+            <span i18n:translate="">Período considerado:</span>
+            <strong tal:content="delta/period_label">6 meses</strong>
+            • <span i18n:translate="">Fuente:</span> <span i18n:translate="">historial de muestras del paciente</span>
+          </div>
+
+          <table class="table table-sm table-condensed mt-1">
+            <thead>
+              <tr>
+                <th i18n:translate="">Análisis</th>
+                <th i18n:translate="">Último</th>
+                <th i18n:translate="">Δ vs. previo</th>
+                <th i18n:translate="">Muestra previa</th>
+                <th i18n:translate="">RCV</th>
+                <th i18n:translate="">Tendencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tal:loop repeat="r rows">
+                <tr>
+                  <td>
+                    <div><strong tal:content="r/name">Analito</strong></div>
+                    <div class="small" tal:condition="r/unit" tal:content="r/unit">U</div>
+                  </td>
+                  <td>
+                    <div tal:content="r/last_value">—</div>
+                    <div class="small" tal:content="r/last_date">—</div>
+                  </td>
+                  <td>
+                    <div tal:condition="python:(r.get('delta_pct') is not None)">
+                      <span tal:attributes="class python:(r.get('delta_symbol')==u'▲' and 'delta-up' or (r.get('delta_symbol')==u'▼' and 'delta-down' or ''))"
+                            tal:content="python:u'%s %s%%' % (r.get('delta_symbol') or u'Δ', r.get('delta_pct'))">Δ 0%</span>
+                    </div>
+                    <div class="small" tal:condition="r/delta_note" tal:content="r/delta_note">—</div>
+                  </td>
+                  <td>
+                    <div class="small">
+                      <span i18n:translate="">ID</span>:
+                      <strong tal:content="r/prev_sid">—</strong>
+                      &nbsp;|&nbsp;
+                      <span tal:content="r/prev_date">—</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span tal:condition="r/rcv_pct" tal:content="python:u'%s%%' % r.get('rcv_pct')">—</span>
+                    <span tal:condition="not:r/rcv_pct">—</span>
+                  </td>
+                  <td>
+                    <canvas class="spark"
+                            tal:attributes="id python:u'spark-'+(r.get('uid') or repeat['r'].index|string)"></canvas>
+                    <!-- Datos crudos para JS -->
+                    <input type="hidden"
+                           tal:attributes="id python:u'spark-data-'+(r.get('uid') or repeat['r'].index|string);
+                                           value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
+                  </td>
+                </tr>
+              </tal:loop>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Dibujo de mini-sparklines sin librerías externas -->
+      <script type="text/javascript" tal:condition="hasrows">
+      (function(){
+        function drawSpark(canvas, points){
+          if (!canvas || !points || points.length<2) return;
+          var ctx = canvas.getContext('2d');
+          var W = canvas.width, H = canvas.height;
+          var xs = points.map(function(p){return p[0];});
+          var ys = points.map(function(p){return p[1];});
+          var xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+          var ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+          if (xmin===xmax) { xmin -= 1; xmax += 1; }
+          if (ymin===ymax) { ymin -= 1; ymax += 1; }
+          var pad = 3;
+          var sx = function(x){ return pad + (x - xmin) * (W-2*pad) / (xmax - xmin); };
+          var sy = function(y){ return H - pad - (y - ymin) * (H-2*pad) / (ymax - ymin); };
+          ctx.clearRect(0,0,W,H);
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#343a40';
+          ctx.beginPath();
+          ctx.moveTo(sx(points[0][0]), sy(points[0][1]));
+          for (var i=1;i<points.length;i++){ ctx.lineTo(sx(points[i][0]), sy(points[i][1])); }
+          ctx.stroke();
+          var last = points[points.length-1];
+          ctx.fillStyle = '#343a40';
+          ctx.beginPath();
+          ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true);
+          ctx.fill();
+        }
+
+        function parseHidden(id){
+          var el = document.getElementById(id);
+          if (!el) return null;
+          var raw = (el.value || '').trim();
+          if (!raw) return null;
+          var pts = raw.split('|').map(function(s){
+            var kv = s.split(',');
+            var t = Date.parse(kv[0]) || 0;
+            var v = parseFloat(kv[1]);
+            return [t, isFinite(v)?v:0];
+          }).filter(function(p){ return p[0] && isFinite(p[1]); });
+          return pts.length ? pts : null;
+        }
+
+        function init(){
+          var rows = document.querySelectorAll('#delta-check-panel canvas.spark');
+          for (var i=0;i<rows.length;i++){
+            var c = rows[i];
+            if (!c.getAttribute('width'))  c.setAttribute('width', 120);
+            if (!c.getAttribute('height')) c.setAttribute('height', 36);
+            var uid = c.id.replace('spark-','');
+            var pts = parseHidden('spark-data-'+uid);
+            if (pts) drawSpark(c, pts);
+          }
+        }
+
+        if (document.readyState === 'loading'){
+          document.addEventListener('DOMContentLoaded', init);
+        } else {
+          init();
+        }
+      })();
+      </script>
+    </tal:delta>
+    <!-- =========== FIN: Delta Check al final (última página) =========== -->
+
   </div>
 </tal:report>
-
