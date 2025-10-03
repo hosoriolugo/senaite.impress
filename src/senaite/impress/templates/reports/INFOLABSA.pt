@@ -463,7 +463,8 @@
     <tal:t replace="structure python:view.render_signatures(ar, **options)" />
 
     <!-- Discreeter y pie -->
-    <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
+    <!-- <tal:t replace="structure python:view.render_discreeter(ar, **options)" /> -->
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
   </div>
 </tal:report>
+
