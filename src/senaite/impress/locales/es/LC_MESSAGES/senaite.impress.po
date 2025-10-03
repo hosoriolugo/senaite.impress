@@ -161,7 +161,7 @@ msgstr "Informes generados para: {}, "
 
 #: senaite/impress/configure.zcml:175
 msgid "HTML to PDF report engine for SENAITE"
-msgstr "Motor de informes HTML a PDF para SENAITE"
+msgstr "Motor de informes HTML a PDF para INFOLASA"
 
 #: senaite/impress/browser/publish/content.py:60
 msgid "ID"
@@ -260,11 +260,11 @@ msgstr "Muestra el HTML en crudo en la vista de previsualización"
 #: senaite/impress/configure.zcml:175
 #: senaite/impress/templates/publish.pt:9
 msgid "SENAITE IMPRESS"
-msgstr "SENAITE IMPRESS"
+msgstr "INFOLABSA IMPRESS"
 
 #: senaite/impress/controlpanel.py:154
 msgid "SENAITE IMPRESS Settings"
-msgstr "Configuración de SENAITE IMPRESS"
+msgstr "Configuración de INFOLABSA IMPRESS"
 
 #: senaite/impress/analysisrequest/templates/summary.pt:29
 msgid "Sample ID"
