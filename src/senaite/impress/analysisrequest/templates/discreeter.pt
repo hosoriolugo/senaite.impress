@@ -1,4 +1,4 @@
-<tal:t define="collection view/collection;
+<tal:t define="collection view/collection; 
                laboratory python:view.laboratory;
                accredited_symbol string:★;
                outofrange_symbol string:⚠;"
@@ -6,6 +6,8 @@
 
   <div class="row section-discreeter no-gutters">
     <div class="w-100 text-muted font-weight-light small">
+
+      <!--
       <div class="discreeter-outofrange">
         <span class="outofrange text-danger"
               style="font-family:Lucida Console, Courier, monospace;"
@@ -13,11 +15,15 @@
         </span>
         <span i18n:translate="">Result out of client specified range.</span>
       </div>
+      -->
+
       <div class="discreeter-not-invoiced"
            tal:condition="python:all(map(lambda m: m.InvoiceExclude, collection))"
            i18n:translate="">
         Not invoiced
       </div>
+
+      <!--
       <div class="discreeter-methods"
            tal:condition="laboratory/LaboratoryAccredited">
         <span class="accredited-symbol text-success"
@@ -31,6 +37,8 @@
           accredited
         </span>
       </div>
+      -->
+
       <div class="discreeter-disclaimer"
            i18n:translate="">
         Analysis results relate only to the samples tested.
