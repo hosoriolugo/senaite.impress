@@ -62,6 +62,22 @@
     .results-center-cells table.table tbody td:nth-child(n+2):nth-child(-n+6) { text-align: center !important; vertical-align: middle; }
     .results-center-cells table.table thead th:nth-child(n+2):nth-child(-n+6) { text-align: center !important; }
 
+    /* === AJUSTE NUEVO: Resultados con las mismas líneas tenues y paddings === */
+    .results-center-cells table.table.table-condensed {
+      border-collapse: collapse;
+      border-spacing: 0;
+    }
+    .results-center-cells table.table.table-condensed thead th {
+      border-bottom: 1px solid #dee2e6 !important;
+      padding-top: 2px; padding-bottom: 2px;
+      vertical-align: bottom;
+    }
+    .results-center-cells table.table.table-condensed tbody td {
+      border-bottom: 1px solid #dee2e6 !important;
+      padding-top: 2px; padding-bottom: 2px;
+      vertical-align: middle;
+    }
+
     /* AJUSTE: utilidades de corte de página para impresión */
     @media print {
       .pagebreak { page-break-before: always; }
