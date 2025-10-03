@@ -1,4 +1,5 @@
-<tal:results i18n:domain="senaite.impress"> 
+<tal:results i18n:domain="senaite.impress">
+<div id="results-with-state">
 
 <!-- ===== Estilos para resaltar signos/leyendas ===== -->
 <style>
@@ -13,51 +14,45 @@
   .estado-warn   { color:#d9534f; font-weight:700; }
   .estado-crit   { color:#d63384; font-weight:800; }
   .estado-na     { color:#6c757d; }
-
-  /* (Opcional) resaltar fondo de celdas fuera de rango si así lo deseas
-  td.out-of-range-high { background: rgba(217,83,79,.08); }
-  td.out-of-range-low  { background: rgba(13,110,253,.08); }
-  */
 </style>
 
 <table class="table table-sm table-condensed">
-<thead>
-<tr>
-<th i18n:translate="">Análisis</th>
-<th i18n:translate="">Resultado</th>
-<th i18n:translate="">Unidad</th>
-<th i18n:translate="">Rango de referencia</th>
-<th i18n:translate="">Estado</th>
-<th i18n:translate="">Alertas</th>
-</tr>
-</thead>
-<tbody>
-<tal:loop repeat="a view/analyses">
-<tal:row define="r python:view.row(a)">
-<tr>
-<td tal:content="python:r['name']">Análisis</td>
-<td tal:content="python:r['result']">—</td>
-<td tal:content="python:r['unit']">—</td>
-<td tal:content="python:r['ref_range']">—</td>
-<td class="text-center">
-  <span tal:attributes="class python:r['estado_class']">
-    <span tal:condition="python:r['estado_symbol']==u'⚠'" style="color:#c00">⚠</span>
-    <span tal:condition="python:r['estado_symbol']==u'✓'" class="flag-ok">✓</span>
-    <span tal:condition="python:r['estado_symbol']==u'❗'" class="al-critical">❗</span>
-    <span tal:condition="python:r['estado_symbol']==u'—'">—</span>
-    <span tal:content="python:r['estado_text']">Estado</span>
-  </span>
-</td>
-<td class="text-center">
-  <span tal:attributes="class python:r['alert_classes']; title python:r['alert_title']"
-        tal:content="python:r['alert_text']">—</span>
-</td>
-</tr>
-</tal:row>
-</tal:loop>
-</tbody>
+  <thead>
+    <tr>
+      <th i18n:translate="">Análisis</th>
+      <th i18n:translate="">Resultado</th>
+      <th i18n:translate="">Unidad</th>
+      <th i18n:translate="">Rango de referencia</th>
+      <th i18n:translate="">Estado</th>
+      <th i18n:translate="">Alertas</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tal:loop repeat="a view/analyses">
+      <tal:row define="r python:view.row(a)">
+        <tr>
+          <td tal:content="python:r['name']">Análisis</td>
+          <td tal:content="python:r['result']">—</td>
+          <td tal:content="python:r['unit']">—</td>
+          <td tal:content="python:r['ref_range']">—</td>
+          <td class="text-center">
+            <span tal:attributes="class python:r['estado_class']">
+              <span tal:condition="python:r['estado_symbol']==u'⚠'" class="fr-alert">⚠</span>
+              <span tal:condition="python:r['estado_symbol']==u'✓'" class="flag-ok">✓</span>
+              <span tal:condition="python:r['estado_symbol']==u'❗'" class="al-critical">❗</span>
+              <span tal:condition="python:r['estado_symbol']==u'—'">—</span>
+              <span tal:content="python:r['estado_text']">Estado</span>
+            </span>
+          </td>
+          <td class="text-center">
+            <span tal:attributes="class python:r['alert_classes']; title python:r['alert_title']"
+                  tal:content="python:r['alert_text']">—</span>
+          </td>
+        </tr>
+      </tal:row>
+    </tal:loop>
+  </tbody>
 </table>
-
 
 <!-- Leyendas -->
 <div class="mt-1 text-muted" style="font-size: 90%;">
@@ -67,7 +62,6 @@
   <span class="al-delta" i18n:translate="">▲/▼ Δ fuera de límite</span> ·
   <span i18n:translate="">— No aplica</span>
 </div>
-
 
 <!-- Guía para pacientes (técnica y clara) -->
 <div class="mt-1 text-muted" style="font-size: 90%; margin-top:6px;">
@@ -79,39 +73,51 @@
   <div>— <strong>No aplica</strong>: Análisis sin intervalo de referencia o de naturaleza cualitativa.</div>
 </div>
 
-<!-- Refuerzo opcional: colorea símbolos si vienen como texto plano (H/L/↑/↓/⚠/❗) -->
+<!-- Refuerzo: colorea símbolos SOLO dentro de este bloque y sin tocar '!' genérico -->
 <script type="text/javascript">
 (function(){
-  var colorize = function(root){
-    // Estado
-    var est = root.querySelectorAll('td.text-center span');
+  var root = document.getElementById('results-with-state');
+  if (!root) return;
+
+  var colorize = function(container){
+    // Estado (símbolos en la columna de estado)
+    var est = container.querySelectorAll('td.text-center span');
     for (var i=0;i<est.length;i++){
       var t = (est[i].textContent || '').trim();
       if (t.indexOf('✓') !== -1) est[i].classList.add('flag-ok');
-      if (t.indexOf('❗') !== -1 || t.indexOf('!') !== -1) est[i].classList.add('al-critical');
+      if (t.indexOf('❗') !== -1) est[i].classList.add('al-critical');
       if (t.indexOf('⚠') !== -1) est[i].classList.add('fr-alert');
     }
-    // H/L/↑/↓/⚠/❗/▲/▼ en cualquier celda
-    var cells = root.querySelectorAll('td, td.text-center span');
+
+    // Recolorear H/L/↑/↓/⚠/❗/▲/▼ SOLO en el tbody de esta tabla
+    var cells = container.querySelectorAll('table tbody td, table tbody td.text-center span');
     var wrap = function(html, re, cls){
       return html.replace(re, function(m){ return '<span class="'+cls+'">'+m+'</span>'; });
     };
     for (var j=0;j<cells.length;j++){
-      var el = cells[j], html = el.innerHTML; if (!html) continue;
+      var el = cells[j];
+      var html = el.innerHTML;
+      if (!html) continue;
+      // No tocar nodos que contengan comentarios HTML
+      if (html.indexOf('<!--') !== -1) continue;
+
       var n = html;
       n = wrap(n, /(\bHH\b|\bH\b|↑)/g, 'fr-alert');     // altos
-      n = wrap(n, /(\bLL\b|\bL\b|↓)/g, 'al-delta');     // bajos (usa naranja o cambia a azul si prefieres)
-      n = wrap(n, /(⚠|!|❗)/g, 'al-critical');          // críticos/alertas
+      n = wrap(n, /(\bLL\b|\bL\b|↓)/g, 'al-delta');     // bajos (usa naranja)
+      n = wrap(n, /(⚠|❗)/g, 'al-critical');            // críticos/alertas (sin '!' genérico)
       n = wrap(n, /(▲|▼|Δ)/g, 'al-delta');             // delta
+
       if (n !== html) el.innerHTML = n;
     }
   };
+
   if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){ colorize(document); });
+    document.addEventListener('DOMContentLoaded', function(){ colorize(root); });
   } else {
-    colorize(document);
+    colorize(root);
   }
 })();
 </script>
 
+</div>
 </tal:results>
