@@ -83,6 +83,9 @@
       vertical-align: middle;
     }
 
+    /* === NUEVO: Subtítulos "General" y "Química clínica" como título en negro === */
+    .section-interp h3 { color: #000; font-weight: 800; }
+
     /* AJUSTE: utilidades de corte de página para impresión */
     @media print {
       .pagebreak { page-break-before: always; }
