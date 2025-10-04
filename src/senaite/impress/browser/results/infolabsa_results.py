@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 from Products.Five import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
-from DateTime import DateTime  # ← añadido para Delta Check (no afecta lo existente)
-from Products.CMFCore.utils import getToolByName  # ← para Reference Definitions
+from DateTime import DateTime
+from Products.CMFCore.utils import getToolByName  # Reference Definitions
+
+try:
+    unicode
+except NameError:  # py3 compat por si acaso
+    unicode = str
 
 try:
     from bika.lims import logger
@@ -30,6 +35,8 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ------------------------- helpers -------------------------
     def _get(self, obj, name, default=None):
+        if not obj:
+            return default
         attr = getattr(obj, name, None)
         if callable(attr):
             try:
@@ -40,6 +47,9 @@ class InfolabsaResultsWithState(BrowserView):
 
     def _num(self, x):
         try:
+            # Acepta "100", 100, "100.0", etc.
+            if x in (None, u"", ""):
+                return None
             return float(x)
         except Exception:
             return None
@@ -50,8 +60,7 @@ class InfolabsaResultsWithState(BrowserView):
     def _first_text_from_lo_hi(self, lo, hi):
         lo_t = u"" if lo in (None, u"", "") else self._u(lo)
         hi_t = u"" if hi in (None, u"", "") else self._u(hi)
-        txt = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
-        return txt
+        return (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
 
     def _get_service(self, a):
         try:
@@ -68,9 +77,8 @@ class InfolabsaResultsWithState(BrowserView):
         contact = getattr(ar, "getContact", lambda: None)() if ar else None
         return ar, sample, st, client, contact
 
-    # ---------- extracción robusta de Resultado / Unidad / Rango ----------
+    # ---------- extracción robusta de Resultado / Unidad ----------
     def _get_result(self, a):
-        # Prioriza formatos habituales en SENAITE/Bika
         for g in ("getFormattedResult", "getResult", "Result", "result", "formatted_result"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
@@ -84,12 +92,8 @@ class InfolabsaResultsWithState(BrowserView):
                 return v
         return u""
 
-    def _get_low_high_candidates(self, a):
-        """
-        Devuelve (low, high) buscando en múltiples nombres:
-        - límites clínicos: Lower/UpperLimit, Range, Min/Max
-        - (opcional) LOD/LOQ como fallback: Detection/Quantitation/Quantification
-        """
+    # ---------- low/high genéricos ----------
+    def _get_low_high_candidates(self, obj):
         low_names = (
             "getLowerLimit", "getLowerResultLimit", "getLowerRange",
             "getMin", "getMinimum", "LowerLimit", "lower", "lower_limit",
@@ -102,12 +106,12 @@ class InfolabsaResultsWithState(BrowserView):
         )
         low = high = None
         for n in low_names:
-            v = self._get(a, n)
+            v = self._get(obj, n)
             if v not in (None, u"", ""):
                 low = v
                 break
         for n in high_names:
-            v = self._get(a, n)
+            v = self._get(obj, n)
             if v not in (None, u"", ""):
                 high = v
                 break
@@ -115,10 +119,8 @@ class InfolabsaResultsWithState(BrowserView):
 
     def _ref_range_from_any(self, rr):
         """
-        Convierte 'rr' (str/dict/objeto) a texto y (low, high) si es posible.
-        Retorna (ref_text, low, high).
+        Convierte 'rr' (str/dict/objeto) a (texto, low, high).
         """
-        # Si es dict, prioriza 'text' y luego lower/upper/min/max
         if isinstance(rr, dict):
             text = rr.get("text") or rr.get("label") or u""
             lo = rr.get("lower", rr.get("min"))
@@ -126,17 +128,12 @@ class InfolabsaResultsWithState(BrowserView):
             if not text:
                 text = self._first_text_from_lo_hi(lo, hi)
             return text, lo, hi
-
-        # Si es string/objeto simple, úsalo como texto
         if rr not in (None, u"", ""):
             return self._u(rr), None, None
-
-        # Nada útil
         return u"", None, None
 
-    # ---------- 1) DINÁMICAS (edad/sexo/paciente) ----------
+    # ---------- 1) DINÁMICAS ----------
     def _extract_dynamic_specs_minmax(self, a, keyword):
-        """Busca min/max en 'Especificaciones dinámicas de análisis' si tu build las expone."""
         try:
             ar, sample, st, client, contact = self._get_ar_ctx(a)
             candidates = []
@@ -149,8 +146,12 @@ class InfolabsaResultsWithState(BrowserView):
             ):
                 if not holder:
                     continue
-                for name in ("getDynamicAnalysisSpecifications", "getDynamicSpecifications",
-                             "getPatientDynamicSpecifications", "getApplicableDynamicSpecifications"):
+                for name in (
+                    "getDynamicAnalysisSpecifications",
+                    "getDynamicSpecifications",
+                    "getPatientDynamicSpecifications",
+                    "getApplicableDynamicSpecifications",
+                ):
                     fn = getattr(holder, name, None)
                     if callable(fn):
                         try:
@@ -158,29 +159,32 @@ class InfolabsaResultsWithState(BrowserView):
                         except Exception:
                             pass
 
-            for origin, container in candidates:
-                rows = container or []
+            def _match_spec(container):
+                if not container:
+                    return None
                 # dict mapeado por keyword
-                if isinstance(rows, dict) and rows.get(keyword):
-                    spec = rows.get(keyword)
-                else:
-                    spec = None
-                    if isinstance(rows, (list, tuple)):
-                        for row in rows:
-                            k = None
-                            if isinstance(row, dict):
-                                k = (row.get("keyword") or row.get("service") or row.get("Service"))
-                                if hasattr(k, "getKeyword"):
-                                    k = k.getKeyword()
-                            else:
-                                for gk in ("getKeyword", "Keyword", "keyword", "getServiceKeyword"):
-                                    gv = getattr(row, gk, None)
-                                    k = gv() if callable(gv) else None
-                                    if k:
-                                        break
-                            if k == keyword:
-                                spec = row
-                                break
+                if isinstance(container, dict) and container.get(keyword):
+                    return container.get(keyword)
+                # lista de filas
+                if isinstance(container, (list, tuple)):
+                    for row in container:
+                        k = None
+                        if isinstance(row, dict):
+                            k = (row.get("keyword") or row.get("service") or row.get("Service"))
+                            if hasattr(k, "getKeyword"):
+                                k = k.getKeyword()
+                        else:
+                            for gk in ("getKeyword", "Keyword", "keyword", "getServiceKeyword"):
+                                gv = getattr(row, gk, None)
+                                k = gv() if callable(gv) else None
+                                if k:
+                                    break
+                        if k == keyword:
+                            return row
+                return None
+
+            for origin, container in candidates:
+                spec = _match_spec(container)
                 if not spec:
                     continue
 
@@ -193,18 +197,14 @@ class InfolabsaResultsWithState(BrowserView):
                 lo = _read(spec, "min") or _read(spec, "minimum")
                 hi = _read(spec, "max") or _read(spec, "maximum")
                 if lo is not None or hi is not None:
-                    try:
-                        logger.debug("[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
-                    except Exception:
-                        pass
+                    logger.debug("[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
                     return lo, hi, u"dynamic"
         except Exception:
             pass
         return None, None, None
 
-    # ---------- 2) ANALYSIS SPECIFICATIONS (AR/Cliente/Contacto/Tipo de muestra/Servicio) ----------
+    # ---------- 2) ANALYSIS SPECIFICATIONS ----------
     def _extract_specs_minmax_for_analysis(self, a):
-        """(lo, hi, src). Tolerante a contenedores dict/list/objeto."""
         try:
             service = self._get_service(a)
             keyword = getattr(service, "getKeyword", lambda: None)() if service else None
@@ -222,8 +222,14 @@ class InfolabsaResultsWithState(BrowserView):
             ):
                 if not holder:
                     continue
-                for name in ("getAnalysisSpecifications", "getSpecifications", "getApplicableSpecifications",
-                             "getActiveAnalysisSpecifications", "getAnalysisSpecificationsFor", "getSpecificationsFor"):
+                for name in (
+                    "getAnalysisSpecifications",
+                    "getSpecifications",
+                    "getApplicableSpecifications",
+                    "getActiveAnalysisSpecifications",
+                    "getAnalysisSpecificationsFor",
+                    "getSpecificationsFor",
+                ):
                     fn = getattr(holder, name, None)
                     if callable(fn):
                         try:
@@ -236,11 +242,10 @@ class InfolabsaResultsWithState(BrowserView):
                         except Exception:
                             pass
 
-            for origin, container in candidates:
-                spec = None
+            def _match(container):
                 if isinstance(container, dict):
-                    spec = container.get(keyword)
-                elif isinstance(container, (list, tuple)):
+                    return container.get(keyword)
+                if isinstance(container, (list, tuple)):
                     for row in container:
                         k = None
                         if isinstance(row, dict):
@@ -258,8 +263,11 @@ class InfolabsaResultsWithState(BrowserView):
                                 if k:
                                     break
                         if k == keyword:
-                            spec = row
-                            break
+                            return row
+                return None
+
+            for origin, container in candidates:
+                spec = _match(container)
                 if not spec:
                     continue
 
@@ -272,21 +280,14 @@ class InfolabsaResultsWithState(BrowserView):
                 lo = _read("min") or _read("minimum")
                 hi = _read("max") or _read("maximum")
                 if lo is not None or hi is not None:
-                    try:
-                        logger.debug("[impress] RefRange via AnalysisSpecifications (%s) %s", origin, keyword)
-                    except Exception:
-                        pass
+                    logger.debug("[impress] RefRange via AnalysisSpecifications (%s) %s", origin, keyword)
                     return lo, hi, u"spec"
         except Exception:
             pass
         return None, None, None
 
-    # ---------- 3) REFERENCE DEFINITIONS (global Setup) ----------
+    # ---------- 3) REFERENCE DEFINITIONS (Setup global) ----------
     def _extract_refdef_minmax(self, a):
-        """
-        Busca en Setup > Reference Definitions una fila para el servicio del análisis.
-        Devuelve (lo, hi, src) o (None, None, None) si no hay nada.
-        """
         try:
             service = self._get_service(a)
             if not service:
@@ -362,16 +363,13 @@ class InfolabsaResultsWithState(BrowserView):
                 if hit:
                     lo, hi = hit
                     if lo is not None or hi is not None:
-                        try:
-                            logger.debug("[impress] RefRange via ReferenceDefinitions %s", b.getURL())
-                        except Exception:
-                            pass
+                        logger.debug("[impress] RefRange via ReferenceDefinitions %s", b.getURL())
                         return lo, hi, u"refdef"
         except Exception:
             pass
         return None, None, None
 
-    # ---------- 4) LÍMITES DEL ANÁLISIS o del SERVICIO ----------
+    # ---------- 4) LÍMITES del ANÁLISIS o del SERVICIO ----------
     def _extract_analysis_or_service_minmax(self, a):
         try:
             lo, hi = self._get_low_high_candidates(a)
@@ -386,11 +384,15 @@ class InfolabsaResultsWithState(BrowserView):
             pass
         return None, None, None
 
+    # ---------- selector maestro con prioridad ----------
     def _compute_ref_range(self, a):
         """
-        Devuelve (ref_text, low, high) usando prioridad:
-        1) Dinámicas (edad/sexo)  2) Analysis Specifications
-        3) Reference Definitions   4) Análisis/Servicio
+        Devuelve (ref_text, low, high, src) usando prioridad:
+          0) Range getters ricos
+          1) Dinámicas
+          2) Analysis Specifications
+          3) Reference Definitions
+          4) Análisis/Servicio
         """
         # 0) getters "ricos" con texto/dict
         for g in ("getReferenceRange", "getResultsRange", "getRefRange", "getRange", "ReferenceRange", "range"):
@@ -398,33 +400,34 @@ class InfolabsaResultsWithState(BrowserView):
             if rr not in (None, u"", ""):
                 text, lo, hi = self._ref_range_from_any(rr)
                 if text or lo is not None or hi is not None:
-                    return (text if text else self._first_text_from_lo_hi(lo, hi), lo, hi)
+                    logger.debug("[impress] RefRange via %s", g)
+                    return (text if text else self._first_text_from_lo_hi(lo, hi), lo, hi, u"getter:%s" % g)
 
         # 1) Dinámicas
         svc = self._get_service(a)
         kw = getattr(svc, "getKeyword", lambda: None)() if svc else None
         if kw:
-            dlo, dhi, _ = self._extract_dynamic_specs_minmax(a, kw)
+            dlo, dhi, dsrc = self._extract_dynamic_specs_minmax(a, kw)
             if dlo is not None or dhi is not None:
-                return self._first_text_from_lo_hi(dlo, dhi), dlo, dhi
+                return self._first_text_from_lo_hi(dlo, dhi), dlo, dhi, dsrc
 
         # 2) Analysis Specifications
-        slo, shi, _ = self._extract_specs_minmax_for_analysis(a)
+        slo, shi, ssrc = self._extract_specs_minmax_for_analysis(a)
         if slo is not None or shi is not None:
-            return self._first_text_from_lo_hi(slo, shi), slo, shi
+            return self._first_text_from_lo_hi(slo, shi), slo, shi, ssrc
 
         # 3) Reference Definitions
-        rlo, rhi, _ = self._extract_refdef_minmax(a)
+        rlo, rhi, rsrc = self._extract_refdef_minmax(a)
         if rlo is not None or rhi is not None:
-            return self._first_text_from_lo_hi(rlo, rhi), rlo, rhi
+            return self._first_text_from_lo_hi(rlo, rhi), rlo, rhi, rsrc
 
         # 4) Análisis / Servicio
-        alo, ahi, _ = self._extract_analysis_or_service_minmax(a)
+        alo, ahi, asrc = self._extract_analysis_or_service_minmax(a)
         if alo is not None or ahi is not None:
-            return self._first_text_from_lo_hi(alo, ahi), alo, ahi
+            return self._first_text_from_lo_hi(alo, ahi), alo, ahi, asrc
 
         # Nada
-        return u"", None, None
+        return u"", None, None, u""
 
     # ------------------------- data extraction -------------------------
     def analyses(self):
@@ -439,13 +442,6 @@ class InfolabsaResultsWithState(BrowserView):
         return []
 
     def _status_payload(self, value, low, high, is_critical=False, delta_flag=None):
-        """
-        Traduce el estado a las 4 claves esperadas por el template:
-        - estado_class (CSS)
-        - estado_symbol (✓, ⚠, ❗, —)
-        - estado_text ("En rango", "Fuera de rango", "Crítico", "No aplica")
-        - alert_* se maneja aparte
-        """
         # default: no aplica
         estado_class = u''
         estado_symbol = u'—'
@@ -498,16 +494,15 @@ class InfolabsaResultsWithState(BrowserView):
             u''
         )
 
-        # Resultado y unidad (robustos)
+        # Resultado y unidad
         result = self._get_result(a)
         unit = self._get_unit(a)
 
-        # Rango de referencia (robusto + prioridad completa)
-        ref_text, low, high = self._compute_ref_range(a)
+        # Rango de referencia con prioridad completa
+        ref_text, low, high, ref_src = self._compute_ref_range(a)
 
-        # Flags: crítico / delta (si tus objetos exponen estos getters, úsalos)
+        # Flags: crítico / delta (si existen)
         is_critical = bool(self._get(a, 'getCritical', False) or self._get(a, 'isCritical', False))
-        delta_flag = None
         try:
             delta_flag = self._get(a, 'getDeltaFlag')  # idealmente un dict
         except Exception:
@@ -521,16 +516,21 @@ class InfolabsaResultsWithState(BrowserView):
             if not ref_text and low is None and high is None:
                 uid = getattr(a, 'UID', lambda: None)()
                 logger.info("[impress] Sin rango detectable para '%s' (uid=%r). "
-                            "Verifica DynamicSpecs/Specs/RefDefs/limits.", name, uid)
+                            "Revisar DynamicSpecs/Specs/RefDefs/limits.", name, uid)
+            else:
+                logger.debug("[impress] Rango '%s' -> low=%r high=%r src=%s", name, low, high, ref_src or "n/a")
         except Exception:
             pass
 
         return {
-            # EXACTAMENTE lo que el template espera:
+            # EXACTAMENTE lo que el template espera + nuevos campos:
             'name': name,
             'result': result,
             'unit': unit,
-            'ref_range': ref_text,
+            'ref_range': ref_text or u'',
+            'ref_low': low,
+            'ref_high': high,
+            'ref_src': ref_src or u'',
             'estado_class': estado_class,
             'estado_symbol': estado_symbol,
             'estado_text': estado_text,
@@ -550,10 +550,7 @@ class InfolabsaResultsWithState(BrowserView):
             data = {'items': self.rows()}
             self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
             return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-        try:
-            logger.info("[infolabsa] Render COOL table via results_with_state.pt")
-        except Exception:
-            pass
+        logger.info("[infolabsa] Render COOL table via results_with_state.pt")
         return self.index()
 
 
@@ -566,17 +563,10 @@ InfolabsaResults = InfolabsaResultsWithState
 # ======================================================================
 
 class InfolabsaDeltaCheck(BrowserView):
-    """Devuelve {'header': {...}, 'rows': [...]} para el mini-panel de Delta Check."""
 
-    # ---------- helpers ----------
     def _spark_svg(self, points):
-        """
-        Genera un pequeño sparkline SVG.
-        points: lista [(DateTime ISO string, float|None), ...] ordenables por tiempo.
-        """
         if not points:
             return u""
-        # tomamos solo valores numéricos
         vals = [p[1] for p in points if p[1] is not None]
         if not vals:
             return u""
@@ -603,19 +593,11 @@ class InfolabsaDeltaCheck(BrowserView):
 </svg>""".format(W=W, H=H, d=d)
 
     def _pick_window_months(self, series):
-        """
-        Elige 6m si hay ≥3 mediciones en 6 meses; si no, usa 12m.
-        series: [{'date': DateTime, 'value': float, ...}, ...]
-        """
         now = DateTime()
         sixm = [p for p in series if (now - p['date']).days <= 31 * 6]
         return 6 if len(sixm) >= 3 else 12
 
     def _delta_row(self, analito):
-        """
-        Construye una fila delta con última y previa medición, Δ% y sparkline.
-        analito: {'name', 'unit', 'series':[{'sid','date','value'}...]}
-        """
         unit = analito.get('unit', u'')
         series = list(analito.get('series', [])) or []
         if not series:
@@ -647,9 +629,6 @@ class InfolabsaDeltaCheck(BrowserView):
         if delta_abs is not None:
             arrow = u"↑" if delta_abs > 0 else (u"↓" if delta_abs < 0 else u"→")
 
-        rcv_note = u""
-        rcv_flag = u""
-
         points = [(p['date'].ISO(), p.get('value')) for p in win]
         spark = self._spark_svg(points)
 
@@ -672,18 +651,14 @@ class InfolabsaDeltaCheck(BrowserView):
             'delta_abs': (_fmt(delta_abs, 2) if delta_abs is not None else None),
             'delta_pct': (round(delta_pct, 1) if delta_pct is not None else None),
             'arrow': arrow,
-            'rcv_note': rcv_note,
-            'rcv_flag': rcv_flag,
+            'rcv_note': u'',
+            'rcv_flag': u'',
             'spark_svg': spark,
         }
         return row
 
-    # ---------------- DEMO: sustituye por extracción real de SENAITE 2.6 ----------------
+    # DEMO: sustituir por consulta real
     def _fetch_series_for_ar(self, ar):
-        """
-        Devuelve lista de analitos con series históricas.
-        Sustituir por consulta real al historial del paciente/AR.
-        """
         return [
             {'name': 'Glucosa', 'unit': 'mg/dL', 'series': [
                 {'sid': 'AR001', 'date': DateTime() - 120, 'value': 88.0},
@@ -696,12 +671,7 @@ class InfolabsaDeltaCheck(BrowserView):
             ]},
         ]
 
-    # ---------------- salida para el template ----------------
     def __call__(self, ar=None):
-        """
-        Retorna {'header': {...}, 'rows': [...]}.
-        'header.dominant' es 6 o 12 según la ventana predominante.
-        """
         ar_obj = ar or getattr(self, 'context', None)
         series_by_analyte = self._fetch_series_for_ar(ar_obj)
 
