@@ -477,8 +477,8 @@
 
     <!-- =========== NUEVO: Delta Check al final (última página) =========== -->
     <tal:delta define="
-      _trv python:getattr(context, 'restrictedTraverse', None);
-      delta python:(_trv and context.restrictedTraverse('@@infolabsa-delta-check')() or {});
+      _trv python:getattr(ar, 'restrictedTraverse', None);
+      delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
       hasrows python:bool(rows);
     ">
