@@ -29,6 +29,8 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ------------------------- helpers -------------------------
     def _get(self, obj, name, default=None):
+        if obj is None:
+            return default
         attr = getattr(obj, name, None)
         if callable(attr):
             try:
@@ -46,6 +48,14 @@ class InfolabsaResultsWithState(BrowserView):
     def _u(self, v):
         return _to_unicode(v)
 
+    def _first_value(self, obj, names):
+        """Devuelve el primer getter/attr no vacío encontrado en `obj`."""
+        for n in names:
+            v = self._get(obj, n)
+            if v not in (None, u"", ""):
+                return v, n
+        return None, None
+
     # ---------- extracción robusta de Resultado / Unidad ----------
     def _get_result(self, a):
         for g in ("getFormattedResult", "getResult", "Result", "result", "formatted_result"):
@@ -61,11 +71,22 @@ class InfolabsaResultsWithState(BrowserView):
                 return v
         return u""
 
-    # ---------- utilidades de rango ----------
-    def _get_low_high_candidates(self, obj):
+    def _get_service(self, a):
+        """Recupera el Analysis Service si es accesible desde el Analysis."""
+        svc, used = self._first_value(a, ("getService", "getAnalysisService", "Service", "service"))
+        if svc:
+            try:
+                title = self._get(svc, "Title") or self._get(svc, "title") or u"(sin título)"
+                logger.info("[impress] AS vinculado por %s => %s", used, self._u(title))
+            except Exception:
+                logger.info("[impress] AS vinculado por %s", used)
+        return svc
+
+    def _get_low_high_candidates(self, a_or_svc):
         """
-        Devuelve (low, high) buscando en múltiples nombres.
-        Incluye LOD/LOQ como fallback.
+        Devuelve (low, high, source) buscando en múltiples nombres, para
+        Analysis o Service indistintamente.
+        Incluye LOD/LOQ como último recurso si existen.
         """
         low_names = (
             "getLowerLimit", "getLowerResultLimit", "getLowerRange",
@@ -77,177 +98,113 @@ class InfolabsaResultsWithState(BrowserView):
             "getMax", "getMaximum", "UpperLimit", "upper", "upper_limit",
             "getUpperDetectionLimit", "getUpperQuantitationLimit", "getUpperQuantificationLimit",
         )
-        low = high = None
+        lo = hi = None
+        src = []
         for n in low_names:
-            v = self._get(obj, n)
+            v = self._get(a_or_svc, n)
             if v not in (None, u"", ""):
-                low = v
+                lo = v
+                src.append(n)
                 break
         for n in high_names:
-            v = self._get(obj, n)
+            v = self._get(a_or_svc, n)
             if v not in (None, u"", ""):
-                high = v
+                hi = v
+                src.append(n)
                 break
-        return low, high
+        return lo, hi, "+".join(src) if src else ""
 
-    def _as_mapping(self, rr):
-        """Devuelve un mapeo .get()-like si rr es dict/PersistentMapping/OOBTree."""
-        try:
-            if hasattr(rr, "get") and hasattr(rr, "keys"):
-                return rr
-        except Exception:
-            pass
-        return None
-
+    # ---------- referencia desde dict/str ----------
     def _ref_range_from_any(self, rr):
         """
-        Convierte 'rr' (callable/str/dict/objeto/tupla) a (ref_text, low, high).
-        Entiende dicts/mappings, objetos con attrs, RichText(.output/.raw) y (lo,hi).
+        Convierte 'rr' (str/dict/objeto) a texto y (low, high) si es posible.
+        Retorna (ref_text, low, high, source).
         """
-        # Si es callable, intenta invocarlo
-        try:
-            if callable(rr):
-                rr = rr()
-        except Exception:
-            pass
-
-        # Mapping (dict/PersistentMapping/OOBTree)
-        m = self._as_mapping(rr)
-        if m is not None:
-            try:
-                text = m.get("text") or m.get("label") or u""
-                lo = m.get("lower", m.get("min"))
-                hi = m.get("upper", m.get("max"))
-                if not text:
-                    lo_t = u"" if lo in (None, u"", "") else self._u(lo)
-                    hi_t = u"" if hi in (None, u"", "") else self._u(hi)
-                    text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
-                return text, lo, hi
-            except Exception:
-                pass
-
-        # Objeto con atributos (text/label/lower/upper/min/max)
-        try:
-            has_any_attr = any(hasattr(rr, a) for a in ("text", "label", "lower", "upper", "min", "max"))
-            if has_any_attr:
-                text = getattr(rr, "text", None) or getattr(rr, "label", None) or u""
-                lo = getattr(rr, "lower", None) or getattr(rr, "min", None)
-                hi = getattr(rr, "upper", None) or getattr(rr, "max", None)
-                if not text:
-                    lo_t = u"" if lo in (None, u"", "") else self._u(lo)
-                    hi_t = u"" if hi in (None, u"", "") else self._u(hi)
-                    text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
-                return text, lo, hi
-        except Exception:
-            pass
-
-        # RichText / RichTextValue (output/raw)
-        try:
-            if hasattr(rr, "output") or hasattr(rr, "raw"):
-                text = getattr(rr, "output", None) or getattr(rr, "raw", None) or u""
-                return (self._u(text), None, None)
-        except Exception:
-            pass
-
-        # Tupla/lista (lo, hi)
-        try:
-            if isinstance(rr, (tuple, list)) and len(rr) == 2:
-                lo, hi = rr[0], rr[1]
+        if isinstance(rr, dict):
+            # Claves típicas en SENAITE: min/max (+ warn_min/warn_max, operators…)
+            lo = rr.get("lower", rr.get("min"))
+            hi = rr.get("upper", rr.get("max"))
+            text = rr.get("text") or rr.get("label") or u""
+            if not text:
                 lo_t = u"" if lo in (None, u"", "") else self._u(lo)
                 hi_t = u"" if hi in (None, u"", "") else self._u(hi)
                 text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
-                return text, lo, hi
-        except Exception:
-            pass
-
-        # String/objeto simple
+            return text, lo, hi, "dict(min/max)"
+        # string/objeto
         if rr not in (None, u"", ""):
-            return self._u(rr), None, None
+            return self._u(rr), None, None, "string"
+        return u"", None, None, ""
 
-        # Nada útil
-        return u"", None, None
+    # ---------- computo de rango con búsquedas encadenadas ----------
+    def _compute_ref_range(self, a):
+        """
+        Busca el rango de referencia en Analysis y, si hace falta, en el Service.
+        Devuelve (ref_text, low, high, path_used).
+        """
+        path_used = []
 
-    def _service_of(self, a):
-        """Intenta obtener el Analysis Service del análisis."""
-        for g in ("getService", "getAnalysisService", "service"):
-            svc = self._get(a, g)
-            if svc:
-                return svc
-        return None  # (no usamos catálogo aquí para mantenerlo simple y seguro)
+        # 0) Nombre para logging
+        try:
+            an_name = (self._get(a, "Title") or self._get(a, "title") or self._get(a, "getKeyword") or u"(analito)")
+        except Exception:
+            an_name = u"(analito)"
 
-    def _compute_ref_range_from_obj(self, obj, rrdebug=False, origin="analysis"):
-        """Calcula rango desde un objeto (Analysis o Service)."""
-        range_getters = (
-            "getReferenceRange", "getResultsRange", "getRefRange",
-            "getRange", "ReferenceRange", "range",
-        )
-        for g in range_getters:
-            rr = self._get(obj, g)
+        # 1) Métodos "ricos" en Analysis
+        for g in ("getResultsRange", "getReferenceResultsRange", "getReferenceRange", "getResultsRangeDict", "getRange"):
+            rr = self._get(a, g)
             if rr not in (None, u"", ""):
-                text, lo, hi = self._ref_range_from_any(rr)
-                if rrdebug:
-                    try:
-                        logger.info("[impress] RR %s getter=%s -> text=%r ; lo=%r hi=%r",
-                                    origin, g, text, lo, hi)
-                    except Exception:
-                        pass
-                if lo is None and hi is None:
-                    lo2, hi2 = self._get_low_high_candidates(obj)
-                    if rrdebug:
-                        try:
-                            logger.info("[impress] RR %s getter=%s low/high fallback -> lo2=%r hi2=%r",
-                                        origin, g, lo2, hi2)
-                        except Exception:
-                            pass
-                    if text and (lo2 is None and hi2 is None):
-                        return text, None, None
-                    if not text and (lo2 is not None or hi2 is not None):
-                        lo_t = u"" if lo2 is None else self._u(lo2)
-                        hi_t = u"" if hi2 is None else self._u(hi2)
-                        text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
-                    return text, lo2, hi2
-                return text, lo, hi
+                ref_text, lo, hi, src = self._ref_range_from_any(rr)
+                path_used.append("Analysis.%s:%s" % (g, src))
+                if ref_text or (lo is not None or hi is not None):
+                    logger.info("[impress] %s: rango por %s", self._u(an_name), path_used[-1])
+                    # si no hay lo/hi dentro del dict/string, intenta low/high del Analysis
+                    if lo is None and hi is None:
+                        lo2, hi2, alt = self._get_low_high_candidates(a)
+                        if lo2 is not None or hi2 is not None:
+                            path_used.append("Analysis.low/high(%s)" % alt)
+                            lo, hi = lo2, hi2
+                    return ref_text, lo, hi, " -> ".join(path_used))
 
-        lo, hi = self._get_low_high_candidates(obj)
-        if rrdebug:
-            try:
-                logger.info("[impress] RR %s direct low/high -> lo=%r hi=%r", origin, lo, hi)
-            except Exception:
-                pass
+        # 2) Fallback explícito a low/high en Analysis (incluye LOQ/LOD si existieran)
+        lo, hi, alt = self._get_low_high_candidates(a)
         if lo is not None or hi is not None:
             lo_t = u"" if lo is None else self._u(lo)
             hi_t = u"" if hi is None else self._u(hi)
-            return (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip(), lo, hi
+            txt = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+            path_used.append("Analysis.low/high(%s)" % alt)
+            logger.info("[impress] %s: rango por %s", self._u(an_name), path_used[-1])
+            return txt, lo, hi, " -> ".join(path_used))
 
-        return u"", None, None
+        # 3) Intentar en el Analysis Service
+        svc = self._get_service(a)
+        if svc:
+            for g in ("getResultsRange", "getReferenceResultsRange", "getReferenceRange", "getRange"):
+                rr = self._get(svc, g)
+                if rr not in (None, u"", ""):
+                    ref_text, lo, hi, src = self._ref_range_from_any(rr)
+                    path_used.append("Service.%s:%s" % (g, src))
+                    if ref_text or (lo is not None or hi is not None):
+                        logger.info("[impress] %s: rango por %s", self._u(an_name), path_used[-1])
+                        if lo is None and hi is None:
+                            lo2, hi2, alt2 = self._get_low_high_candidates(svc)
+                            if lo2 is not None or hi2 is not None:
+                                path_used.append("Service.low/high(%s)" % alt2)
+                                lo, hi = lo2, hi2
+                        return ref_text, lo, hi, " -> ".join(path_used))
 
-    def _compute_ref_range(self, a):
-        """
-        Busca el rango de referencia:
-        1) en el Analysis
-        2) si no, en el Analysis Service
-        """
-        rrdebug = self.request.get("rrdebug") in (True, 1, "1", "true", "True")
+            # 4) Fallback a low/high en Service (incluye LOQ/LOD)
+            lo, hi, alt = self._get_low_high_candidates(svc)
+            if lo is not None or hi is not None:
+                lo_t = u"" if lo is None else self._u(lo)
+                hi_t = u"" if hi is None else self._u(hi)
+                txt = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+                path_used.append("Service.low/high(%s)" % alt)
+                logger.info("[impress] %s: rango por %s", self._u(an_name), path_used[-1])
+                return txt, lo, hi, " -> ".join(path_used))
 
-        # 1) Analysis
-        text, lo, hi = self._compute_ref_range_from_obj(a, rrdebug=rrdebug, origin="analysis")
-        if text or (lo is not None or hi is not None):
-            return text, lo, hi
-
-        # 2) Service
-        svc = self._service_of(a)
-        if svc is not None:
-            text, lo, hi = self._compute_ref_range_from_obj(svc, rrdebug=rrdebug, origin="service")
-            if text or (lo is not None or hi is not None):
-                return text, lo, hi
-
-        # 3) Nada
-        if rrdebug:
-            try:
-                logger.info("[impress] RR not found in analysis nor service")
-            except Exception:
-                pass
-        return u"", None, None
+        # 5) Sin rango
+        logger.info("[impress] %s: sin rango detectable (Analysis ni Service)", self._u(an_name))
+        return u"", None, None, ""
 
     # ------------------------- data extraction -------------------------
     def analyses(self):
@@ -323,8 +280,8 @@ class InfolabsaResultsWithState(BrowserView):
         result = self._get_result(a)
         unit = self._get_unit(a)
 
-        # Rango de referencia (robusto + fallback a low/high/LOD/LOQ si aplica)
-        ref_text, low, high = self._compute_ref_range(a)
+        # Rango de referencia (más robusto + logging de la ruta)
+        ref_text, low, high, path = self._compute_ref_range(a)
 
         # Flags: crítico / delta (si tus objetos exponen estos getters, úsalos)
         is_critical = bool(self._get(a, 'getCritical', False) or self._get(a, 'isCritical', False))
@@ -337,17 +294,18 @@ class InfolabsaResultsWithState(BrowserView):
         estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title = \
             self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
 
-        # Log informativo si no hay rango
+        # Log extra si no hay rango
         try:
             if not ref_text and low is None and high is None:
-                logger.info("[impress] Sin rango detectable para '%s' (uid=%r). "
-                            "Verifica adapters/fields de ResultsRange.",
-                            name, getattr(a, 'UID', lambda: None)())
+                logger.info("[impress] Sin rango para '%s' (uid=%r). Revisar Specifications/DynamicSpecs.",
+                            self._u(name), getattr(a, 'UID', lambda: None)())
+            else:
+                logger.info("[impress] '%s' -> ref='%s' (lo=%r, hi=%r) via %s",
+                            self._u(name), self._u(ref_text), low, high, path or "n/a")
         except Exception:
             pass
 
         return {
-            # EXACTAMENTE lo que el template espera:
             'name': name,
             'result': result,
             'unit': unit,
@@ -467,7 +425,6 @@ class InfolabsaDeltaCheck(BrowserView):
         if delta_abs is not None:
             arrow = u"↑" if delta_abs > 0 else (u"↓" if delta_abs < 0 else u"→")
 
-        # (Opcional) aquí podrías calcular RCV si tienes CVi/CVa por analito
         rcv_note = u""
         rcv_flag = u""
 
@@ -501,10 +458,6 @@ class InfolabsaDeltaCheck(BrowserView):
 
     # ---------------- DEMO: sustituye por extracción real de SENAITE 2.6 ----------------
     def _fetch_series_for_ar(self, ar):
-        """
-        Devuelve lista de analitos con series históricas.
-        Sustituir por consulta real al historial del paciente/AR.
-        """
         return [
             {'name': 'Glucosa', 'unit': 'mg/dL', 'series': [
                 {'sid': 'AR001', 'date': DateTime() - 120, 'value': 88.0},
@@ -519,10 +472,6 @@ class InfolabsaDeltaCheck(BrowserView):
 
     # ---------------- salida para el template ----------------
     def __call__(self, ar=None):
-        """
-        Retorna {'header': {...}, 'rows': [...]}.
-        'header.dominant' es 6 o 12 según la ventana predominante.
-        """
         ar_obj = ar or getattr(self, 'context', None)
         series_by_analyte = self._fetch_series_for_ar(ar_obj)
 
