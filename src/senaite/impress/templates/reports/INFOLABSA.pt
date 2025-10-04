@@ -507,40 +507,40 @@
                 <tr>
                   <td>
                     <div><strong tal:content="r/name">Analito</strong></div>
-                    <div class="small" tal:condition="r/unit" tal:content="r/unit">U</div>
+                    <div class="small" tal:condition="python:r.get('unit')" tal:content="python:r.get('unit')">U</div>
                   </td>
                   <td>
                     <!-- usa la clave real 'value_now' y la fecha del AR actual -->
-                    <div tal:content="r/value_now">—</div>
+                    <div tal:content="python:r.get('value_now') or u'—'">—</div>
                     <div class="small"
                          tal:content="python:view.to_localized_time(get(ar,'getDatePublished',None) or get(ar,'created',None) or get(ar,'getDateReceived',None))">—</div>
                   </td>
                   <td>
-                    <!-- usa 'delta_dir' y 'delta_pct' -->
+                    <!-- usa 'delta_dir' y 'delta_pct' con get() seguro -->
                     <div tal:condition="python:(r.get('delta_pct') is not None)">
                       <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
                             tal:content="python:u'%s %s' % (r.get('delta_dir') or u'Δ', r.get('delta_pct') or u'—')">Δ 0%</span>
                     </div>
-                    <div class="small" tal:condition="r/delta_note" tal:content="r/delta_note">—</div>
+                    <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                   </td>
                   <td>
                     <div class="small">
                       <span i18n:translate="">ID</span>:
-                      <strong tal:content="r/prev_sample_id">—</strong>
+                      <strong tal:content="python:r.get('prev_sample_id') or u'—'">—</strong>
                       &nbsp;|&nbsp;
-                      <span tal:content="r/prev_date">—</span>
+                      <span tal:content="python:r.get('prev_date') or u'—'">—</span>
                     </div>
                   </td>
                   <td>
-                    <span tal:condition="r/rcv_pct" tal:content="python:u'%s%%' % r.get('rcv_pct')">—</span>
-                    <span tal:condition="not:r/rcv_pct">—</span>
+                    <span tal:condition="python:r.get('rcv_pct') is not None" tal:content="python:u'%s%%' % r.get('rcv_pct')">—</span>
+                    <span tal:condition="python:r.get('rcv_pct') is None">—</span>
                   </td>
                   <td>
                     <canvas class="spark"
-                            tal:attributes="id python:u'spark-'+(r.get('uid') or repeat['r'].index|string)"></canvas>
+                            tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
                     <!-- Datos crudos para JS -->
                     <input type="hidden"
-                           tal:attributes="id python:u'spark-data-'+(r.get('uid') or repeat['r'].index|string);
+                           tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
                                            value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
                   </td>
                 </tr>
