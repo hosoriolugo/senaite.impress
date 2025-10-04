@@ -34,7 +34,24 @@
           <td tal:content="python:r['name']">Análisis</td>
           <td tal:content="python:r['result']">—</td>
           <td tal:content="python:r['unit']">—</td>
-          <td tal:content="python:r['ref_range']">—</td>
+
+          <!-- ===== AJUSTE: celda de Rango de referencia con data-* ===== -->
+          <td>
+            <span class="ref-range"
+                  tal:attributes="
+                    data-low  python: r.get('ref_low')  if r.get('ref_low')  is not None else '';
+                    data-high python: r.get('ref_high') if r.get('ref_high') is not None else '';
+                    data-src  python: r.get('ref_src') or '';
+                    title     python: r.get('ref_range') or ''">
+              <span tal:content="python:r['ref_range'] or u'—'">—</span>
+            </span>
+            <small class="text-muted ms-1"
+                   tal:condition="python:r.get('ref_src')">
+              <span tal:content="python:r['ref_src']">src</span>
+            </small>
+          </td>
+          <!-- ===== FIN AJUSTE ===== -->
+
           <td class="text-center">
             <span tal:attributes="class python:r['estado_class']">
               <span tal:condition="python:r['estado_symbol']==u'⚠'" class="fr-alert">⚠</span>
