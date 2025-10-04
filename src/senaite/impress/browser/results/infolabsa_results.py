@@ -2,6 +2,7 @@
 from Products.Five import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from DateTime import DateTime  # ← añadido para Delta Check (no afecta lo existente)
+from Products.CMFCore.utils import getToolByName  # ← para Reference Definitions
 
 try:
     from bika.lims import logger
@@ -46,6 +47,27 @@ class InfolabsaResultsWithState(BrowserView):
     def _u(self, v):
         return _to_unicode(v)
 
+    def _first_text_from_lo_hi(self, lo, hi):
+        lo_t = u"" if lo in (None, u"", "") else self._u(lo)
+        hi_t = u"" if hi in (None, u"", "") else self._u(hi)
+        txt = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+        return txt
+
+    def _get_service(self, a):
+        try:
+            return getattr(a, "getService", lambda: None)()
+        except Exception:
+            return None
+
+    def _get_ar_ctx(self, a):
+        """Devuelve (ar, sample, sampletype, client, contact) si existen"""
+        ar = getattr(a, "getAnalysisRequest", lambda: None)()
+        sample = getattr(ar, "getSample", lambda: None)() if ar else None
+        st = getattr(sample, "getSampleType", lambda: None)() if sample else None
+        client = getattr(ar, "getClient", lambda: None)() if ar else None
+        contact = getattr(ar, "getContact", lambda: None)() if ar else None
+        return ar, sample, st, client, contact
+
     # ---------- extracción robusta de Resultado / Unidad / Rango ----------
     def _get_result(self, a):
         # Prioriza formatos habituales en SENAITE/Bika
@@ -71,13 +93,11 @@ class InfolabsaResultsWithState(BrowserView):
         low_names = (
             "getLowerLimit", "getLowerResultLimit", "getLowerRange",
             "getMin", "getMinimum", "LowerLimit", "lower", "lower_limit",
-            # LOD/LOQ bajos:
             "getLowerDetectionLimit", "getLowerQuantitationLimit", "getLowerQuantificationLimit"
         )
         high_names = (
             "getUpperLimit", "getUpperResultLimit", "getUpperRange",
             "getMax", "getMaximum", "UpperLimit", "upper", "upper_limit",
-            # LOD/LOQ altos:
             "getUpperDetectionLimit", "getUpperQuantitationLimit", "getUpperQuantificationLimit"
         )
         low = high = None
@@ -104,9 +124,7 @@ class InfolabsaResultsWithState(BrowserView):
             lo = rr.get("lower", rr.get("min"))
             hi = rr.get("upper", rr.get("max"))
             if not text:
-                lo_t = u"" if lo in (None, u"", "") else self._u(lo)
-                hi_t = u"" if hi in (None, u"", "") else self._u(hi)
-                text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+                text = self._first_text_from_lo_hi(lo, hi)
             return text, lo, hi
 
         # Si es string/objeto simple, úsalo como texto
@@ -116,67 +134,296 @@ class InfolabsaResultsWithState(BrowserView):
         # Nada útil
         return u"", None, None
 
-    def _compute_ref_range(self, a):
-        """
-        Busca el rango de referencia por múltiples getters y formatos.
-        Devuelve (ref_text, low, high).
-
-        NOTA: Cualquier traza que recojamos es solo para logging.
-        """
-        path_used = []
-
-        # 1) Getters ricos que pueden devolver str o dict (adapters / servicio)
-        range_getters = (
-            "getReferenceRange", "getResultsRange", "getRefRange",
-            "getRange", "ReferenceRange", "range"
-        )
-        for g in range_getters:
-            rr = self._get(a, g)
-            if rr not in (None, u"", ""):
-                path_used.append(g)
-                text, lo, hi = self._ref_range_from_any(rr)
-                # Si no vino low/high, intenta sacarlos por otros nombres
-                if lo is None and hi is None:
-                    lo2, hi2 = self._get_low_high_candidates(a)
-                    if text and (lo2 is None and hi2 is None):
-                        # Tenemos texto explícito; devolvemos eso.
+    # ---------- 1) DINÁMICAS (edad/sexo/paciente) ----------
+    def _extract_dynamic_specs_minmax(self, a, keyword):
+        """Busca min/max en 'Especificaciones dinámicas de análisis' si tu build las expone."""
+        try:
+            ar, sample, st, client, contact = self._get_ar_ctx(a)
+            candidates = []
+            for holder, origin in (
+                (a, "Analysis"),
+                (ar, "AR"),
+                (client, "Client"),
+                (contact, "Contact"),
+                (st, "SampleType"),
+            ):
+                if not holder:
+                    continue
+                for name in ("getDynamicAnalysisSpecifications", "getDynamicSpecifications",
+                             "getPatientDynamicSpecifications", "getApplicableDynamicSpecifications"):
+                    fn = getattr(holder, name, None)
+                    if callable(fn):
                         try:
-                            logger.debug("[impress] RefRange via %s (texto)", " -> ".join(path_used))
+                            candidates.append((origin + "." + name, fn()))
                         except Exception:
                             pass
-                        return text, None, None
-                    if not text and (lo2 is not None or hi2 is not None):
-                        lo_t = u"" if lo2 is None else self._u(lo2)
-                        hi_t = u"" if hi2 is None else self._u(hi2)
-                        text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+
+            for origin, container in candidates:
+                rows = container or []
+                # dict mapeado por keyword
+                if isinstance(rows, dict) and rows.get(keyword):
+                    spec = rows.get(keyword)
+                else:
+                    spec = None
+                    if isinstance(rows, (list, tuple)):
+                        for row in rows:
+                            k = None
+                            if isinstance(row, dict):
+                                k = (row.get("keyword") or row.get("service") or row.get("Service"))
+                                if hasattr(k, "getKeyword"):
+                                    k = k.getKeyword()
+                            else:
+                                for gk in ("getKeyword", "Keyword", "keyword", "getServiceKeyword"):
+                                    gv = getattr(row, gk, None)
+                                    k = gv() if callable(gv) else None
+                                    if k:
+                                        break
+                            if k == keyword:
+                                spec = row
+                                break
+                if not spec:
+                    continue
+
+                def _read(spec, x):
+                    if isinstance(spec, dict):
+                        return spec.get(x) or spec.get(x.capitalize())
+                    v = getattr(spec, x, None)
+                    return v() if callable(v) else v
+
+                lo = _read(spec, "min") or _read(spec, "minimum")
+                hi = _read(spec, "max") or _read(spec, "maximum")
+                if lo is not None or hi is not None:
                     try:
-                        logger.debug("[impress] RefRange via %s (low/high por candidatos)", " -> ".join(path_used))
+                        logger.debug("[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
                     except Exception:
                         pass
-                    return text, lo2, hi2
-                try:
-                    logger.debug("[impress] RefRange via %s (dict con low/high)", " -> ".join(path_used))
-                except Exception:
-                    pass
-                return text, lo, hi
-
-        # 2) Fallback: busca low/high por nombres alternos (incluye LOD/LOQ si existen)
-        lo, hi = self._get_low_high_candidates(a)
-        if lo is not None or hi is not None:
-            path_used.append("low/high candidates")
-            lo_t = u"" if lo is None else self._u(lo)
-            hi_t = u"" if hi is None else self._u(hi)
-            try:
-                logger.debug("[impress] RefRange via %s", " -> ".join(path_used))
-            except Exception:
-                pass
-            return (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip(), lo, hi
-
-        # 3) No hay rango
-        try:
-            logger.debug("[impress] Sin RefRange; probados: %s", " -> ".join(path_used) or "ninguno")
+                    return lo, hi, u"dynamic"
         except Exception:
             pass
+        return None, None, None
+
+    # ---------- 2) ANALYSIS SPECIFICATIONS (AR/Cliente/Contacto/Tipo de muestra/Servicio) ----------
+    def _extract_specs_minmax_for_analysis(self, a):
+        """(lo, hi, src). Tolerante a contenedores dict/list/objeto."""
+        try:
+            service = self._get_service(a)
+            keyword = getattr(service, "getKeyword", lambda: None)() if service else None
+            if not keyword:
+                return None, None, None
+            ar, sample, st, client, contact = self._get_ar_ctx(a)
+
+            candidates = []
+            for holder, label in (
+                (ar, "AR"),
+                (client, "Client"),
+                (contact, "Contact"),
+                (st, "SampleType"),
+                (service, "Service"),
+            ):
+                if not holder:
+                    continue
+                for name in ("getAnalysisSpecifications", "getSpecifications", "getApplicableSpecifications",
+                             "getActiveAnalysisSpecifications", "getAnalysisSpecificationsFor", "getSpecificationsFor"):
+                    fn = getattr(holder, name, None)
+                    if callable(fn):
+                        try:
+                            if name.endswith("For"):
+                                ctx = ar or st or sample
+                                if ctx is not None:
+                                    candidates.append((label + "." + name, fn(ctx)))
+                            else:
+                                candidates.append((label + "." + name, fn()))
+                        except Exception:
+                            pass
+
+            for origin, container in candidates:
+                spec = None
+                if isinstance(container, dict):
+                    spec = container.get(keyword)
+                elif isinstance(container, (list, tuple)):
+                    for row in container:
+                        k = None
+                        if isinstance(row, dict):
+                            k = row.get("keyword")
+                            if not k:
+                                svc = row.get("Service", row.get("service"))
+                                if hasattr(svc, "getKeyword"):
+                                    k = svc.getKeyword()
+                                elif isinstance(svc, (str, unicode)):
+                                    k = svc
+                        else:
+                            for gk in ("getKeyword", "Keyword", "keyword", "ServiceKeyword", "getServiceKeyword"):
+                                gv = getattr(row, gk, None)
+                                k = gv() if callable(gv) else None
+                                if k:
+                                    break
+                        if k == keyword:
+                            spec = row
+                            break
+                if not spec:
+                    continue
+
+                def _read(x):
+                    if isinstance(spec, dict):
+                        return spec.get(x) or spec.get(x.capitalize())
+                    v = getattr(spec, x, None)
+                    return v() if callable(v) else v
+
+                lo = _read("min") or _read("minimum")
+                hi = _read("max") or _read("maximum")
+                if lo is not None or hi is not None:
+                    try:
+                        logger.debug("[impress] RefRange via AnalysisSpecifications (%s) %s", origin, keyword)
+                    except Exception:
+                        pass
+                    return lo, hi, u"spec"
+        except Exception:
+            pass
+        return None, None, None
+
+    # ---------- 3) REFERENCE DEFINITIONS (global Setup) ----------
+    def _extract_refdef_minmax(self, a):
+        """
+        Busca en Setup > Reference Definitions una fila para el servicio del análisis.
+        Devuelve (lo, hi, src) o (None, None, None) si no hay nada.
+        """
+        try:
+            service = self._get_service(a)
+            if not service:
+                return None, None, None
+            keyword = getattr(service, "getKeyword", lambda: None)()
+            title = getattr(service, "Title", lambda: None)() or getattr(service, "title", lambda: None)()
+
+            portal = self.context.portal_url.getPortalObject()
+            catalog = getToolByName(portal, "portal_catalog")
+            brains = catalog.searchResults(portal_type=("ReferenceDefinition", "BikaReferenceDefinition"))
+            for b in brains:
+                obj = b.getObject()
+                rows = None
+                for g in ("getReferenceValues", "ReferenceValues", "reference_values", "getValues"):
+                    fn = getattr(obj, g, None)
+                    rows = fn() if callable(fn) else getattr(obj, g, None)
+                    if rows:
+                        break
+                if not rows:
+                    continue
+
+                def _row_to_match_row(row):
+                    # Devuelve (k, lo, hi)
+                    k = None
+                    lo = hi = None
+                    if isinstance(row, dict):
+                        k = row.get("keyword") or row.get("Keyword")
+                        if not k:
+                            svc = row.get("Service") or row.get("service")
+                            if hasattr(svc, "getKeyword"):
+                                k = svc.getKeyword()
+                            elif isinstance(svc, (str, unicode)):
+                                k = svc
+                        lo = (row.get("min") or row.get("Min") or
+                              row.get("minimum") or row.get("Minimum"))
+                        hi = (row.get("max") or row.get("Max") or
+                              row.get("maximum") or row.get("Maximum"))
+                    else:
+                        for gk in ("getKeyword", "Keyword", "getServiceKeyword"):
+                            gv = getattr(row, gk, None)
+                            k = gv() if callable(gv) else None
+                            if k:
+                                break
+                        if not k:
+                            svc = None
+                            for gs in ("getService", "Service", "service"):
+                                sv = getattr(row, gs, None)
+                                svc = sv() if callable(sv) else sv
+                                if svc:
+                                    break
+                            if svc:
+                                k = getattr(svc, "getKeyword", lambda: None)()
+                                if not k:
+                                    t = getattr(svc, "Title", lambda: None)()
+                                    k = t() if callable(t) else t
+                        for gl in ("getMin", "getMinimum", "Min", "Minimum", "min", "minimum"):
+                            lv = getattr(row, gl, None)
+                            lo = lv() if callable(lv) else (lo or lv)
+                        for gh in ("getMax", "getMaximum", "Max", "Maximum", "max", "maximum"):
+                            hv = getattr(row, gh, None)
+                            hi = hv() if callable(hv) else (hi or hv)
+                    return k, lo, hi
+
+                hit = None
+                for row in rows:
+                    k, lo, hi = _row_to_match_row(row)
+                    if not k:
+                        continue
+                    if k == keyword or (title and k == title):
+                        hit = (lo, hi)
+                        break
+
+                if hit:
+                    lo, hi = hit
+                    if lo is not None or hi is not None:
+                        try:
+                            logger.debug("[impress] RefRange via ReferenceDefinitions %s", b.getURL())
+                        except Exception:
+                            pass
+                        return lo, hi, u"refdef"
+        except Exception:
+            pass
+        return None, None, None
+
+    # ---------- 4) LÍMITES DEL ANÁLISIS o del SERVICIO ----------
+    def _extract_analysis_or_service_minmax(self, a):
+        try:
+            lo, hi = self._get_low_high_candidates(a)
+            if lo is not None or hi is not None:
+                return lo, hi, u"analysis"
+            svc = self._get_service(a)
+            if svc:
+                lo2, hi2 = self._get_low_high_candidates(svc)
+                if lo2 is not None or hi2 is not None:
+                    return lo2, hi2, u"service"
+        except Exception:
+            pass
+        return None, None, None
+
+    def _compute_ref_range(self, a):
+        """
+        Devuelve (ref_text, low, high) usando prioridad:
+        1) Dinámicas (edad/sexo)  2) Analysis Specifications
+        3) Reference Definitions   4) Análisis/Servicio
+        """
+        # 0) getters "ricos" con texto/dict
+        for g in ("getReferenceRange", "getResultsRange", "getRefRange", "getRange", "ReferenceRange", "range"):
+            rr = self._get(a, g)
+            if rr not in (None, u"", ""):
+                text, lo, hi = self._ref_range_from_any(rr)
+                if text or lo is not None or hi is not None:
+                    return (text if text else self._first_text_from_lo_hi(lo, hi), lo, hi)
+
+        # 1) Dinámicas
+        svc = self._get_service(a)
+        kw = getattr(svc, "getKeyword", lambda: None)() if svc else None
+        if kw:
+            dlo, dhi, _ = self._extract_dynamic_specs_minmax(a, kw)
+            if dlo is not None or dhi is not None:
+                return self._first_text_from_lo_hi(dlo, dhi), dlo, dhi
+
+        # 2) Analysis Specifications
+        slo, shi, _ = self._extract_specs_minmax_for_analysis(a)
+        if slo is not None or shi is not None:
+            return self._first_text_from_lo_hi(slo, shi), slo, shi
+
+        # 3) Reference Definitions
+        rlo, rhi, _ = self._extract_refdef_minmax(a)
+        if rlo is not None or rhi is not None:
+            return self._first_text_from_lo_hi(rlo, rhi), rlo, rhi
+
+        # 4) Análisis / Servicio
+        alo, ahi, _ = self._extract_analysis_or_service_minmax(a)
+        if alo is not None or ahi is not None:
+            return self._first_text_from_lo_hi(alo, ahi), alo, ahi
+
+        # Nada
         return u"", None, None
 
     # ------------------------- data extraction -------------------------
@@ -233,7 +480,6 @@ class InfolabsaResultsWithState(BrowserView):
         if delta_flag:
             try:
                 alert_classes = u'al-delta'
-                # delta_flag podría ser dict {'symbol': u'▲', 'text': u'+22% vs 2025-09-01'}
                 sym = delta_flag.get('symbol') or u'▲'
                 txt = delta_flag.get('text') or u'Δ fuera de límite'
                 alert_text = u'%s %s' % (sym, txt)
@@ -256,7 +502,7 @@ class InfolabsaResultsWithState(BrowserView):
         result = self._get_result(a)
         unit = self._get_unit(a)
 
-        # Rango de referencia (robusto + fallback a low/high/LOD/LOQ si aplica)
+        # Rango de referencia (robusto + prioridad completa)
         ref_text, low, high = self._compute_ref_range(a)
 
         # Flags: crítico / delta (si tus objetos exponen estos getters, úsalos)
@@ -275,7 +521,7 @@ class InfolabsaResultsWithState(BrowserView):
             if not ref_text and low is None and high is None:
                 uid = getattr(a, 'UID', lambda: None)()
                 logger.info("[impress] Sin rango detectable para '%s' (uid=%r). "
-                            "Verifica adapters/fields de ResultsRange.", name, uid)
+                            "Verifica DynamicSpecs/Specs/RefDefs/limits.", name, uid)
         except Exception:
             pass
 
@@ -401,7 +647,6 @@ class InfolabsaDeltaCheck(BrowserView):
         if delta_abs is not None:
             arrow = u"↑" if delta_abs > 0 else (u"↓" if delta_abs < 0 else u"→")
 
-        # (Opcional) aquí podrías calcular RCV si tienes CVi/CVa por analito
         rcv_note = u""
         rcv_flag = u""
 
