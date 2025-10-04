@@ -46,9 +46,8 @@ class InfolabsaResultsWithState(BrowserView):
     def _u(self, v):
         return _to_unicode(v)
 
-    # ---------- extracción robusta de Resultado / Unidad / Rango ----------
+    # ---------- extracción robusta de Resultado / Unidad ----------
     def _get_result(self, a):
-        # Prioriza formatos habituales en SENAITE/Bika
         for g in ("getFormattedResult", "getResult", "Result", "result", "formatted_result"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
@@ -62,77 +61,144 @@ class InfolabsaResultsWithState(BrowserView):
                 return v
         return u""
 
-    def _get_low_high_candidates(self, a):
+    # ---------- utilidades de rango ----------
+    def _get_low_high_candidates(self, obj):
         """
-        Devuelve (low, high) buscando en múltiples nombres:
-        - límites clínicos: Lower/UpperLimit, Range, Min/Max
-        - (opcional) LOD/LOQ como fallback: Detection/Quantitation/Quantification
+        Devuelve (low, high) buscando en múltiples nombres.
+        Incluye LOD/LOQ como fallback.
         """
         low_names = (
             "getLowerLimit", "getLowerResultLimit", "getLowerRange",
             "getMin", "getMinimum", "LowerLimit", "lower", "lower_limit",
-            # LOD/LOQ bajos (por si tu build los expone):
-            "getLowerDetectionLimit", "getLowerQuantitationLimit", "getLowerQuantificationLimit"
+            "getLowerDetectionLimit", "getLowerQuantitationLimit", "getLowerQuantificationLimit",
         )
         high_names = (
             "getUpperLimit", "getUpperResultLimit", "getUpperRange",
             "getMax", "getMaximum", "UpperLimit", "upper", "upper_limit",
-            # LOD/LOQ altos:
-            "getUpperDetectionLimit", "getUpperQuantitationLimit", "getUpperQuantificationLimit"
+            "getUpperDetectionLimit", "getUpperQuantitationLimit", "getUpperQuantificationLimit",
         )
         low = high = None
         for n in low_names:
-            v = self._get(a, n)
+            v = self._get(obj, n)
             if v not in (None, u"", ""):
                 low = v
                 break
         for n in high_names:
-            v = self._get(a, n)
+            v = self._get(obj, n)
             if v not in (None, u"", ""):
                 high = v
                 break
         return low, high
 
+    def _as_mapping(self, rr):
+        """Devuelve un mapeo .get()-like si rr es dict/PersistentMapping/OOBTree."""
+        try:
+            if hasattr(rr, "get") and hasattr(rr, "keys"):
+                return rr
+        except Exception:
+            pass
+        return None
+
     def _ref_range_from_any(self, rr):
         """
-        Convierte 'rr' (str/dict/objeto) a texto y (low, high) si es posible.
-        Retorna (ref_text, low, high).
+        Convierte 'rr' (callable/str/dict/objeto/tupla) a (ref_text, low, high).
+        Entiende dicts/mappings, objetos con attrs, RichText(.output/.raw) y (lo,hi).
         """
-        # Si es dict, prioriza 'text' y luego lower/upper/min/max
-        if isinstance(rr, dict):
-            text = rr.get("text") or rr.get("label") or u""
-            lo = rr.get("lower", rr.get("min"))
-            hi = rr.get("upper", rr.get("max"))
-            if not text:
+        # Si es callable, intenta invocarlo
+        try:
+            if callable(rr):
+                rr = rr()
+        except Exception:
+            pass
+
+        # Mapping (dict/PersistentMapping/OOBTree)
+        m = self._as_mapping(rr)
+        if m is not None:
+            try:
+                text = m.get("text") or m.get("label") or u""
+                lo = m.get("lower", m.get("min"))
+                hi = m.get("upper", m.get("max"))
+                if not text:
+                    lo_t = u"" if lo in (None, u"", "") else self._u(lo)
+                    hi_t = u"" if hi in (None, u"", "") else self._u(hi)
+                    text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+                return text, lo, hi
+            except Exception:
+                pass
+
+        # Objeto con atributos (text/label/lower/upper/min/max)
+        try:
+            has_any_attr = any(hasattr(rr, a) for a in ("text", "label", "lower", "upper", "min", "max"))
+            if has_any_attr:
+                text = getattr(rr, "text", None) or getattr(rr, "label", None) or u""
+                lo = getattr(rr, "lower", None) or getattr(rr, "min", None)
+                hi = getattr(rr, "upper", None) or getattr(rr, "max", None)
+                if not text:
+                    lo_t = u"" if lo in (None, u"", "") else self._u(lo)
+                    hi_t = u"" if hi in (None, u"", "") else self._u(hi)
+                    text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+                return text, lo, hi
+        except Exception:
+            pass
+
+        # RichText / RichTextValue (output/raw)
+        try:
+            if hasattr(rr, "output") or hasattr(rr, "raw"):
+                text = getattr(rr, "output", None) or getattr(rr, "raw", None) or u""
+                return (self._u(text), None, None)
+        except Exception:
+            pass
+
+        # Tupla/lista (lo, hi)
+        try:
+            if isinstance(rr, (tuple, list)) and len(rr) == 2:
+                lo, hi = rr[0], rr[1]
                 lo_t = u"" if lo in (None, u"", "") else self._u(lo)
                 hi_t = u"" if hi in (None, u"", "") else self._u(hi)
                 text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
-            return text, lo, hi
+                return text, lo, hi
+        except Exception:
+            pass
 
-        # Si es string/objeto simple, úsalo como texto
+        # String/objeto simple
         if rr not in (None, u"", ""):
             return self._u(rr), None, None
 
         # Nada útil
         return u"", None, None
 
-    def _compute_ref_range(self, a):
-        """
-        Busca el rango de referencia por múltiples getters y formatos.
-        Devuelve (ref_text, low, high).
-        """
-        # 1) Getters ricos que pueden devolver str o dict (adapters / servicio)
+    def _service_of(self, a):
+        """Intenta obtener el Analysis Service del análisis."""
+        for g in ("getService", "getAnalysisService", "service"):
+            svc = self._get(a, g)
+            if svc:
+                return svc
+        return None  # (no usamos catálogo aquí para mantenerlo simple y seguro)
+
+    def _compute_ref_range_from_obj(self, obj, rrdebug=False, origin="analysis"):
+        """Calcula rango desde un objeto (Analysis o Service)."""
         range_getters = (
             "getReferenceRange", "getResultsRange", "getRefRange",
-            "getRange", "ReferenceRange", "range"
+            "getRange", "ReferenceRange", "range",
         )
         for g in range_getters:
-            rr = self._get(a, g)
+            rr = self._get(obj, g)
             if rr not in (None, u"", ""):
                 text, lo, hi = self._ref_range_from_any(rr)
-                # Si no vino low/high, intenta sacarlos por otros nombres
+                if rrdebug:
+                    try:
+                        logger.info("[impress] RR %s getter=%s -> text=%r ; lo=%r hi=%r",
+                                    origin, g, text, lo, hi)
+                    except Exception:
+                        pass
                 if lo is None and hi is None:
-                    lo2, hi2 = self._get_low_high_candidates(a)
+                    lo2, hi2 = self._get_low_high_candidates(obj)
+                    if rrdebug:
+                        try:
+                            logger.info("[impress] RR %s getter=%s low/high fallback -> lo2=%r hi2=%r",
+                                        origin, g, lo2, hi2)
+                        except Exception:
+                            pass
                     if text and (lo2 is None and hi2 is None):
                         return text, None, None
                     if not text and (lo2 is not None or hi2 is not None):
@@ -142,14 +208,45 @@ class InfolabsaResultsWithState(BrowserView):
                     return text, lo2, hi2
                 return text, lo, hi
 
-        # 2) Fallback: busca low/high por nombres alternos (incluye LOD/LOQ si existen)
-        lo, hi = self._get_low_high_candidates(a)
+        lo, hi = self._get_low_high_candidates(obj)
+        if rrdebug:
+            try:
+                logger.info("[impress] RR %s direct low/high -> lo=%r hi=%r", origin, lo, hi)
+            except Exception:
+                pass
         if lo is not None or hi is not None:
             lo_t = u"" if lo is None else self._u(lo)
             hi_t = u"" if hi is None else self._u(hi)
             return (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip(), lo, hi
 
-        # 3) No hay rango
+        return u"", None, None
+
+    def _compute_ref_range(self, a):
+        """
+        Busca el rango de referencia:
+        1) en el Analysis
+        2) si no, en el Analysis Service
+        """
+        rrdebug = self.request.get("rrdebug") in (True, 1, "1", "true", "True")
+
+        # 1) Analysis
+        text, lo, hi = self._compute_ref_range_from_obj(a, rrdebug=rrdebug, origin="analysis")
+        if text or (lo is not None or hi is not None):
+            return text, lo, hi
+
+        # 2) Service
+        svc = self._service_of(a)
+        if svc is not None:
+            text, lo, hi = self._compute_ref_range_from_obj(svc, rrdebug=rrdebug, origin="service")
+            if text or (lo is not None or hi is not None):
+                return text, lo, hi
+
+        # 3) Nada
+        if rrdebug:
+            try:
+                logger.info("[impress] RR not found in analysis nor service")
+            except Exception:
+                pass
         return u"", None, None
 
     # ------------------------- data extraction -------------------------
@@ -172,7 +269,6 @@ class InfolabsaResultsWithState(BrowserView):
         - estado_text ("En rango", "Fuera de rango", "Crítico", "No aplica")
         - alert_* se maneja aparte
         """
-        # default: no aplica
         estado_class = u''
         estado_symbol = u'—'
         estado_text = u'No aplica'
@@ -199,14 +295,12 @@ class InfolabsaResultsWithState(BrowserView):
                 estado_symbol = u'✓'
                 estado_text = u'En rango'
 
-        # Delta (▲/▼) no cambia estado_symbol, va como alerta
         alert_classes = u''
         alert_text = u''
         alert_title = u''
         if delta_flag:
             try:
                 alert_classes = u'al-delta'
-                # delta_flag podría ser dict {'symbol': u'▲', 'text': u'+22% vs 2025-09-01'}
                 sym = delta_flag.get('symbol') or u'▲'
                 txt = delta_flag.get('text') or u'Δ fuera de límite'
                 alert_text = u'%s %s' % (sym, txt)
@@ -303,7 +397,6 @@ class InfolabsaDeltaCheck(BrowserView):
         """
         if not points:
             return u""
-        # tomamos solo valores numéricos
         vals = [p[1] for p in points if p[1] is not None]
         if not vals:
             return u""
