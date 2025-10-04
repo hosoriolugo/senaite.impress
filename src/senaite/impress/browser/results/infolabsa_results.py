@@ -10,6 +10,16 @@ except Exception:  # pragma: no cover
     logger = logging.getLogger("senaite.impress")
 
 
+def _to_unicode(v):
+    try:
+        return unicode(v)
+    except Exception:
+        try:
+            return u"%s" % v
+        except Exception:
+            return u""
+
+
 class InfolabsaResultsWithState(BrowserView):
     """
     Renderiza la tabla 'cool' usando templates/results_with_state.pt
@@ -34,13 +44,113 @@ class InfolabsaResultsWithState(BrowserView):
             return None
 
     def _u(self, v):
-        try:
-            return unicode(v)
-        except Exception:
-            try:
-                return u"%s" % v
-            except Exception:
-                return u""
+        return _to_unicode(v)
+
+    # ---------- extracción robusta de Resultado / Unidad / Rango ----------
+    def _get_result(self, a):
+        # Prioriza formatos habituales en SENAITE/Bika
+        for g in ("getFormattedResult", "getResult", "Result", "result", "formatted_result"):
+            v = self._get(a, g)
+            if v not in (None, u"", ""):
+                return v
+        return u"—"
+
+    def _get_unit(self, a):
+        for g in ("getUnit", "Unit", "unit", "getFormattedUnit"):
+            v = self._get(a, g)
+            if v not in (None, u"", ""):
+                return v
+        return u""
+
+    def _get_low_high_candidates(self, a):
+        """
+        Devuelve (low, high) buscando en múltiples nombres:
+        - límites clínicos: Lower/UpperLimit, Range, Min/Max
+        - (opcional) LOD/LOQ como fallback: Detection/Quantitation/Quantification
+        """
+        low_names = (
+            "getLowerLimit", "getLowerResultLimit", "getLowerRange",
+            "getMin", "getMinimum", "LowerLimit", "lower", "lower_limit",
+            # LOD/LOQ bajos (por si tu build los expone):
+            "getLowerDetectionLimit", "getLowerQuantitationLimit", "getLowerQuantificationLimit"
+        )
+        high_names = (
+            "getUpperLimit", "getUpperResultLimit", "getUpperRange",
+            "getMax", "getMaximum", "UpperLimit", "upper", "upper_limit",
+            # LOD/LOQ altos:
+            "getUpperDetectionLimit", "getUpperQuantitationLimit", "getUpperQuantificationLimit"
+        )
+        low = high = None
+        for n in low_names:
+            v = self._get(a, n)
+            if v not in (None, u"", ""):
+                low = v
+                break
+        for n in high_names:
+            v = self._get(a, n)
+            if v not in (None, u"", ""):
+                high = v
+                break
+        return low, high
+
+    def _ref_range_from_any(self, rr):
+        """
+        Convierte 'rr' (str/dict/objeto) a texto y (low, high) si es posible.
+        Retorna (ref_text, low, high).
+        """
+        # Si es dict, prioriza 'text' y luego lower/upper/min/max
+        if isinstance(rr, dict):
+            text = rr.get("text") or rr.get("label") or u""
+            lo = rr.get("lower", rr.get("min"))
+            hi = rr.get("upper", rr.get("max"))
+            if not text:
+                lo_t = u"" if lo in (None, u"", "") else self._u(lo)
+                hi_t = u"" if hi in (None, u"", "") else self._u(hi)
+                text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+            return text, lo, hi
+
+        # Si es string/objeto simple, úsalo como texto
+        if rr not in (None, u"", ""):
+            return self._u(rr), None, None
+
+        # Nada útil
+        return u"", None, None
+
+    def _compute_ref_range(self, a):
+        """
+        Busca el rango de referencia por múltiples getters y formatos.
+        Devuelve (ref_text, low, high).
+        """
+        # 1) Getters ricos que pueden devolver str o dict (adapters / servicio)
+        range_getters = (
+            "getReferenceRange", "getResultsRange", "getRefRange",
+            "getRange", "ReferenceRange", "range"
+        )
+        for g in range_getters:
+            rr = self._get(a, g)
+            if rr not in (None, u"", ""):
+                text, lo, hi = self._ref_range_from_any(rr)
+                # Si no vino low/high, intenta sacarlos por otros nombres
+                if lo is None and hi is None:
+                    lo2, hi2 = self._get_low_high_candidates(a)
+                    if text and (lo2 is None and hi2 is None):
+                        return text, None, None
+                    if not text and (lo2 is not None or hi2 is not None):
+                        lo_t = u"" if lo2 is None else self._u(lo2)
+                        hi_t = u"" if hi2 is None else self._u(hi2)
+                        text = (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+                    return text, lo2, hi2
+                return text, lo, hi
+
+        # 2) Fallback: busca low/high por nombres alternos (incluye LOD/LOQ si existen)
+        lo, hi = self._get_low_high_candidates(a)
+        if lo is not None or hi is not None:
+            lo_t = u"" if lo is None else self._u(lo)
+            hi_t = u"" if hi is None else self._u(hi)
+            return (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip(), lo, hi
+
+        # 3) No hay rango
+        return u"", None, None
 
     # ------------------------- data extraction -------------------------
     def analyses(self):
@@ -94,12 +204,15 @@ class InfolabsaResultsWithState(BrowserView):
         alert_text = u''
         alert_title = u''
         if delta_flag:
-            alert_classes = u'al-delta'
-            # delta_flag podría ser dict {'symbol': u'▲', 'text': u'+22% vs 2025-09-01'}
-            sym = delta_flag.get('symbol') or u'▲'
-            txt = delta_flag.get('text') or u'Δ fuera de límite'
-            alert_text = u'%s %s' % (sym, txt)
-            alert_title = delta_flag.get('title') or u'Delta fuera de límite'
+            try:
+                alert_classes = u'al-delta'
+                # delta_flag podría ser dict {'symbol': u'▲', 'text': u'+22% vs 2025-09-01'}
+                sym = delta_flag.get('symbol') or u'▲'
+                txt = delta_flag.get('text') or u'Δ fuera de límite'
+                alert_text = u'%s %s' % (sym, txt)
+                alert_title = delta_flag.get('title') or u'Delta fuera de límite'
+            except Exception:
+                pass
 
         return estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title
 
@@ -112,27 +225,12 @@ class InfolabsaResultsWithState(BrowserView):
             u''
         )
 
-        # Resultado y unidad
-        result = (
-            self._get(a, 'getFormattedResult') or
-            self._get(a, 'getResult') or
-            self._get(a, 'Result') or
-            u'—'
-        )
-        unit = (self._get(a, 'getUnit') or self._get(a, 'Unit') or u'')
+        # Resultado y unidad (robustos)
+        result = self._get_result(a)
+        unit = self._get_unit(a)
 
-        # Rango de referencia
-        low = self._get(a, 'getLowerLimit')
-        high = self._get(a, 'getUpperLimit')
-        rr = (self._get(a, 'getReferenceRange') or self._get(a, 'ReferenceRange'))
-        if rr:
-            ref_range = rr
-        elif (low is not None) or (high is not None):
-            lo = u'' if low is None else self._u(low)
-            hi = u'' if high is None else self._u(high)
-            ref_range = (lo + u' – ' + hi).strip()
-        else:
-            ref_range = u''
+        # Rango de referencia (robusto + fallback a low/high/LOD/LOQ si aplica)
+        ref_text, low, high = self._compute_ref_range(a)
 
         # Flags: crítico / delta (si tus objetos exponen estos getters, úsalos)
         is_critical = bool(self._get(a, 'getCritical', False) or self._get(a, 'isCritical', False))
@@ -145,12 +243,21 @@ class InfolabsaResultsWithState(BrowserView):
         estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title = \
             self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
 
+        # Log informativo si no hay rango
+        try:
+            if not ref_text and low is None and high is None:
+                logger.info("[impress] Sin rango detectable para '%s' (uid=%r). "
+                            "Verifica adapters/fields de ResultsRange.",
+                            name, getattr(a, 'UID', lambda: None)())
+        except Exception:
+            pass
+
         return {
             # EXACTAMENTE lo que el template espera:
             'name': name,
             'result': result,
             'unit': unit,
-            'ref_range': ref_range,
+            'ref_range': ref_text,
             'estado_class': estado_class,
             'estado_symbol': estado_symbol,
             'estado_text': estado_text,
