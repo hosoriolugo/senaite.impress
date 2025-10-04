@@ -94,15 +94,25 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ---------- low/high genéricos ----------
     def _get_low_high_candidates(self, obj):
+        """Intenta leer low/high de muchos alias habituales."""
+        if not obj:
+            return None, None
         low_names = (
+            # genéricos
             "getLowerLimit", "getLowerResultLimit", "getLowerRange",
             "getMin", "getMinimum", "LowerLimit", "lower", "lower_limit",
-            "getLowerDetectionLimit", "getLowerQuantitationLimit", "getLowerQuantificationLimit"
+            # variantes comunes en SENAITE/Bika
+            "getMinValue", "MinValue", "minValue",
+            "getLowerNormal", "LowerNormal", "LowerNormalLimit",
+            # LOD/LOQ por si alguien los usa como “rango”
+            "getLowerDetectionLimit", "getLowerQuantitationLimit", "getLowerQuantificationLimit",
         )
         high_names = (
             "getUpperLimit", "getUpperResultLimit", "getUpperRange",
             "getMax", "getMaximum", "UpperLimit", "upper", "upper_limit",
-            "getUpperDetectionLimit", "getUpperQuantitationLimit", "getUpperQuantificationLimit"
+            "getMaxValue", "MaxValue", "maxValue",
+            "getUpperNormal", "UpperNormal", "UpperNormalLimit",
+            "getUpperDetectionLimit", "getUpperQuantitationLimit", "getUpperQuantificationLimit",
         )
         low = high = None
         for n in low_names:
@@ -197,7 +207,7 @@ class InfolabsaResultsWithState(BrowserView):
                 lo = _read(spec, "min") or _read(spec, "minimum")
                 hi = _read(spec, "max") or _read(spec, "maximum")
                 if lo is not None or hi is not None:
-                    logger.debug("[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
+                    logger.info("[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
                     return lo, hi, u"dynamic"
         except Exception:
             pass
@@ -280,7 +290,7 @@ class InfolabsaResultsWithState(BrowserView):
                 lo = _read("min") or _read("minimum")
                 hi = _read("max") or _read("maximum")
                 if lo is not None or hi is not None:
-                    logger.debug("[impress] RefRange via AnalysisSpecifications (%s) %s", origin, keyword)
+                    logger.info("[impress] RefRange via AnalysisSpecifications (%s) %s", origin, keyword)
                     return lo, hi, u"spec"
         except Exception:
             pass
@@ -363,7 +373,7 @@ class InfolabsaResultsWithState(BrowserView):
                 if hit:
                     lo, hi = hit
                     if lo is not None or hi is not None:
-                        logger.debug("[impress] RefRange via ReferenceDefinitions %s", b.getURL())
+                        logger.info("[impress] RefRange via ReferenceDefinitions %s", b.getURL())
                         return lo, hi, u"refdef"
         except Exception:
             pass
@@ -384,6 +394,50 @@ class InfolabsaResultsWithState(BrowserView):
             pass
         return None, None, None
 
+    # ---------- 4.b) Fallback: ReferenceValues en el Servicio ----------
+    def _extract_service_refvalues(self, a):
+        """
+        Si el Servicio guarda Reference Values (lista/dict) con min/max, tómalo.
+        """
+        try:
+            svc = self._get_service(a)
+            if not svc:
+                return None, None, None
+            rows = None
+            for g in ("getReferenceValues", "ReferenceValues", "reference_values", "getValues"):
+                fn = getattr(svc, g, None)
+                rows = fn() if callable(fn) else getattr(svc, g, None)
+                if rows:
+                    break
+            if not rows:
+                return None, None, None
+
+            def _read_row(row):
+                # Devuelve (lo, hi) del primer match útil
+                lo = hi = None
+                if isinstance(row, dict):
+                    lo = (row.get("min") or row.get("Min") or
+                          row.get("minimum") or row.get("Minimum"))
+                    hi = (row.get("max") or row.get("Max") or
+                          row.get("maximum") or row.get("Maximum"))
+                else:
+                    for gl in ("getMin", "getMinimum", "Min", "Minimum", "min", "minimum", "getMinValue"):
+                        lv = getattr(row, gl, None)
+                        lo = lv() if callable(lv) else (lo or lv)
+                    for gh in ("getMax", "getMaximum", "Max", "Maximum", "max", "maximum", "getMaxValue"):
+                        hv = getattr(row, gh, None)
+                        hi = hv() if callable(hv) else (hi or hv)
+                return lo, hi
+
+            for row in rows:
+                lo, hi = _read_row(row)
+                if lo is not None or hi is not None:
+                    logger.info("[impress] RefRange via Service.ReferenceValues")
+                    return lo, hi, u"service.refvalues"
+        except Exception:
+            pass
+        return None, None, None
+
     # ---------- selector maestro con prioridad ----------
     def _compute_ref_range(self, a):
         """
@@ -393,6 +447,7 @@ class InfolabsaResultsWithState(BrowserView):
           2) Analysis Specifications
           3) Reference Definitions
           4) Análisis/Servicio
+          4.b) Service.ReferenceValues
         """
         # 0) getters "ricos" con texto/dict
         for g in ("getReferenceRange", "getResultsRange", "getRefRange", "getRange", "ReferenceRange", "range"):
@@ -400,7 +455,7 @@ class InfolabsaResultsWithState(BrowserView):
             if rr not in (None, u"", ""):
                 text, lo, hi = self._ref_range_from_any(rr)
                 if text or lo is not None or hi is not None:
-                    logger.debug("[impress] RefRange via %s", g)
+                    logger.info("[impress] RefRange via %s", g)
                     return (text if text else self._first_text_from_lo_hi(lo, hi), lo, hi, u"getter:%s" % g)
 
         # 1) Dinámicas
@@ -409,22 +464,37 @@ class InfolabsaResultsWithState(BrowserView):
         if kw:
             dlo, dhi, dsrc = self._extract_dynamic_specs_minmax(a, kw)
             if dlo is not None or dhi is not None:
-                return self._first_text_from_lo_hi(dlo, dhi), dlo, dhi, dsrc
+                txt = self._first_text_from_lo_hi(dlo, dhi)
+                logger.info("[impress] RefRange via %s", dsrc)
+                return txt, dlo, dhi, dsrc
 
         # 2) Analysis Specifications
         slo, shi, ssrc = self._extract_specs_minmax_for_analysis(a)
         if slo is not None or shi is not None:
-            return self._first_text_from_lo_hi(slo, shi), slo, shi, ssrc
+            txt = self._first_text_from_lo_hi(slo, shi)
+            logger.info("[impress] RefRange via %s", ssrc)
+            return txt, slo, shi, ssrc
 
         # 3) Reference Definitions
         rlo, rhi, rsrc = self._extract_refdef_minmax(a)
         if rlo is not None or rhi is not None:
-            return self._first_text_from_lo_hi(rlo, rhi), rlo, rhi, rsrc
+            txt = self._first_text_from_lo_hi(rlo, rhi)
+            logger.info("[impress] RefRange via %s", rsrc)
+            return txt, rlo, rhi, rsrc
 
-        # 4) Análisis / Servicio
+        # 4) Análisis / Servicio (campos de límite)
         alo, ahi, asrc = self._extract_analysis_or_service_minmax(a)
         if alo is not None or ahi is not None:
-            return self._first_text_from_lo_hi(alo, ahi), alo, ahi, asrc
+            txt = self._first_text_from_lo_hi(alo, ahi)
+            logger.info("[impress] RefRange via %s (analysis/service fields)", asrc)
+            return txt, alo, ahi, asrc
+
+        # 4.b) Fallback explícito: Service.ReferenceValues()
+        sv_lo, sv_hi, sv_src = self._extract_service_refvalues(a)
+        if sv_lo is not None or sv_hi is not None:
+            txt = self._first_text_from_lo_hi(sv_lo, sv_hi)
+            logger.info("[impress] RefRange via %s", sv_src)
+            return txt, sv_lo, sv_hi, sv_src
 
         # Nada
         return u"", None, None, u""
