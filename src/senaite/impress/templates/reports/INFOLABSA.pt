@@ -67,7 +67,6 @@
       border-collapse: collapse;
       border-spacing: 0;
     }
-    /* Evitamos doble borde por celda y aplicamos uno solo al renglón */
     .results-center-cells table.table.table-condensed thead th {
       border-bottom: 0 !important;
       padding-top: 2px; 
@@ -75,7 +74,7 @@
       vertical-align: bottom;
     }
     .results-center-cells table.table.table-condensed thead tr {
-      border-bottom: 1px solid #dee2e6 !important;  /* ← igual que en “Resultados”, “Datos del Paciente” y “Resumen de la Muestra” */
+      border-bottom: 1px solid #dee2e6 !important;
     }
     .results-center-cells table.table.table-condensed tbody td {
       border-bottom: 1px solid #dee2e6 !important;
@@ -333,7 +332,7 @@
                                 $el.attr('data-type') || 'code128',
                                 {
                                   barWidth: parseInt($el.attr('data-barwidth') || 1, 10),
-                                  barHeight: parseInt($el.attr('data-barheight') || 26, 10),
+                                  barHeight: parseInt($el.attr('data-barheight') || 26),
                                   bgColor: '#ffffff',
                                   color: '#000000',
                                   output: 'svg',
@@ -477,6 +476,7 @@
 
     <!-- =========== NUEVO: Delta Check al final (última página) =========== -->
     <tal:delta define="
+      get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
@@ -510,20 +510,23 @@
                     <div class="small" tal:condition="r/unit" tal:content="r/unit">U</div>
                   </td>
                   <td>
-                    <div tal:content="r/last_value">—</div>
-                    <div class="small" tal:content="r/last_date">—</div>
+                    <!-- usa la clave real 'value_now' y la fecha del AR actual -->
+                    <div tal:content="r/value_now">—</div>
+                    <div class="small"
+                         tal:content="python:view.to_localized_time(get(ar,'getDatePublished',None) or get(ar,'created',None) or get(ar,'getDateReceived',None))">—</div>
                   </td>
                   <td>
+                    <!-- usa 'delta_dir' y 'delta_pct' -->
                     <div tal:condition="python:(r.get('delta_pct') is not None)">
-                      <span tal:attributes="class python:(r.get('delta_symbol')==u'▲' and 'delta-up' or (r.get('delta_symbol')==u'▼' and 'delta-down' or ''))"
-                            tal:content="python:u'%s %s%%' % (r.get('delta_symbol') or u'Δ', r.get('delta_pct'))">Δ 0%</span>
+                      <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
+                            tal:content="python:u'%s %s' % (r.get('delta_dir') or u'Δ', r.get('delta_pct') or u'—')">Δ 0%</span>
                     </div>
                     <div class="small" tal:condition="r/delta_note" tal:content="r/delta_note">—</div>
                   </td>
                   <td>
                     <div class="small">
                       <span i18n:translate="">ID</span>:
-                      <strong tal:content="r/prev_sid">—</strong>
+                      <strong tal:content="r/prev_sample_id">—</strong>
                       &nbsp;|&nbsp;
                       <span tal:content="r/prev_date">—</span>
                     </div>
