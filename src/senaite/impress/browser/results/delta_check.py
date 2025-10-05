@@ -402,10 +402,11 @@ class InfolabsaDeltaCheck(BrowserView):
     # ------------------ Serie por analito vía catálogo de analyses ------------------
     def _series_for_uid(self, ars, analito_uid, keyword, title):
         """
-        Construye la serie (date,value,raw,ar) del analito:
+        Construye la serie (date,value,raw,ar,rid) del analito:
         - Filtra analyses por getRequestID ∈ IDs de AR candidatos
         - y por getKeyword (o getServiceUID si quisieras).
         - Usa fecha del AR (verificada->publicada->recepción->creado).
+        - Deduplica por rid quedándote con el punto más reciente por AR.
         """
         acat = self._acat()
 
@@ -430,7 +431,7 @@ class InfolabsaDeltaCheck(BrowserView):
         # Si hay índice de keyword, úsalo (más directo y robusto)
         if keyword and self._catalog_has_index("getKeyword", analyses=True):
             query["getKeyword"] = keyword
-        # Alternativa opcional: por UID de servicio (descomentar si conviene)
+        # Alternativa opcional por UID de servicio:
         # elif analito_uid and self._catalog_has_index("getServiceUID", analyses=True) and not analito_uid.startswith("kw:"):
         #     query["getServiceUID"] = analito_uid
 
@@ -477,15 +478,13 @@ class InfolabsaDeltaCheck(BrowserView):
                 continue
 
             iso = self._iso(dt)
-            pts.append({"date": iso, "value": fval, "raw": raw_val, "ar": ar_ref or self.context})
+            pts.append({"date": iso, "value": fval, "raw": raw_val, "ar": ar_ref or self.context, "rid": rid})
 
-        # Asegura orden temporal
-        pts.sort(key=lambda p: p["date"])
-
-        # Último intento: si la query por catálogo no devolvió el punto actual (p.ej. falta de índice),
+        # Último intento: si la query por catálogo no devolvió el punto actual (p.ej. falta de índices),
         # añade el del AR actual por inspección directa
         if not pts:
             cur_ar = self.context
+            cur_rid = self._get(cur_ar, "getRequestID") or self._get(cur_ar, "getId")
             dt = self._date_of_ar(cur_ar)
             for a in self._analyses_of(cur_ar):
                 keys = self._analysis_keys(a)
@@ -502,10 +501,21 @@ class InfolabsaDeltaCheck(BrowserView):
                 if f is None:
                     continue
                 iso = self._iso(dt)
-                pts.append({"date": iso, "value": f, "raw": raw, "ar": cur_ar})
+                pts.append({"date": iso, "value": f, "raw": raw, "ar": cur_ar, "rid": cur_rid})
                 break
 
-            pts.sort(key=lambda p: p["date"])
+        # Deduplicar por rid: conservar el punto con fecha más reciente para cada AR
+        by_rid = {}
+        for p in pts:
+            rid = p.get("rid")
+            if not rid:
+                continue
+            prev = by_rid.get(rid)
+            if prev is None or p["date"] > prev["date"]:
+                by_rid[rid] = p
+
+        pts = list(by_rid.values())
+        pts.sort(key=lambda p: p["date"])
 
         # Recorte a los últimos MAX_POINTS
         if len(pts) > self.MAX_POINTS:
@@ -518,6 +528,11 @@ class InfolabsaDeltaCheck(BrowserView):
         ar = self.context
         patient = self._patient_obj(ar)
         pkeys = self._patient_keys(ar, patient)
+
+        # Datos del AR actual para selección precisa del "previo"
+        cur_rid = self._get(ar, "getRequestID") or self._get(ar, "getId")
+        cur_dt = self._date_of_ar(ar)
+        cur_iso = self._iso(cur_dt) if cur_dt else u""
 
         # AR previos del mismo paciente (por MRN si hay índice; si no, fallback)
         prev_ars = self._candidate_ars(ar, patient, pkeys)
@@ -533,57 +548,95 @@ class InfolabsaDeltaCheck(BrowserView):
 
             series = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
-            # Debe haber al menos 2 puntos (actual + previo)
+            # Debe haber al menos 2 puntos en total (alguno previo + actual)
             if len(series) < 2 or val_now is None:
                 continue
 
-            # previo inmediato (último punto que NO sea del AR actual)
+            # Previo inmediato: último punto con rid != rid actual y con fecha < fecha actual
             prev = None
             for pt in reversed(series):
-                if pt.get('ar') is not ar:
+                if pt.get("rid") and cur_rid and pt["rid"] == cur_rid:
+                    continue
+                if cur_iso and pt["date"] >= cur_iso:
+                    continue
+                prev = pt
+                break
+
+            # Fallback si no se encontró por fecha (p.ej. timestamps iguales)
+            if not prev:
+                for pt in reversed(series):
+                    if pt.get("rid") and cur_rid and pt["rid"] == cur_rid:
+                        continue
                     prev = pt
                     break
 
             if not prev:
-                # sin previo válido no mostramos fila
-                continue
+                continue  # no hay previo válido
 
-            delta_pct = u'N/A'
-            delta_dir = u'∙'
-            prev_id = u'—'
-            prev_date = u'—'
-            prev_date_fmt = u'—'
-            prev_value_raw = prev.get('raw') if prev.get('raw') not in (None, u"", "") else (
-                u"%s" % prev.get('value') if prev.get('value') is not None else u"—"
-            )
+            # Valores y formatos
+            pv = prev.get("value")
+            raw_prev = prev.get("raw")
+            prev_value_raw = (raw_prev if raw_prev not in (None, u"", "") else
+                              (u"%s" % pv if pv is not None else u"—"))
 
-            pv = prev.get('value')
-            if pv is not None and pv != 0:
-                delta = ((val_now - pv) / abs(pv)) * 100.0
-                delta_pct = u"%.1f%%" % (delta)
-                delta_dir = u'▲' if val_now > pv else (u'▼' if val_now < pv else u'Δ')
+            delta_abs = None
+            delta_pct = u"N/A"
+            delta_dir = u"∙"
 
-            if prev.get('ar'):
-                prev_id = (self._get(prev['ar'], "getRequestID") or
-                           self._get(prev['ar'], "getId") or u'—')
-                dt = self._date_of_ar(prev['ar'])
-                prev_date = self._iso(dt) if dt else u'—'
-                prev_date_fmt = self._fmt_local(dt) if dt else u'—'
+            if pv is not None:
+                try:
+                    delta_abs = float(val_now) - float(pv)
+                    if pv != 0:
+                        pct = ((float(val_now) - float(pv)) / abs(float(pv))) * 100.0
+                        delta_pct = u"%.1f%%" % pct
+                    if float(val_now) > float(pv):
+                        delta_dir = u"▲"
+                    elif float(val_now) < float(pv):
+                        delta_dir = u"▼"
+                    else:
+                        delta_dir = u"Δ"
+                except Exception:
+                    pass
+
+            # Fechas/IDs del previo
+            prev_id = (self._get(prev.get('ar'), "getRequestID") or
+                       self._get(prev.get('ar'), "getId") or u"—")
+            pdt = self._date_of_ar(prev.get('ar')) if prev.get('ar') else None
+            prev_date = self._iso(pdt) if pdt else u"—"
+            prev_date_fmt = self._fmt_local(pdt) if pdt else u"—"
+
+            # Formatos bonitos del Δ para la plantilla
+            delta_abs_fmt = u"—"
+            try:
+                if delta_abs is not None:
+                    delta_abs_fmt = u"{:+.2f}".format(delta_abs)
+            except Exception:
+                pass
+            delta_combo_fmt = (u"%s (%s)" % (delta_abs_fmt, delta_pct)
+                               if delta_abs_fmt != u"—" and delta_pct not in (None, u"", u"N/A")
+                               else u"—")
 
             rows.append({
                 'uid': keys["uid"],
                 'name': keys["name"],
                 'unit': keys["unit"] or u'',
                 'value_now': (raw_now if raw_now not in (None, u"", "") else u'—'),
+
                 'delta_pct': delta_pct,
                 'delta_dir': delta_dir,
+                'delta_abs_fmt': delta_abs_fmt,     # p.ej. +8.00
+                'delta_combo_fmt': delta_combo_fmt, # p.ej. +8.00 (+7.0%)
                 'delta_note': u'',
+
                 'prev_sample_id': prev_id,
                 'prev_date': prev_date,            # ISO (para debug/JSON)
                 'prev_date_fmt': prev_date_fmt,    # Localizado (para el PDF)
                 'prev_value': prev_value_raw,      # Valor previo (raw) para mostrar en la plantilla
-                'rcv_pct': None,
-                'series': [{'date': p['date'], 'value': p['value']} for p in series if p.get('value') is not None],
+
+                'rcv_pct': None,  # No disponible en SENAITE 2.6
+
+                'series': [{'date': p['date'], 'value': p['value']}
+                           for p in series if p.get('value') is not None],
             })
 
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
