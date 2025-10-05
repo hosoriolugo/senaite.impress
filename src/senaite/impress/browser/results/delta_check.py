@@ -25,11 +25,9 @@ def _to_num(x):
         if x in (None, u"", ""):
             return None
         try:
-            # Py2
-            numtypes = (int, long, float)
+            numtypes = (int, long, float)  # Py2
         except NameError:
-            # Py3
-            numtypes = (int, float)
+            numtypes = (int, float)        # Py3
         if isinstance(x, numtypes):
             return float(x)
         s = _u(x).replace(",", ".")
@@ -44,7 +42,9 @@ def _norm(s):
 
 
 class InfolabsaDeltaCheck(BrowserView):
-    """Delta check robusto por paciente y analito con fechas ISO-8601."""
+    """Delta check por paciente (MRN>Nombre), con filtro por Perfil de análisis.
+       Fallback por Client+SampleType(+Contact) solo si NO hay datos de paciente.
+    """
 
     PERIOD_DAYS = 365  # 12 meses
     STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
@@ -85,7 +85,6 @@ class InfolabsaDeltaCheck(BrowserView):
 
     # ------------ estado (review_state) ------------
     def _state_of(self, obj, brain=None):
-        # 1) si viene del brain, úsalo
         try:
             if brain is not None:
                 rs = getattr(brain, "review_state", None)
@@ -93,7 +92,6 @@ class InfolabsaDeltaCheck(BrowserView):
                     return _u(rs)
         except Exception:
             pass
-        # 2) atributo simple o getter en el objeto
         for g in ("getReviewState", "review_state", "state"):
             try:
                 v = getattr(obj, g, None)
@@ -102,7 +100,6 @@ class InfolabsaDeltaCheck(BrowserView):
                     return _u(v)
             except Exception:
                 continue
-        # 3) workflow tool
         try:
             wftool = self._wftool()
             if wftool:
@@ -117,20 +114,18 @@ class InfolabsaDeltaCheck(BrowserView):
     def _iso(self, dt):
         if not dt:
             return u""
-        # api helper si existe
         if api:
             try:
                 zdt = api.to_datetime(dt)
                 return zdt.strftime("%Y-%m-%dT%H:%M:%SZ")
             except Exception:
                 pass
-        # Zope DateTime tiene ISO8601()
         try:
             return dt.ISO8601()
         except Exception:
             return _u(dt)
 
-    # ------------ AR / Paciente ------------
+    # ------------ AR / Paciente / Cliente / SampleType / Perfil ------------
     def _patient_obj(self, ar):
         for pa in ("getPatient", "Patient", "getRelatedPatient"):
             if hasattr(ar, pa):
@@ -142,26 +137,115 @@ class InfolabsaDeltaCheck(BrowserView):
                     pass
         return None
 
-    def _patient_uid(self, ar_or_patient):
-        """UID si existe (en AR.getPatient() o patient obj)."""
-        p = ar_or_patient
-        if p and hasattr(p, "UID"):
+    def _patient_uid(self, patient):
+        if patient and hasattr(patient, "UID"):
             try:
-                return _u(p.UID())
+                return _u(patient.UID())
             except Exception:
                 pass
         return None
 
-    def _patient_keys(self, ar, patient):
-        """Llaves para identificar paciente incluso sin Patient UID."""
-        keys = {}
+    def _client_uid(self, ar):
+        c = self._get(ar, "getClient")
+        if c:
+            try:
+                c = c()
+            except Exception:
+                pass
+        if c and hasattr(c, "UID"):
+            try:
+                return _u(c.UID())
+            except Exception:
+                pass
+        return None
 
-        # 0) UID del Patient si existe
+    def _contact_uid(self, ar):
+        c = self._get(ar, "getContact")
+        if c:
+            try:
+                c = c()
+            except Exception:
+                pass
+        if c and hasattr(c, "UID"):
+            try:
+                return _u(c.UID())
+            except Exception:
+                pass
+        return None
+
+    def _sampletype_key(self, ar):
+        st = self._get(ar, "getSampleType")
+        if st:
+            try:
+                st = st()
+            except Exception:
+                pass
+        if st and hasattr(st, "UID"):
+            try:
+                return u"uid:" + _u(st.UID())
+            except Exception:
+                pass
+        title = None
+        try:
+            title = (st and hasattr(st, "Title") and st.Title()) or None
+        except Exception:
+            title = None
+        if not title:
+            title = self._get(ar, "getSampleTypeTitle")
+            try:
+                title = title() if callable(title) else title
+            except Exception:
+                pass
+        return u"title:" + _norm(title or u"")
+
+    def _profile_key(self, ar):
+        """Obtén una llave estable del Perfil de análisis si existe."""
+        prof = None
+        # intentos típicos en SENAITE/Bika
+        for g in ("getAnalysisProfile", "getProfile"):
+            if hasattr(ar, g):
+                try:
+                    prof = getattr(ar, g)()
+                    if prof:
+                        break
+                except Exception:
+                    pass
+        # a veces viene en lista
+        if not prof:
+            for g in ("getProfiles", "getAnalysisProfiles"):
+                if hasattr(ar, g):
+                    try:
+                        lst = getattr(ar, g)() or []
+                        if lst:
+                            prof = lst[0]
+                            break
+                    except Exception:
+                        pass
+        if not prof:
+            return None
+        # pref UID
+        if hasattr(prof, "UID"):
+            try:
+                return u"uid:" + _u(prof.UID())
+            except Exception:
+                pass
+        # fallback título
+        try:
+            t = (hasattr(prof, "Title") and prof.Title()) or None
+            if t:
+                return u"title:" + _norm(t)
+        except Exception:
+            pass
+        return None
+
+    def _patient_keys(self, ar, patient):
+        """Llaves para identificar paciente si existe Patient."""
+        keys = {}
         p_uid = self._patient_uid(patient)
         if p_uid:
             keys["patient_uid"] = p_uid
 
-        # 1) MRN-like de AR y Patient (varios nombres)
+        # MRN-like AR + Patient
         for obj in (ar, patient):
             if not obj:
                 continue
@@ -173,7 +257,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 if v:
                     keys.setdefault("mrn_like", set()).add(_u(v).strip())
 
-        # 1.b) Identificadores del patient (como en el template INFOLABSA.pt)
+        # Identifiers del Patient
         try:
             idents = []
             if patient and hasattr(patient, "getIdentifiers"):
@@ -185,7 +269,7 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             pass
 
-        # 2) Nombre completo (fallback)
+        # Nombre completo
         full = None
         for obj in (ar, patient):
             if not obj:
@@ -199,7 +283,23 @@ class InfolabsaDeltaCheck(BrowserView):
                 break
         if full:
             keys["fullname"] = _norm(full)
+
         return keys
+
+    def _context_keys(self, ar, patient):
+        """Si NO hay patient usable, definimos el 'sujeto' por contexto."""
+        keys = {
+            "client_uid": self._client_uid(ar),
+            "contact_uid": self._contact_uid(ar) or None,
+            "sampletype_key": self._sampletype_key(ar),
+        }
+        pkeys = self._patient_keys(ar, patient)
+        has_patient_info = bool(
+            pkeys.get("patient_uid") or pkeys.get("mrn_like") or pkeys.get("fullname")
+        )
+        # Perfil del AR actual (para filtrar candidatos por el mismo perfil si existe)
+        profile_key = self._profile_key(ar)
+        return pkeys, keys, has_patient_info, profile_key
 
     def _date_of_ar(self, ar):
         # PRIORIDAD: Verificado -> Publicado -> Recepción -> creado
@@ -265,10 +365,10 @@ class InfolabsaDeltaCheck(BrowserView):
                 return v, _to_num(v)
         return u"—", None
 
-    # ------------ Búsqueda de previos (robusta) ------------
+    # ------------ Emparejamiento de "sujeto" ------------
     def _same_patient(self, other_ar, pkeys):
-        """Evalúa si other_ar pertenece al mismo paciente."""
-        # 0) Si ambos AR tienen Patient con UID, compararlo primero
+        """Paciente primero: MRN exacto, luego nombre (normalizado). UID si ambos lo tienen."""
+        # Patient UID si existe en ambos
         try:
             cur_patient = self._patient_obj(self.context)
             other_patient = self._patient_obj(other_ar)
@@ -279,7 +379,7 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             pass
 
-        # 1) MRN-like en el AR other
+        # MRN-like exacto
         found = set()
         for name in (
             "getMedicalRecordNumberValue", "getMedicalRecordNumber", "getMRN",
@@ -292,7 +392,7 @@ class InfolabsaDeltaCheck(BrowserView):
             if any(x in pkeys["mrn_like"] for x in found):
                 return True
 
-        # 1.b) Identificadores del patient del AR other
+        # Identifiers del patient del AR other
         try:
             op = self._patient_obj(other_ar)
             idents = []
@@ -305,7 +405,7 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             pass
 
-        # 2) Nombre completo como último recurso
+        # Nombre completo normalizado
         full = None
         for name in ("getPatientFullName", "getFullname", "Title"):
             v = self._get(other_ar, name)
@@ -317,26 +417,42 @@ class InfolabsaDeltaCheck(BrowserView):
 
         return False
 
-    def _candidate_ars(self, current_ar, patient, pkeys):
-        """Amplía el radio de búsqueda: toma últimos N AR y filtra programáticamente,
-        quedándote solo con estados >= verified."""
+    def _same_context(self, other_ar, ctx_keys):
+        """Fallback cuando NO hay patient usable: Client + SampleType (+Contact)."""
+        if not ctx_keys:
+            return False
+        cur_client = ctx_keys.get("client_uid")
+        cur_contact = ctx_keys.get("contact_uid")
+        cur_st = ctx_keys.get("sampletype_key")
+        oth_client = self._client_uid(other_ar)
+        oth_contact = self._contact_uid(other_ar)
+        oth_st = self._sampletype_key(other_ar)
+        if cur_client and oth_client and (cur_client != oth_client):
+            return False
+        if cur_st and oth_st and (cur_st != oth_st):
+            return False
+        if cur_contact and oth_contact and (cur_contact != oth_contact):
+            return False
+        return True
+
+    # ------------ Búsqueda de previos ------------
+    def _candidate_ars(self, current_ar, patient, pkeys, ctx_keys, has_patient_info, profile_key):
+        """Trae un conjunto amplio y filtra por periodo, estado, 'sujeto' y perfil."""
         cat = self._cat()
         cur_uid = self._get(current_ar, "UID")
 
-        # Trae un conjunto amplio (p.ej. últimos 800 AR) y filtra por periodo, paciente y estado
         brains = cat.searchResults(
             portal_type="AnalysisRequest",
             sort_on="created",
             sort_order="descending",
-        )[:800]
+        )[:1000]
 
         out = []
         seen = set([cur_uid])
 
-        # Límite por periodo
         from DateTime import DateTime as ZDT
         try:
-            cutoff = ZDT() - self.PERIOD_DAYS  # días atrás
+            cutoff = ZDT() - self.PERIOD_DAYS
         except Exception:
             cutoff = None
 
@@ -344,7 +460,6 @@ class InfolabsaDeltaCheck(BrowserView):
             if b.UID in seen:
                 continue
 
-            # Periodo (si podemos)
             if cutoff and getattr(b, "created", None):
                 try:
                     if b.created < cutoff:
@@ -352,7 +467,6 @@ class InfolabsaDeltaCheck(BrowserView):
                 except Exception:
                     pass
 
-            # Estado por brain (si está)
             try:
                 b_state = getattr(b, "review_state", None)
                 if b_state and _u(b_state) not in self.STATES_OK:
@@ -365,27 +479,38 @@ class InfolabsaDeltaCheck(BrowserView):
             except Exception:
                 continue
 
-            # Estado por objeto (si no lo teníamos del brain)
             if not getattr(b, "review_state", None):
                 st = self._state_of(obj)
                 if st and st not in self.STATES_OK:
                     continue
 
-            if self._same_patient(obj, pkeys):
+            # Mismo Perfil (si el actual tiene perfil)
+            if profile_key:
+                other_profile = self._profile_key(obj)
+                if other_profile and (other_profile != profile_key):
+                    continue
+                # si el otro no tiene perfil, lo aceptamos por ahora
+
+            # Emparejamiento por paciente (cliente NO se usa cuando hay patient info)
+            ok = False
+            if has_patient_info:
+                ok = self._same_patient(obj, pkeys)
+            else:
+                ok = self._same_context(obj, ctx_keys)
+
+            if ok:
                 out.append(obj)
                 seen.add(b.UID)
 
         return out
 
+    # ------------ Serie por analito ------------
     def _series_for_uid(self, ars, analito_uid, keyword, title):
-        """Construye serie (date,value) para el analito identificado por uid/keyword/title."""
         pts = []
         for ar in ars:
-            # extra seguridad: solo puntos de AR con estado OK
             st = self._state_of(ar)
             if st and st not in self.STATES_OK:
                 continue
-
             dt = self._date_of_ar(ar)
             for a in self._analyses_of(ar):
                 keys = self._analysis_keys(a)
@@ -407,12 +532,13 @@ class InfolabsaDeltaCheck(BrowserView):
         pts.sort(key=lambda p: p['date'])
         return pts
 
+    # ------------ Vista ------------
     def __call__(self):
         ar = self.context
         patient = self._patient_obj(ar)
-        pkeys = self._patient_keys(ar, patient)
+        pkeys, ctx_keys, has_patient_info, profile_key = self._context_keys(ar, patient)
 
-        prev_ars = self._candidate_ars(ar, patient, pkeys)
+        prev_ars = self._candidate_ars(ar, patient, pkeys, ctx_keys, has_patient_info, profile_key)
         ars_for_series = list(prev_ars) + [ar]
 
         rows = []
