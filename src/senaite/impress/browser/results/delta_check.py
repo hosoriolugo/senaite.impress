@@ -24,7 +24,13 @@ def _to_num(x):
     try:
         if x in (None, u"", ""):
             return None
-        if isinstance(x, (int, long, float)):
+        try:
+            # Py2
+            numtypes = (int, long, float)
+        except NameError:
+            # Py3
+            numtypes = (int, float)
+        if isinstance(x, numtypes):
             return float(x)
         s = _u(x).replace(",", ".")
         return float(s)
@@ -107,7 +113,7 @@ class InfolabsaDeltaCheck(BrowserView):
             pass
         return None
 
-    # ------------ fechas (ISO-8601 para spark; localizado para mostrar) ------------
+    # ------------ fechas ISO-8601 (para sparkline JS) ------------
     def _iso(self, dt):
         if not dt:
             return u""
@@ -124,21 +130,6 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return _u(dt)
 
-    def _localized(self, dt):
-        """Devuelve fecha/hora localizada (legible). Fallback a ISO si falla."""
-        if not dt:
-            return u"—"
-        try:
-            portal = self.context.portal_url.getPortalObject()
-            toloc = getattr(portal, "toLocalizedTime", None) or getattr(self.context, "toLocalizedTime", None)
-            if callable(toloc):
-                # long_format=True para incluir hora
-                return _u(toloc(dt, long_format=True))
-        except Exception:
-            pass
-        # si falla, usa ISO compacto
-        return self._iso(dt) or u"—"
-
     # ------------ AR / Paciente ------------
     def _patient_obj(self, ar):
         for pa in ("getPatient", "Patient", "getRelatedPatient"):
@@ -151,10 +142,26 @@ class InfolabsaDeltaCheck(BrowserView):
                     pass
         return None
 
+    def _patient_uid(self, ar_or_patient):
+        """UID si existe (en AR.getPatient() o patient obj)."""
+        p = ar_or_patient
+        if p and hasattr(p, "UID"):
+            try:
+                return _u(p.UID())
+            except Exception:
+                pass
+        return None
+
     def _patient_keys(self, ar, patient):
         """Llaves para identificar paciente incluso sin Patient UID."""
         keys = {}
-        # MRN-like de AR y Patient (varios nombres)
+
+        # 0) UID del Patient si existe
+        p_uid = self._patient_uid(patient)
+        if p_uid:
+            keys["patient_uid"] = p_uid
+
+        # 1) MRN-like de AR y Patient (varios nombres)
         for obj in (ar, patient):
             if not obj:
                 continue
@@ -166,7 +173,19 @@ class InfolabsaDeltaCheck(BrowserView):
                 if v:
                     keys.setdefault("mrn_like", set()).add(_u(v).strip())
 
-        # Nombre completo (fallback)
+        # 1.b) Identificadores del patient (como en el template INFOLABSA.pt)
+        try:
+            idents = []
+            if patient and hasattr(patient, "getIdentifiers"):
+                idents = patient.getIdentifiers() or []
+            for i in idents:
+                val = (i.get("value", u"") or u"").strip()
+                if val:
+                    keys.setdefault("mrn_like", set()).add(_u(val))
+        except Exception:
+            pass
+
+        # 2) Nombre completo (fallback)
         full = None
         for obj in (ar, patient):
             if not obj:
@@ -248,8 +267,19 @@ class InfolabsaDeltaCheck(BrowserView):
 
     # ------------ Búsqueda de previos (robusta) ------------
     def _same_patient(self, other_ar, pkeys):
-        """Evalúa si other_ar pertenece al mismo paciente, sin depender de índices."""
-        # MRN-like en el AR other
+        """Evalúa si other_ar pertenece al mismo paciente."""
+        # 0) Si ambos AR tienen Patient con UID, compararlo primero
+        try:
+            cur_patient = self._patient_obj(self.context)
+            other_patient = self._patient_obj(other_ar)
+            cur_uid = self._patient_uid(cur_patient)
+            other_uid = self._patient_uid(other_patient)
+            if cur_uid and other_uid and (cur_uid == other_uid):
+                return True
+        except Exception:
+            pass
+
+        # 1) MRN-like en el AR other
         found = set()
         for name in (
             "getMedicalRecordNumberValue", "getMedicalRecordNumber", "getMRN",
@@ -262,7 +292,20 @@ class InfolabsaDeltaCheck(BrowserView):
             if any(x in pkeys["mrn_like"] for x in found):
                 return True
 
-        # Nombre completo como último recurso
+        # 1.b) Identificadores del patient del AR other
+        try:
+            op = self._patient_obj(other_ar)
+            idents = []
+            if op and hasattr(op, "getIdentifiers"):
+                idents = op.getIdentifiers() or []
+            for i in idents:
+                val = (i.get("value", u"") or u"").strip()
+                if val and pkeys.get("mrn_like") and (val in pkeys["mrn_like"]):
+                    return True
+        except Exception:
+            pass
+
+        # 2) Nombre completo como último recurso
         full = None
         for name in ("getPatientFullName", "getFullname", "Title"):
             v = self._get(other_ar, name)
@@ -280,12 +323,12 @@ class InfolabsaDeltaCheck(BrowserView):
         cat = self._cat()
         cur_uid = self._get(current_ar, "UID")
 
-        # Trae un conjunto amplio (p.ej. últimos 500 AR) y filtra por periodo, paciente y estado
+        # Trae un conjunto amplio (p.ej. últimos 800 AR) y filtra por periodo, paciente y estado
         brains = cat.searchResults(
             portal_type="AnalysisRequest",
             sort_on="created",
             sort_order="descending",
-        )[:500]
+        )[:800]
 
         out = []
         seen = set([cur_uid])
@@ -390,7 +433,7 @@ class InfolabsaDeltaCheck(BrowserView):
             delta_pct = u'N/A'
             delta_dir = u'∙'
             prev_id = u'—'
-            prev_date_iso = u'—'
+            prev_date = u'—'
             prev_date_fmt = u'—'
 
             if prev and val_now is not None:
@@ -403,8 +446,11 @@ class InfolabsaDeltaCheck(BrowserView):
                     prev_id = (self._get(prev['ar'], "getRequestID") or
                                self._get(prev['ar'], "getId") or u'—')
                     dt = self._date_of_ar(prev['ar'])
-                    prev_date_iso = self._iso(dt) if dt else u'—'
-                    prev_date_fmt = self._localized(dt) if dt else u'—'
+                    prev_date = self._iso(dt) if dt else u'—'
+                    try:
+                        prev_date_fmt = (dt and self.context.toLocalizedTime(dt)) or u'—'
+                    except Exception:
+                        prev_date_fmt = prev_date
 
             rows.append({
                 'uid': keys["uid"],
@@ -415,8 +461,8 @@ class InfolabsaDeltaCheck(BrowserView):
                 'delta_dir': delta_dir,
                 'delta_note': u'',
                 'prev_sample_id': prev_id,
-                'prev_date': prev_date_iso,      # se mantiene por compatibilidad
-                'prev_date_fmt': prev_date_fmt,  # NUEVO: legible/localizado
+                'prev_date': prev_date,
+                'prev_date_fmt': prev_date_fmt,
                 'rcv_pct': None,
                 'series': [{'date': p['date'], 'value': p['value']} for p in series if p.get('value') is not None],
             })
