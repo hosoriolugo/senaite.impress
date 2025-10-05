@@ -45,7 +45,8 @@ def _norm(s):
 class InfolabsaDeltaCheck(BrowserView):
     """Delta check robusto por paciente y analito con fechas ISO-8601."""
 
-    PERIOD_DAYS = 365  # 12 meses
+    PERIOD_DAYS = 365   # 12 meses (ventana)
+    MAX_POINTS  = 8     # tope de puntos por analito (más recientes)
     # Estados considerados "ok" para el delta (>= verified)
     STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
 
@@ -401,7 +402,7 @@ class InfolabsaDeltaCheck(BrowserView):
     # ------------------ Serie por analito vía catálogo de analyses ------------------
     def _series_for_uid(self, ars, analito_uid, keyword, title):
         """
-        Construye la serie (date,value) del analito:
+        Construye la serie (date,value,raw,ar) del analito:
         - Filtra analyses por getRequestID ∈ IDs de AR candidatos
         - y por getKeyword (o getServiceUID si quisieras).
         - Usa fecha del AR (verificada->publicada->recepción->creado).
@@ -429,7 +430,7 @@ class InfolabsaDeltaCheck(BrowserView):
         # Si hay índice de keyword, úsalo (más directo y robusto)
         if keyword and self._catalog_has_index("getKeyword", analyses=True):
             query["getKeyword"] = keyword
-        # Alternativa opcional: por UID de servicio (descomentar si te conviene)
+        # Alternativa opcional: por UID de servicio (descomentar si conviene)
         # elif analito_uid and self._catalog_has_index("getServiceUID", analyses=True) and not analito_uid.startswith("kw:"):
         #     query["getServiceUID"] = analito_uid
 
@@ -476,7 +477,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 continue
 
             iso = self._iso(dt)
-            pts.append({"date": iso, "value": fval, "ar": ar_ref or self.context})
+            pts.append({"date": iso, "value": fval, "raw": raw_val, "ar": ar_ref or self.context})
 
         # Asegura orden temporal
         pts.sort(key=lambda p: p["date"])
@@ -497,14 +498,18 @@ class InfolabsaDeltaCheck(BrowserView):
                     ok = True
                 if not ok:
                     continue
-                _, f = self._result_value(a)
+                raw, f = self._result_value(a)
                 if f is None:
                     continue
                 iso = self._iso(dt)
-                pts.append({"date": iso, "value": f, "ar": cur_ar})
+                pts.append({"date": iso, "value": f, "raw": raw, "ar": cur_ar})
                 break
 
             pts.sort(key=lambda p: p["date"])
+
+        # Recorte a los últimos MAX_POINTS
+        if len(pts) > self.MAX_POINTS:
+            pts = pts[-self.MAX_POINTS:]
 
         return pts
 
@@ -514,7 +519,7 @@ class InfolabsaDeltaCheck(BrowserView):
         patient = self._patient_obj(ar)
         pkeys = self._patient_keys(ar, patient)
 
-        # AR previos del mismo paciente (por MRN si hay índice)
+        # AR previos del mismo paciente (por MRN si hay índice; si no, fallback)
         prev_ars = self._candidate_ars(ar, patient, pkeys)
 
         # Serie se arma con [previos + actual]
@@ -524,47 +529,59 @@ class InfolabsaDeltaCheck(BrowserView):
         now_analyses = self._analyses_of(ar)
         for a in now_analyses:
             keys = self._analysis_keys(a)
-            raw, val_now = self._result_value(a)
+            raw_now, val_now = self._result_value(a)
 
             series = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
-            # previo inmediato (antes del actual)
+            # Debe haber al menos 2 puntos (actual + previo)
+            if len(series) < 2 or val_now is None:
+                continue
+
+            # previo inmediato (último punto que NO sea del AR actual)
             prev = None
             for pt in reversed(series):
                 if pt.get('ar') is not ar:
                     prev = pt
                     break
 
+            if not prev:
+                # sin previo válido no mostramos fila
+                continue
+
             delta_pct = u'N/A'
             delta_dir = u'∙'
             prev_id = u'—'
             prev_date = u'—'
             prev_date_fmt = u'—'
+            prev_value_raw = prev.get('raw') if prev.get('raw') not in (None, u"", "") else (
+                u"%s" % prev.get('value') if prev.get('value') is not None else u"—"
+            )
 
-            if prev and val_now is not None:
-                pv = prev['value']
-                if pv is not None and pv != 0:
-                    delta = ((val_now - pv) / abs(pv)) * 100.0
-                    delta_pct = u"%.1f%%" % (delta)
-                    delta_dir = u'▲' if val_now > pv else (u'▼' if val_now < pv else u'Δ')
-                if prev['ar']:
-                    prev_id = (self._get(prev['ar'], "getRequestID") or
-                               self._get(prev['ar'], "getId") or u'—')
-                    dt = self._date_of_ar(prev['ar'])
-                    prev_date = self._iso(dt) if dt else u'—'
-                    prev_date_fmt = self._fmt_local(dt) if dt else u'—'
+            pv = prev.get('value')
+            if pv is not None and pv != 0:
+                delta = ((val_now - pv) / abs(pv)) * 100.0
+                delta_pct = u"%.1f%%" % (delta)
+                delta_dir = u'▲' if val_now > pv else (u'▼' if val_now < pv else u'Δ')
+
+            if prev.get('ar'):
+                prev_id = (self._get(prev['ar'], "getRequestID") or
+                           self._get(prev['ar'], "getId") or u'—')
+                dt = self._date_of_ar(prev['ar'])
+                prev_date = self._iso(dt) if dt else u'—'
+                prev_date_fmt = self._fmt_local(dt) if dt else u'—'
 
             rows.append({
                 'uid': keys["uid"],
                 'name': keys["name"],
                 'unit': keys["unit"] or u'',
-                'value_now': (raw if raw not in (None, u"", "") else u'—'),
+                'value_now': (raw_now if raw_now not in (None, u"", "") else u'—'),
                 'delta_pct': delta_pct,
                 'delta_dir': delta_dir,
                 'delta_note': u'',
                 'prev_sample_id': prev_id,
-                'prev_date': prev_date,          # ISO (para debug/JSON)
-                'prev_date_fmt': prev_date_fmt,  # Localizado (para el PDF)
+                'prev_date': prev_date,            # ISO (para debug/JSON)
+                'prev_date_fmt': prev_date_fmt,    # Localizado (para el PDF)
+                'prev_value': prev_value_raw,      # Valor previo (raw) para mostrar en la plantilla
                 'rcv_pct': None,
                 'series': [{'date': p['date'], 'value': p['value']} for p in series if p.get('value') is not None],
             })
