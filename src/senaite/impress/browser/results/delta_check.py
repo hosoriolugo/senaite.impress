@@ -41,6 +41,7 @@ class InfolabsaDeltaCheck(BrowserView):
     """Delta check robusto por paciente y analito con fechas ISO-8601."""
 
     PERIOD_DAYS = 365  # 12 meses
+    STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
 
     # ------------ utils genéricos ------------
     def _get(self, obj, name, default=None):
@@ -69,6 +70,43 @@ class InfolabsaDeltaCheck(BrowserView):
         portal = self.context.portal_url.getPortalObject()
         return getToolByName(portal, "portal_catalog")
 
+    def _wftool(self):
+        try:
+            portal = self.context.portal_url.getPortalObject()
+            return getToolByName(portal, "portal_workflow")
+        except Exception:
+            return None
+
+    # ------------ estado (review_state) ------------
+    def _state_of(self, obj, brain=None):
+        # 1) si viene del brain, úsalo
+        try:
+            if brain is not None:
+                rs = getattr(brain, "review_state", None)
+                if rs:
+                    return _u(rs)
+        except Exception:
+            pass
+        # 2) atributo simple o getter en el objeto
+        for g in ("getReviewState", "review_state", "state"):
+            try:
+                v = getattr(obj, g, None)
+                v = v() if callable(v) else v
+                if v:
+                    return _u(v)
+            except Exception:
+                continue
+        # 3) workflow tool
+        try:
+            wftool = self._wftool()
+            if wftool:
+                v = wftool.getInfoFor(obj, "review_state", default=None)
+                if v:
+                    return _u(v)
+        except Exception:
+            pass
+        return None
+
     # ------------ fechas ISO-8601 (para sparkline JS) ------------
     def _iso(self, dt):
         if not dt:
@@ -76,7 +114,6 @@ class InfolabsaDeltaCheck(BrowserView):
         # api helper si existe
         if api:
             try:
-                # api.to_iso_date suele devolver YYYY-MM-DD HH:MM, pero mejor ISO completo
                 zdt = api.to_datetime(dt)
                 return zdt.strftime("%Y-%m-%dT%H:%M:%SZ")
             except Exception:
@@ -131,7 +168,8 @@ class InfolabsaDeltaCheck(BrowserView):
         return keys
 
     def _date_of_ar(self, ar):
-        for g in ("getDatePublished", "getDateVerified", "getDateReceived", "created"):
+        # PRIORIDAD: Verificado -> Publicado -> Recepción -> creado
+        for g in ("getDateVerified", "getDatePublished", "getDateReceived", "created"):
             v = self._get(ar, g)
             if v:
                 return v
@@ -222,20 +260,21 @@ class InfolabsaDeltaCheck(BrowserView):
         return False
 
     def _candidate_ars(self, current_ar, patient, pkeys):
-        """Amplía el radio de búsqueda: toma últimos N AR y filtra programáticamente."""
+        """Amplía el radio de búsqueda: toma últimos N AR y filtra programáticamente,
+        quedándote solo con estados >= verified."""
         cat = self._cat()
         cur_uid = self._get(current_ar, "UID")
-        # Trae un conjunto amplio (p.ej. últimos 500 AR) y filtra por periodo y paciente
+
+        # Trae un conjunto amplio (p.ej. últimos 500 AR) y filtra por periodo, paciente y estado
         brains = cat.searchResults(
             portal_type="AnalysisRequest",
             sort_on="created",
             sort_order="descending",
-            # Si tu catálogo tiene 'created' como DateIndex puedes filtrar por rango;
-            # si no, el corte por periodo lo hacemos después.
         )[:500]
 
         out = []
         seen = set([cur_uid])
+
         # Límite por periodo
         from DateTime import DateTime as ZDT
         try:
@@ -246,6 +285,7 @@ class InfolabsaDeltaCheck(BrowserView):
         for b in brains:
             if b.UID in seen:
                 continue
+
             # Periodo (si podemos)
             if cutoff and getattr(b, "created", None):
                 try:
@@ -253,19 +293,41 @@ class InfolabsaDeltaCheck(BrowserView):
                         continue
                 except Exception:
                     pass
+
+            # Estado por brain (si está)
+            try:
+                b_state = getattr(b, "review_state", None)
+                if b_state and _u(b_state) not in self.STATES_OK:
+                    continue
+            except Exception:
+                pass
+
             try:
                 obj = b.getObject()
             except Exception:
                 continue
+
+            # Estado por objeto (si no lo teníamos del brain)
+            if not getattr(b, "review_state", None):
+                st = self._state_of(obj)
+                if st and st not in self.STATES_OK:
+                    continue
+
             if self._same_patient(obj, pkeys):
                 out.append(obj)
                 seen.add(b.UID)
+
         return out
 
     def _series_for_uid(self, ars, analito_uid, keyword, title):
         """Construye serie (date,value) para el analito identificado por uid/keyword/title."""
         pts = []
         for ar in ars:
+            # extra seguridad: solo puntos de AR con estado OK
+            st = self._state_of(ar)
+            if st and st not in self.STATES_OK:
+                continue
+
             dt = self._date_of_ar(ar)
             for a in self._analyses_of(ar):
                 keys = self._analysis_keys(a)
