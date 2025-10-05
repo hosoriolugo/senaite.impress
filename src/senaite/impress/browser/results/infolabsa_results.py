@@ -101,10 +101,10 @@ class InfolabsaResultsWithState(BrowserView):
             # genéricos
             "getLowerLimit", "getLowerResultLimit", "getLowerRange",
             "getMin", "getMinimum", "LowerLimit", "lower", "lower_limit",
-            # variantes comunes en SENAITE/Bika
+            # variantes comunes
             "getMinValue", "MinValue", "minValue",
             "getLowerNormal", "LowerNormal", "LowerNormalLimit",
-            # LOD/LOQ por si alguien los usa como “rango”
+            # LOD/LOQ por si los usan como “rango”
             "getLowerDetectionLimit", "getLowerQuantitationLimit", "getLowerQuantificationLimit",
         )
         high_names = (
@@ -450,7 +450,9 @@ class InfolabsaResultsWithState(BrowserView):
           4.b) Service.ReferenceValues
         """
         # 0) getters "ricos" con texto/dict
-        for g in ("getReferenceRange", "getResultsRange", "getRefRange", "getRange", "ReferenceRange", "range"):
+        for g in ("getReferenceRange", "getResultsRange", "getRefRange",
+                  "getRange", "ReferenceRange", "range",
+                  "getReferenceResultsRange", "getResultRangeText"):
             rr = self._get(a, g)
             if rr not in (None, u"", ""):
                 text, lo, hi = self._ref_range_from_any(rr)
@@ -593,14 +595,25 @@ class InfolabsaResultsWithState(BrowserView):
             pass
 
         return {
-            # EXACTAMENTE lo que el template espera + nuevos campos:
+            # EXACTAMENTE lo que el template espera + alias extra
             'name': name,
             'result': result,
             'unit': unit,
+
+            # Claves canónicas
             'ref_range': ref_text or u'',
             'ref_low': low,
             'ref_high': high,
             'ref_src': ref_src or u'',
+
+            # === ALIAS para templates viejos/variantes ===
+            'reference_range': (ref_text or u''),   # alias 1
+            'range_text': (ref_text or u''),        # alias 2
+            'range': (ref_text or u''),             # alias 3
+            'reference_low': low,                   # alias low
+            'reference_high': high,                 # alias high
+
+            # Estado y alertas
             'estado_class': estado_class,
             'estado_symbol': estado_symbol,
             'estado_text': estado_text,
