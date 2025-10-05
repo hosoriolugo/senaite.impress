@@ -10,10 +10,11 @@ except NameError:
     unicode = str
 
 try:
-    from bika.lims import logger
+    from bika.lims import logger, api
 except Exception:
     import logging
     logger = logging.getLogger("senaite.impress")
+    api = None  # fallback protegido
 
 
 def _to_unicode(v):
@@ -26,10 +27,22 @@ def _to_unicode(v):
             return u""
 
 
+def _to_num(x):
+    try:
+        if x in (None, u"", ""):
+            return None
+        if isinstance(x, (int, long, float)):
+            return float(x)
+        s = _to_unicode(x).replace(",", ".")
+        return float(s)
+    except Exception:
+        return None
+
+
 class InfolabsaResultsWithState(BrowserView):
     """
     Renderiza la tabla 'cool' usando templates/results_with_state.pt
-    VERSION 2: Con _extract_refdef_minmax CORREGIDO
+    VERSION 3: añade estados de workflow, alertas unificadas y rangos por edad/género
     """
     index = ViewPageTemplateFile("../templates/results_with_state.pt")
 
@@ -44,14 +57,6 @@ class InfolabsaResultsWithState(BrowserView):
             except Exception:
                 return default
         return attr if attr is not None else default
-
-    def _num(self, x):
-        try:
-            if x in (None, u"", ""):
-                return None
-            return float(x)
-        except Exception:
-            return None
 
     def _u(self, v):
         return _to_unicode(v)
@@ -68,24 +73,33 @@ class InfolabsaResultsWithState(BrowserView):
             return None
 
     def _get_ar_ctx(self, a):
-        """Devuelve (ar, sample, sampletype, client, contact) si existen"""
+        """Devuelve (ar, sample, sampletype, client, contact, patient) si existen"""
         ar = getattr(a, "getAnalysisRequest", lambda: None)()
         sample = getattr(ar, "getSample", lambda: None)() if ar else None
         st = getattr(sample, "getSampleType", lambda: None)() if sample else None
         client = getattr(ar, "getClient", lambda: None)() if ar else None
         contact = getattr(ar, "getContact", lambda: None)() if ar else None
-        return ar, sample, st, client, contact
+        patient = None
+        for pa in ("getPatient", "Patient", "getRelatedPatient"):
+            if hasattr(ar, pa):
+                try:
+                    patient = getattr(ar, pa)()
+                    if patient:
+                        break
+                except Exception:
+                    pass
+        return ar, sample, st, client, contact, patient
 
     # ---------- extracción robusta de Resultado / Unidad ----------
     def _get_result(self, a):
-        for g in ("getFormattedResult", "getResult", "Result", "result", "formatted_result"):
+        for g in ("getFormattedResult", "getResult", "Result", "result", "formatted_result", "getValue"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
                 return v
         return u"—"
 
     def _get_unit(self, a):
-        for g in ("getUnit", "Unit", "unit", "getFormattedUnit"):
+        for g in ("getUnit", "Unit", "unit", "getFormattedUnit", "getUnitAbbreviation"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
                 return v
@@ -136,10 +150,102 @@ class InfolabsaResultsWithState(BrowserView):
             return self._u(rr), None, None
         return u"", None, None
 
+    # ---------- NUEVO: rangos por edad/género desde Service.getReferenceRanges ----------
+    def _age_years(self, patient, ar):
+        # Usa patient.getAge() o DOB; fallback al AR si lo trae
+        try:
+            if patient and hasattr(patient, "getAge"):
+                age = patient.getAge()
+                if hasattr(age, "years"):
+                    return int(age.years)
+                if isinstance(age, (int, long)):
+                    return int(age)
+        except Exception:
+            pass
+        # DOB (si api existe)
+        try:
+            if api and patient:
+                for fn in ("getDateOfBirth", "getBirthDate"):
+                    dob = getattr(patient, fn, lambda: None)()
+                    if dob:
+                        today = api.to_datetime(api.date_now())
+                        years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                        return max(0, int(years))
+        except Exception:
+            pass
+        # Edad desde AR
+        try:
+            if ar and hasattr(ar, "getAge"):
+                age = ar.getAge()
+                if hasattr(age, "years"):
+                    return int(age.years)
+                if isinstance(age, (int, long)):
+                    return int(age)
+        except Exception:
+            pass
+        return None
+
+    def _gender_code(self, patient, ar):
+        raw = None
+        for obj, attr in ((patient, "getGender"), (patient, "getSex"), (ar, "getGender"), (ar, "getSex")):
+            if obj and hasattr(obj, attr):
+                try:
+                    raw = getattr(obj, attr)()
+                    if raw:
+                        break
+                except Exception:
+                    pass
+        if not raw:
+            return None
+        s = self._u(raw).strip().lower()
+        if s in ("m", "male", "masculino", "hombre"):
+            return "male"
+        if s in ("f", "female", "femenino", "mujer"):
+            return "female"
+        return None
+
+    def _extract_service_reference_ranges_by_age_gender(self, a):
+        """Service.getReferenceRanges() con filtro por edad/género."""
+        svc = self._get_service(a)
+        if not svc:
+            return None, None, None
+        rows = self._get(svc, "getReferenceRanges") or []
+        if not rows:
+            return None, None, None
+
+        ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+        yrs = self._age_years(patient, ar)
+        gcode = self._gender_code(patient, ar)
+
+        def _ok(row):
+            try:
+                g = self._u(row.get("Gender", "")).strip().lower()
+                if g and gcode and g != gcode:
+                    return False
+                amin = row.get("AgeMin")
+                amax = row.get("AgeMax")
+                if yrs is not None:
+                    if amin not in (None, u"", "") and yrs < int(amin):
+                        return False
+                    if amax not in (None, u"", "") and yrs > int(amax):
+                        return False
+                return True
+            except Exception:
+                return True
+
+        for rr in rows:
+            if isinstance(rr, dict) and _ok(rr):
+                lo = _to_num(rr.get("Min"))
+                hi = _to_num(rr.get("Max"))
+                if lo is not None or hi is not None:
+                    txt = self._first_text_from_lo_hi(lo, hi)
+                    return txt, lo, hi
+        return None, None, None
+
     # ---------- 1) DINÁMICAS ----------
     def _extract_dynamic_specs_minmax(self, a, keyword):
         try:
-            ar, sample, st, client, contact = self._get_ar_ctx(a)
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
             candidates = []
             for holder, origin in (
                 (a, "Analysis"),
@@ -212,7 +318,7 @@ class InfolabsaResultsWithState(BrowserView):
             keyword = getattr(service, "getKeyword", lambda: None)() if service else None
             if not keyword:
                 return None, None, None
-            ar, sample, st, client, contact = self._get_ar_ctx(a)
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
 
             candidates = []
             for holder, label in (
@@ -282,117 +388,66 @@ class InfolabsaResultsWithState(BrowserView):
                 lo = _read("min") or _read("minimum")
                 hi = _read("max") or _read("maximum")
                 if lo is not None or hi is not None:
-                    logger.info("[impress] RefRange via AnalysisSpecifications (%s) %s", origin, keyword)
+                    logger.info("[impress] RefRange via AnalysisSpecifications (%s)", origin)
                     return lo, hi, u"spec"
         except Exception:
             pass
         return None, None, None
 
-    # ---------- 3) REFERENCE DEFINITIONS - VERSIÓN CORREGIDA ----------
+    # ---------- 3) REFERENCE DEFINITIONS (tu versión corregida) ----------
     def _extract_refdef_minmax(self, a):
-        """
-        Extrae min/max de ReferenceDefinitions - CORREGIDO para SENAITE 2.6
-        """
         try:
             service = self._get_service(a)
             if not service:
-                logger.warning("[impress] No service found for analysis")
                 return None, None, None
-            
-            # Obtener identificadores del servicio
-            keyword = None
-            title = None
-            service_uid = None
-            
-            try:
-                keyword = getattr(service, "getKeyword", lambda: None)()
-                title = getattr(service, "Title", lambda: None)() or getattr(service, "title", lambda: None)()
-                service_uid = getattr(service, "UID", lambda: None)()
-            except Exception as e:
-                logger.warning("[impress] Error obteniendo info del servicio: %s", e)
-                return None, None, None
-            
-            if not keyword and not title:
-                logger.warning("[impress] Service sin keyword ni title")
-                return None, None, None
-            
-            logger.info("[impress] Buscando RefDef para keyword='%s', title='%s', uid=%s", 
-                       keyword, title, service_uid)
-            
-            # Buscar ReferenceDefinitions en el catálogo
+
+            keyword = self._get(service, "getKeyword")
+            title = self._get(service, "Title")
+            service_uid = self._get(service, "UID")
+
             portal = self.context.portal_url.getPortalObject()
             catalog = getToolByName(portal, "portal_catalog")
-            
-            # Buscar todos los ReferenceDefinitions
             brains = catalog.searchResults(
                 portal_type=["ReferenceDefinition", "BikaReferenceDefinition"],
                 sort_on="created",
-                sort_order="descending"
+                sort_order="descending",
             )
-            
-            logger.info("[impress] Encontrados %d ReferenceDefinitions en catálogo", len(brains))
-            
+
             for brain in brains:
                 try:
                     obj = brain.getObject()
-                    refdef_title = getattr(obj, "Title", lambda: "")() or getattr(obj, "title", "")
-                    logger.info("[impress] Revisando ReferenceDefinition: '%s'", refdef_title)
-                    
-                    # Obtener valores de referencia
                     rows = None
-                    for getter_name in ("getReferenceValues", "getResultsRange", "ReferenceValues", 
-                                       "reference_values", "getValues", "results_range"):
+                    for getter_name in ("getReferenceValues", "getResultsRange", "ReferenceValues",
+                                        "reference_values", "getValues", "results_range"):
                         fn = getattr(obj, getter_name, None)
                         if fn:
-                            try:
-                                rows = fn() if callable(fn) else fn
-                                if rows:
-                                    logger.info("[impress] Valores obtenidos via %s: %d filas", 
-                                              getter_name, len(rows) if isinstance(rows, (list, tuple)) else 1)
-                                    break
-                            except Exception as e:
-                                logger.debug("[impress] Error en %s: %s", getter_name, e)
-                                continue
-                    
+                            rows = fn() if callable(fn) else fn
+                            if rows:
+                                break
                     if not rows:
-                        logger.info("[impress] ReferenceDefinition '%s' sin valores", refdef_title)
                         continue
-                    
-                    # Si rows es un diccionario directo
                     if isinstance(rows, dict):
                         rows = [rows]
-                    
-                    # Iterar sobre las filas
-                    for idx, row in enumerate(rows):
+                    for row in rows:
                         try:
-                            # Extraer el servicio/keyword de la fila
                             row_keyword = None
                             row_service = None
                             row_service_uid = None
-                            
                             if isinstance(row, dict):
-                                # Caso diccionario
                                 row_keyword = row.get("keyword") or row.get("Keyword")
                                 row_service = row.get("Service") or row.get("service")
-                                
-                                # Si el servicio es un objeto
                                 if row_service and hasattr(row_service, "getKeyword"):
-                                    try:
-                                        row_keyword = row_service.getKeyword()
+                                    row_keyword = row_service.getKeyword()
+                                    if hasattr(row_service, "UID"):
                                         row_service_uid = row_service.UID()
-                                    except:
-                                        pass
                                 elif isinstance(row_service, (str, unicode)):
                                     row_keyword = row_service
                             else:
-                                # Caso objeto
                                 for gk in ("getKeyword", "Keyword", "keyword", "getServiceKeyword"):
                                     gv = getattr(row, gk, None)
                                     row_keyword = gv() if callable(gv) else gv
                                     if row_keyword:
                                         break
-                                
-                                # Intentar obtener el servicio
                                 for gs in ("getService", "Service", "service"):
                                     sv = getattr(row, gs, None)
                                     row_service = sv() if callable(sv) else sv
@@ -402,78 +457,45 @@ class InfolabsaResultsWithState(BrowserView):
                                                 row_keyword = row_service.getKeyword()
                                             if hasattr(row_service, "UID"):
                                                 row_service_uid = row_service.UID()
-                                            if hasattr(row_service, "Title"):
-                                                row_title = row_service.Title()
-                                                if callable(row_title):
-                                                    row_title = row_title()
-                                                if not row_keyword:
-                                                    row_keyword = row_title
-                                        except:
+                                        except Exception:
                                             pass
                                         break
-                            
-                            logger.debug("[impress] Fila %d: row_keyword='%s', row_service_uid=%s", 
-                                       idx, row_keyword, row_service_uid)
-                            
-                            # Comparar: keyword, title o UID del servicio
+
                             is_match = False
                             if row_service_uid and service_uid and row_service_uid == service_uid:
                                 is_match = True
-                                logger.info("[impress] Match por UID del servicio")
                             elif row_keyword:
                                 if keyword and _to_unicode(row_keyword).strip().lower() == _to_unicode(keyword).strip().lower():
                                     is_match = True
-                                    logger.info("[impress] Match por keyword: '%s'", keyword)
                                 elif title and _to_unicode(row_keyword).strip().lower() == _to_unicode(title).strip().lower():
                                     is_match = True
-                                    logger.info("[impress] Match por title: '%s'", title)
-                            
                             if not is_match:
                                 continue
-                            
-                            # MATCH ENCONTRADO - Extraer min/max
+
                             lo = hi = None
-                            
                             if isinstance(row, dict):
-                                lo = (row.get("min") or row.get("Min") or 
-                                      row.get("minimum") or row.get("Minimum"))
-                                hi = (row.get("max") or row.get("Max") or 
-                                      row.get("maximum") or row.get("Maximum"))
+                                lo = (row.get("min") or row.get("Min") or row.get("minimum") or row.get("Minimum"))
+                                hi = (row.get("max") or row.get("Max") or row.get("maximum") or row.get("Maximum"))
                             else:
-                                # Objeto: intentar todos los getters
                                 for gl in ("getMin", "getMinimum", "Min", "Minimum", "min", "minimum"):
                                     lv = getattr(row, gl, None)
                                     lo = lv() if callable(lv) else (lo or lv)
                                     if lo is not None:
                                         break
-                                
                                 for gh in ("getMax", "getMaximum", "Max", "Maximum", "max", "maximum"):
                                     hv = getattr(row, gh, None)
                                     hi = hv() if callable(hv) else (hi or hv)
                                     if hi is not None:
                                         break
-                            
                             if lo is not None or hi is not None:
-                                logger.info("[impress] ENCONTRADO RefRange en '%s': min=%s, max=%s", 
-                                          refdef_title, lo, hi)
-                                return lo, hi, u"refdef:%s" % refdef_title
-                            else:
-                                logger.warning("[impress] Match encontrado pero sin min/max en fila %d", idx)
-                        
-                        except Exception as e:
-                            logger.warning("[impress] Error procesando fila %d: %s", idx, e)
+                                return lo, hi, u"refdef"
+                        except Exception:
                             continue
-                
-                except Exception as e:
-                    logger.warning("[impress] Error procesando ReferenceDefinition %s: %s", 
-                                 brain.getPath(), e)
+                except Exception:
                     continue
-            
-            logger.info("[impress] No se encontró match en ningún ReferenceDefinition")
             return None, None, None
-        
         except Exception as e:
-            logger.exception("[impress] Error crítico en _extract_refdef_minmax: %s", e)
+            logger.exception("[impress] _extract_refdef_minmax error: %s", e)
             return None, None, None
 
     # ---------- 4) LÍMITES del ANÁLISIS o del SERVICIO ----------
@@ -509,10 +531,8 @@ class InfolabsaResultsWithState(BrowserView):
             def _read_row(row):
                 lo = hi = None
                 if isinstance(row, dict):
-                    lo = (row.get("min") or row.get("Min") or
-                          row.get("minimum") or row.get("Minimum"))
-                    hi = (row.get("max") or row.get("Max") or
-                          row.get("maximum") or row.get("Maximum"))
+                    lo = (row.get("min") or row.get("Min") or row.get("minimum") or row.get("Minimum"))
+                    hi = (row.get("max") or row.get("Max") or row.get("maximum") or row.get("Maximum"))
                 else:
                     for gl in ("getMin", "getMinimum", "Min", "Minimum", "min", "minimum", "getMinValue"):
                         lv = getattr(row, gl, None)
@@ -525,17 +545,21 @@ class InfolabsaResultsWithState(BrowserView):
             for row in rows:
                 lo, hi = _read_row(row)
                 if lo is not None or hi is not None:
-                    logger.info("[impress] RefRange via Service.ReferenceValues")
                     return lo, hi, u"service.refvalues"
         except Exception:
             pass
         return None, None, None
 
-    # ---------- PRIORIDAD CORREGIDA PARA SENAITE 2.6+ ----------
+    # ---------- PRIORIDAD para SENAITE 2.6 ----------
     def _compute_ref_range(self, a):
-        """Devuelve (ref_text, low, high, src) usando prioridad CORRECTA para SENAITE 2.6+"""
-        
-        # PRIORIDAD 1: Analysis.getResultsRange() - CANÓNICO
+        """Devuelve (ref_text, low, high, src) usando prioridad razonable en 2.6"""
+
+        # 0) Service.getReferenceRanges() por edad/género (muy usado)
+        txt_ag, lo_ag, hi_ag = self._extract_service_reference_ranges_by_age_gender(a)
+        if lo_ag is not None or hi_ag is not None:
+            return (self._first_text_from_lo_hi(lo_ag, hi_ag), lo_ag, hi_ag, u"svc.refranges")
+
+        # 1) Analysis.getResultsRange() canónico
         try:
             results_range = self._get(a, "getResultsRange")
             if results_range and isinstance(results_range, dict):
@@ -543,15 +567,13 @@ class InfolabsaResultsWithState(BrowserView):
                 hi = results_range.get('max')
                 hide_min = results_range.get('hidemin', '') == 'on'
                 hide_max = results_range.get('hidemax', '') == 'on'
-                
                 if not hide_min and not hide_max and (lo is not None or hi is not None):
                     text = self._first_text_from_lo_hi(lo, hi)
-                    logger.info("[impress] RefRange via Analysis.getResultsRange() [CANÓNICO]")
                     return text, lo, hi, u"analysis.getResultsRange"
-        except Exception as e:
-            logger.debug("[impress] Error en Analysis.getResultsRange: %s", e)
+        except Exception:
+            pass
 
-        # PRIORIDAD 2: Analysis.getSpecification()
+        # 2) Analysis.getSpecification()
         try:
             spec = self._get(a, "getSpecification")
             if spec:
@@ -561,19 +583,16 @@ class InfolabsaResultsWithState(BrowserView):
                     hi = results_range.get('max')
                     if lo is not None or hi is not None:
                         text = self._first_text_from_lo_hi(lo, hi)
-                        logger.info("[impress] RefRange via Analysis.getSpecification().getResultsRange()")
                         return text, lo, hi, u"analysis.spec.resultsrange"
-                
                 lo = self._get(spec, "min") or self._get(spec, "Min")
                 hi = self._get(spec, "max") or self._get(spec, "Max")
                 if lo is not None or hi is not None:
                     text = self._first_text_from_lo_hi(lo, hi)
-                    logger.info("[impress] RefRange via Analysis.getSpecification() directo")
                     return text, lo, hi, u"analysis.spec.direct"
-        except Exception as e:
-            logger.debug("[impress] Error en Analysis.getSpecification: %s", e)
+        except Exception:
+            pass
 
-        # PRIORIDAD 3: Service.getResultsRange()
+        # 3) Service.getResultsRange()
         try:
             service = self._get_service(a)
             if service:
@@ -583,39 +602,32 @@ class InfolabsaResultsWithState(BrowserView):
                     hi = results_range.get('max')
                     hide_min = results_range.get('hidemin', '') == 'on'
                     hide_max = results_range.get('hidemax', '') == 'on'
-                    
                     if not hide_min and not hide_max and (lo is not None or hi is not None):
                         text = self._first_text_from_lo_hi(lo, hi)
-                        logger.info("[impress] RefRange via Service.getResultsRange()")
                         return text, lo, hi, u"service.getResultsRange"
-        except Exception as e:
-            logger.debug("[impress] Error en Service.getResultsRange: %s", e)
+        except Exception:
+            pass
 
-        # PRIORIDAD 4: AR.getSpecification() con keyword
+        # 4) AR.getSpecification(keyword)
         try:
-            ar, sample, st, client, contact = self._get_ar_ctx(a)
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
             if ar:
                 ar_spec = self._get(ar, "getSpecification")
                 if ar_spec:
                     service = self._get_service(a)
                     keyword = self._get(service, "getKeyword") if service else None
-                    
-                    if keyword:
-                        try:
-                            results_range = ar_spec.getResultsRange(keyword)
-                            if results_range and isinstance(results_range, dict):
-                                lo = results_range.get('min')
-                                hi = results_range.get('max')
-                                if lo is not None or hi is not None:
-                                    text = self._first_text_from_lo_hi(lo, hi)
-                                    logger.info("[impress] RefRange via AR.getSpecification().getResultsRange(keyword)")
-                                    return text, lo, hi, u"ar.spec.keyword"
-                        except Exception:
-                            pass
-        except Exception as e:
-            logger.debug("[impress] Error en AR.getSpecification: %s", e)
+                    if keyword and hasattr(ar_spec, "getResultsRange"):
+                        rr = ar_spec.getResultsRange(keyword)
+                        if rr and isinstance(rr, dict):
+                            lo = rr.get('min')
+                            hi = rr.get('max')
+                            if lo is not None or hi is not None:
+                                text = self._first_text_from_lo_hi(lo, hi)
+                                return text, lo, hi, u"ar.spec.keyword"
+        except Exception:
+            pass
 
-        # PRIORIDAD 5-9: Mantener métodos existentes
+        # 5) dynamic/spec/refdef/analysis/service/refvalues (tus caminos)
         service = self._get_service(a)
         kw = self._get(service, "getKeyword") if service else None
         if kw:
@@ -644,6 +656,7 @@ class InfolabsaResultsWithState(BrowserView):
             txt = self._first_text_from_lo_hi(sv_lo, sv_hi)
             return txt, sv_lo, sv_hi, sv_src
 
+        # Nada encontrado
         try:
             keyword = self._get(service, "getKeyword") if service else "UNKNOWN"
             title = self._get(a, "Title") or "UNKNOWN"
@@ -651,8 +664,24 @@ class InfolabsaResultsWithState(BrowserView):
             logger.warning("[impress] NO RANGO para '%s' (kw=%s, uid=%s)", title, keyword, uid)
         except Exception:
             pass
-
         return u"", None, None, u"not_found"
+
+    # ---------- estado de workflow del análisis ----------
+    def _workflow_state(self, a):
+        # Prefiere api si está disponible
+        if api:
+            try:
+                st = api.get_workflow_status_of(a)
+                if st:
+                    return self._u(st)
+            except Exception:
+                pass
+        # Fallback: review_state en catalog or attribute
+        for name in ("review_state", "getReviewState", "workflow_state"):
+            v = self._get(a, name)
+            if v:
+                return self._u(v)
+        return u""
 
     # ------------------------- data extraction -------------------------
     def analyses(self):
@@ -671,9 +700,9 @@ class InfolabsaResultsWithState(BrowserView):
         estado_symbol = u'—'
         estado_text = u'No aplica'
 
-        v = self._num(value)
-        lo = self._num(low)
-        hi = self._num(high)
+        v = _to_num(value)
+        lo = _to_num(low)
+        hi = _to_num(high)
 
         if is_critical:
             estado_class = u'al-critical'
@@ -696,6 +725,8 @@ class InfolabsaResultsWithState(BrowserView):
         alert_classes = u''
         alert_text = u''
         alert_title = u''
+
+        # Delta flag si existe
         if delta_flag:
             try:
                 alert_classes = u'al-delta'
@@ -705,6 +736,14 @@ class InfolabsaResultsWithState(BrowserView):
                 alert_title = delta_flag.get('title') or u'Delta fuera de límite'
             except Exception:
                 pass
+
+        # Si ya es crítico, añade la palabra "Crítico" a alert_text
+        if is_critical:
+            alert_text = (alert_text + (u'; ' if alert_text else u'') + u'Crítico').strip('; ')
+
+        # Si está fuera de rango y no hubo delta/crit, también deja una alerta textual
+        if not alert_text and estado_text == u'Fuera de rango':
+            alert_text = u'Fuera de rango'
 
         return estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title
 
@@ -719,8 +758,11 @@ class InfolabsaResultsWithState(BrowserView):
         result = self._get_result(a)
         unit = self._get_unit(a)
 
-        # USAR LA PRIORIDAD CORREGIDA
+        # USAR LA PRIORIDAD ACTUALIZADA
         ref_text, low, high, ref_src = self._compute_ref_range(a)
+
+        # Estado (workflow del análisis)
+        wf_state = self._workflow_state(a) or u''
 
         is_critical = bool(self._get(a, 'getCritical', False) or self._get(a, 'isCritical', False))
         try:
@@ -731,27 +773,49 @@ class InfolabsaResultsWithState(BrowserView):
         estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title = \
             self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
 
+        # Unifica alertas en una sola salida visible
+        alerts = alert_text or u'—'
+
+        # Si no hay texto de rango pero sí low/high, constrúyelo
+        if not ref_text and (low is not None or high is not None):
+            ref_text = self._first_text_from_lo_hi(low, high)
+
         return {
+            # Display
             'name': name,
             'result': result,
             'unit': unit,
+
+            # Rango de referencia
             'ref_range': ref_text or u'',
             'ref_low': low,
             'ref_high': high,
             'ref_src': ref_src or u'',
-            # Alias
+
+            # Alias por compatibilidad con plantillas
             'reference_range': (ref_text or u''),
             'range_text': (ref_text or u''),
-            'range': (ref_text or u''),
+            'range': (ref_text or u''),  # <- MUY usado en algunos templates
+
             'reference_low': low,
             'reference_high': high,
-            # Estado
+
+            # Estado “clínico” (en/fora de rango)
             'estado_class': estado_class,
             'estado_symbol': estado_symbol,
             'estado_text': estado_text,
+
+            # Estado de workflow
+            'state': wf_state,
+            'state_text': wf_state,
+            'status': wf_state,
+            'status_text': wf_state,
+
+            # Alertas combinadas
             'alert_classes': alert_classes,
-            'alert_text': alert_text or u'—',
+            'alert_text': alerts,
             'alert_title': alert_title,
+            'alerts': alerts,  # <- alias directo que suelen usar las columnas
         }
 
     def rows(self):
