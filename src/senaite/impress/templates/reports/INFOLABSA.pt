@@ -513,7 +513,13 @@
                     <!-- usa la clave real 'value_now' y la fecha del AR actual -->
                     <div tal:content="python:r.get('value_now') or u'—'">—</div>
                     <div class="small"
-                         tal:content="python:view.to_localized_time(get(ar,'getDatePublished',None) or get(ar,'created',None) or get(ar,'getDateReceived',None))">—</div>
+                         tal:content="python:view.to_localized_time(
+                           (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
+                           (get(ar,'getDateVerified',None) and ar.getDateVerified()) or
+                           (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
+                           (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
+                           get(ar,'created',None)
+                         )">—</div>
                   </td>
                   <td>
                     <!-- usa 'delta_dir' y 'delta_pct' con get() seguro -->
