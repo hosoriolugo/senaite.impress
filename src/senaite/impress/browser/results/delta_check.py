@@ -24,10 +24,10 @@ def _to_num(x):
     try:
         if x in (None, u"", ""):
             return None
-        # python2 types
+        # Python 2 ints/longs/float (mantener compat)
         try:
-            num_types = (int, long, float)
-        except Exception:
+            num_types = (int, long, float)  # noqa
+        except NameError:
             num_types = (int, float)
         if isinstance(x, num_types):
             return float(x)
@@ -38,16 +38,18 @@ def _to_num(x):
 
 
 def _norm(s):
+    # normaliza para comparar nombres: minúsculas y colapsa espacios
     return u" ".join(_u(s).strip().lower().split()) if s else u""
 
 
 class InfolabsaDeltaCheck(BrowserView):
-    """Delta check por PACIENTE (PatientUID/MRN) + PERFIL de análisis (mismo panel)."""
+    """Delta check robusto por paciente y analito con fechas ISO-8601."""
 
-    PERIOD_DAYS = 365  # 12 meses hacia atrás
+    PERIOD_DAYS = 365  # 12 meses
+    # Estados considerados "ok" para el delta (>= verified)
     STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
 
-    # ----------------- utilidades básicas -----------------
+    # ------------------ utils base ------------------
     def _get(self, obj, name, default=None):
         if not obj:
             return default
@@ -58,25 +60,6 @@ class InfolabsaDeltaCheck(BrowserView):
             except Exception:
                 return default
         return attr if attr is not None else default
-
-    def _cat(self):
-        portal = self.context.portal_url.getPortalObject()
-        return getToolByName(portal, "portal_catalog")
-
-    def _wftool(self):
-        try:
-            portal = self.context.portal_url.getPortalObject()
-            return getToolByName(portal, "portal_workflow")
-        except Exception:
-            return None
-
-    def _catalog_has_index(self, name):
-        try:
-            portal = self.context.portal_url.getPortalObject()
-            cat = getToolByName(portal, "portal_catalog")
-            return name in cat.indexes()
-        except Exception:
-            return False
 
     def _title_of(self, obj):
         for g in ("Title", "title_or_id"):
@@ -89,7 +72,40 @@ class InfolabsaDeltaCheck(BrowserView):
                     pass
         return _u(getattr(obj, "id", ""))
 
+    def _cat(self):
+        """Catálogo de AnalysisRequest (samples)."""
+        portal = self.context.portal_url.getPortalObject()
+        # Senaite 2.x: cat de AR suele ser senaite_catalog_sample
+        cat = getToolByName(portal, "senaite_catalog_sample", None)
+        if cat:
+            return cat
+        return getToolByName(portal, "portal_catalog")
+
+    def _acat(self):
+        """Catálogo de Analysis."""
+        portal = self.context.portal_url.getPortalObject()
+        acat = getToolByName(portal, "senaite_catalog_analysis", None)
+        if acat:
+            return acat
+        return getToolByName(portal, "portal_catalog")
+
+    def _catalog_has_index(self, name, analyses=False):
+        try:
+            cat = self._acat() if analyses else self._cat()
+            return name in cat.indexes()
+        except Exception:
+            return False
+
+    def _wftool(self):
+        try:
+            portal = self.context.portal_url.getPortalObject()
+            return getToolByName(portal, "portal_workflow")
+        except Exception:
+            return None
+
+    # ------------------ estado (review_state) ------------------
     def _state_of(self, obj, brain=None):
+        # 1) si viene del brain, úsalo
         try:
             if brain is not None:
                 rs = getattr(brain, "review_state", None)
@@ -97,6 +113,7 @@ class InfolabsaDeltaCheck(BrowserView):
                     return _u(rs)
         except Exception:
             pass
+        # 2) atributo simple o getter en el objeto
         for g in ("getReviewState", "review_state", "state"):
             try:
                 v = getattr(obj, g, None)
@@ -105,6 +122,7 @@ class InfolabsaDeltaCheck(BrowserView):
                     return _u(v)
             except Exception:
                 continue
+        # 3) workflow tool
         try:
             wftool = self._wftool()
             if wftool:
@@ -115,31 +133,54 @@ class InfolabsaDeltaCheck(BrowserView):
             pass
         return None
 
-    # ----------------- fechas ISO -----------------
+    # ------------------ fecha / formato ------------------
     def _iso(self, dt):
         if not dt:
             return u""
+        # api helper si existe
         if api:
             try:
                 zdt = api.to_datetime(dt)
+                # ISO con Z para JS Date.parse
                 return zdt.strftime("%Y-%m-%dT%H:%M:%SZ")
             except Exception:
                 pass
+        # Zope DateTime tiene ISO8601()
         try:
             return dt.ISO8601()
         except Exception:
             return _u(dt)
 
+    def _fmt_local(self, dt):
+        if not dt:
+            return u"—"
+        # bika api
+        if api:
+            try:
+                return api.to_localized_time(dt)
+            except Exception:
+                pass
+        # Plone helper
+        try:
+            return self.context.toLocalizedTime(dt)
+        except Exception:
+            pass
+        try:
+            # último recurso
+            return _u(dt)
+        except Exception:
+            return u"—"
+
     def _date_of_ar(self, ar):
-        # Usamos “verificado” como principal (como acordamos), si no, publicado -> recibido -> creado
+        # PRIORIDAD: Verificado -> Publicado -> Recepción -> creado
         for g in ("getDateVerified", "getDatePublished", "getDateReceived", "created"):
             v = self._get(ar, g)
             if v:
                 return v
         return None
 
-    # ----------------- contexto paciente -----------------
-    def _patient_of(self, ar):
+    # ------------------ AR / Paciente ------------------
+    def _patient_obj(self, ar):
         for pa in ("getPatient", "Patient", "getRelatedPatient"):
             if hasattr(ar, pa):
                 try:
@@ -150,14 +191,8 @@ class InfolabsaDeltaCheck(BrowserView):
                     pass
         return None
 
-    def _patient_uid(self, patient):
-        try:
-            return patient and patient.UID() or None
-        except Exception:
-            return None
-
-    def _mrn_set(self, ar, patient):
-        vals = set()
+    def _mrn_of_ar(self, ar, patient):
+        # Mismos nombres que el template INFOLABSA.pt
         for obj in (ar, patient):
             if not obj:
                 continue
@@ -167,51 +202,32 @@ class InfolabsaDeltaCheck(BrowserView):
             ):
                 v = self._get(obj, name)
                 if v:
-                    vals.add(_u(v).strip())
-        return vals
-
-    # ----------------- perfil de análisis (misma batería de analitos) -----------------
-    def _profile_key(self, ar):
-        """Devuelve un 'perfil' identificable:
-        - Primero: UID de AnalysisProfile si existe (getProfile / getAnalysisProfile / getProfiles)
-        - Si no: huella del conjunto de keywords de los análisis (estable y ordenada).
-        """
-        # 1) UID de perfil si está disponible
-        for g in ("getAnalysisProfile", "getProfile", "getProfiles"):
-            try:
-                val = getattr(ar, g, None)
-                val = val() if callable(val) else val
-                if not val:
-                    continue
-                # puede ser objeto, lista de objetos o cadena
-                if isinstance(val, (list, tuple)):
-                    for p in val:
-                        if hasattr(p, "UID"):
-                            return u"prof:" + _u(p.UID())
-                        # algunos setups guardan el id/uid en string
-                        if isinstance(p, basestring):
-                            return u"prof:" + _u(p)
-                else:
-                    if hasattr(val, "UID"):
-                        return u"prof:" + _u(val.UID())
-                    if isinstance(val, basestring):
-                        return u"prof:" + _u(val)
-            except Exception:
-                continue
-
-        # 2) Huella por conjunto de keywords de los análisis
-        kws = set()
-        for a in self._analyses_of(ar):
-            kw = None
-            svc = self._service_of(a)
-            kw = (self._get(svc, "getKeyword") if svc else None) or self._get(a, "getKeyword")
-            if kw:
-                kws.add(_norm(kw))
-        if kws:
-            return u"kws:" + u",".join(sorted(kws))
+                    return _u(v).strip()
         return None
 
-    # ----------------- análisis y servicios -----------------
+    def _patient_keys(self, ar, patient):
+        """Llaves para identificar paciente (MRN preferente + nombre full)."""
+        keys = {}
+        mrn = self._mrn_of_ar(ar, patient)
+        if mrn:
+            keys["mrn"] = mrn
+
+        # Nombre completo como fallback
+        full = None
+        for obj in (ar, patient):
+            if not obj:
+                continue
+            for name in ("getPatientFullName", "getFullname", "Title"):
+                v = self._get(obj, name)
+                if v:
+                    full = _u(v).strip()
+                    break
+            if full:
+                break
+        if full:
+            keys["fullname"] = _norm(full)
+        return keys
+
     def _analyses_of(self, ar):
         for g in ("getAnalyses", "analyses", "getAnalysis"):
             v = self._get(ar, g)
@@ -222,18 +238,12 @@ class InfolabsaDeltaCheck(BrowserView):
                     return v
         return []
 
+    # ------------------ Analito keys ------------------
     def _service_of(self, a):
         try:
             return getattr(a, "getService", lambda: None)()
         except Exception:
             return None
-
-    def _unit_of(self, a):
-        for g in ("getUnit", "Unit", "getUnitAbbreviation"):
-            v = self._get(a, g)
-            if v:
-                return _u(v)
-        return u""
 
     def _analysis_keys(self, a):
         svc = self._service_of(a)
@@ -242,6 +252,7 @@ class InfolabsaDeltaCheck(BrowserView):
         if not kw:
             kw = self._get(a, "getKeyword")
         title = self._title_of(svc) if svc else (self._get(a, "Title") or u"")
+
         uid = None
         if svc_uid:
             uid = _u(svc_uid)
@@ -249,6 +260,7 @@ class InfolabsaDeltaCheck(BrowserView):
             uid = u"kw:" + _u(kw).strip().lower()
         elif title:
             uid = u"title:" + _u(title).strip().lower()
+
         return {
             "svc_uid": svc_uid,
             "keyword": _u(kw).strip() if kw else None,
@@ -258,6 +270,13 @@ class InfolabsaDeltaCheck(BrowserView):
             "name": _u(title or kw or self._get(a, "Title") or u""),
         }
 
+    def _unit_of(self, a):
+        for g in ("getUnit", "Unit", "getUnitAbbreviation"):
+            v = self._get(a, g)
+            if v:
+                return _u(v)
+        return u""
+
     def _result_value(self, a):
         for g in ("getFormattedResult", "getResult", "Result", "result", "getValue"):
             v = self._get(a, g)
@@ -265,84 +284,84 @@ class InfolabsaDeltaCheck(BrowserView):
                 return v, _to_num(v)
         return u"—", None
 
-    # ----------------- búsqueda de AR previos: por patient + perfil -----------------
-    def _candidate_ars(self, current_ar, patient_uid, mrn_values, profile_key):
-        """Busca AR del MISMO PACIENTE (PatientUID o MRN) y MISMO PERFIL, estados >= verified."""
+    # ------------------ Búsqueda de AR previos ------------------
+    def _same_patient(self, other_ar, pkeys):
+        """Fallback programático si falta el índice MRN."""
+        # MRN-like en el AR other
+        found = set()
+        for name in (
+            "getMedicalRecordNumberValue", "getMedicalRecordNumber", "getMRN",
+            "getClientPatientID", "getPatientID", "getIdentifier",
+        ):
+            v = self._get(other_ar, name)
+            if v:
+                found.add(_u(v).strip())
+        if found and pkeys.get("mrn"):
+            if pkeys["mrn"] in found:
+                return True
+
+        # Nombre completo como último recurso
+        full = None
+        for name in ("getPatientFullName", "getFullname", "Title"):
+            v = self._get(other_ar, name)
+            if v:
+                full = _norm(v)
+                break
+        if full and pkeys.get("fullname") and full == pkeys["fullname"]:
+            return True
+
+        return False
+
+    def _candidate_ars(self, current_ar, patient, pkeys):
+        """
+        Saca los AR del mismo paciente dentro del período:
+        - Si existe índice 'medical_record_number', se usa directamente.
+        - Si no, se hace fallback programático (últimos N) + filtro por paciente.
+        - Se quedan sólo AR en estados >= verified.
+        """
         cat = self._cat()
         cur_uid = self._get(current_ar, "UID")
-
-        brains = []
-
-        # 1) Preferir PatientUID si existe y está indexado
-        if patient_uid and self._catalog_has_index("getPatientUID"):
-            try:
-                brains = cat.searchResults(
-                    portal_type="AnalysisRequest",
-                    getPatientUID=_u(patient_uid),
-                    sort_on="created",
-                    sort_order="descending",
-                )
-            except Exception:
-                brains = []
-
-        # 2) Si no hay UID o no devolvió nada, buscar por MRN en índices comunes
-        if (not brains) and mrn_values:
-            mrn_indexes = [idx for idx in (
-                "getClientPatientID", "getMedicalRecordNumber", "getMedicalRecordNumberValue",
-                "getMRN", "getPatientID", "getIdentifier"
-            ) if self._catalog_has_index(idx)]
-            for idx in mrn_indexes:
-                try:
-                    subset = []
-                    for v in mrn_values:
-                        q = {
-                            "portal_type": "AnalysisRequest",
-                            idx: _u(v),
-                            "sort_on": "created",
-                            "sort_order": "descending",
-                        }
-                        subset.extend(cat.searchResults(**q))
-                    if subset:
-                        brains = subset
-                        break
-                except Exception:
-                    continue
-
-        # 3) Último recurso: barrido amplio (evita perder trazabilidad si no hay índices)
-        if not brains:
-            brains = cat.searchResults(
-                portal_type="AnalysisRequest",
-                sort_on="created",
-                sort_order="descending",
-            )[:1000]
-
-        out = []
-        seen = set([cur_uid])
 
         # Límite por periodo
         from DateTime import DateTime as ZDT
         try:
-            cutoff = ZDT() - self.PERIOD_DAYS
+            cutoff = ZDT() - self.PERIOD_DAYS  # días atrás
         except Exception:
             cutoff = None
 
-        # Perfil del actual (para filtrar)
-        cur_profile = profile_key
+        brains = []
+        mrn = pkeys.get("mrn")
+        has_mrn_index = self._catalog_has_index("medical_record_number", analyses=False)
+
+        try:
+            if mrn and has_mrn_index:
+                query = {
+                    "portal_type": "AnalysisRequest",
+                    "medical_record_number": mrn,
+                    "sort_on": "created",
+                    "sort_order": "descending",
+                }
+                if cutoff and self._catalog_has_index("created", analyses=False):
+                    query["created"] = {"query": cutoff, "range": "min"}
+                brains = cat.searchResults(**query)
+            else:
+                # Fallback: trae un conjunto amplio y filtra a mano
+                brains = cat.searchResults(
+                    portal_type="AnalysisRequest",
+                    sort_on="created",
+                    sort_order="descending",
+                )[:500]
+        except Exception:
+            brains = []
+
+        out = []
+        seen = set([cur_uid])
 
         for b in brains:
-            buid = getattr(b, "UID", None)
-            if buid in seen:
+            if getattr(b, "UID", None) in seen:
                 continue
 
-            # Periodo
-            if cutoff and getattr(b, "created", None):
-                try:
-                    if b.created < cutoff:
-                        continue
-                except Exception:
-                    pass
-
-            # Estado
+            # Estado según brain
             try:
                 b_state = getattr(b, "review_state", None)
                 if b_state and _u(b_state) not in self.STATES_OK:
@@ -350,104 +369,160 @@ class InfolabsaDeltaCheck(BrowserView):
             except Exception:
                 pass
 
+            # Periodo en fallback (si no pudimos filtrar arriba)
+            if not (mrn and has_mrn_index) and cutoff and getattr(b, "created", None):
+                try:
+                    if b.created < cutoff:
+                        continue
+                except Exception:
+                    pass
+
             try:
                 obj = b.getObject()
             except Exception:
                 continue
 
-            # Estado por objeto si el brain no traía
+            # Estado por objeto si no venía en brain
             if not getattr(b, "review_state", None):
                 st = self._state_of(obj)
                 if st and st not in self.STATES_OK:
                     continue
 
-            # si no pudimos filtrar por índice de paciente (uid/mrn), asegúrate por string:
-            if not (patient_uid or mrn_values):
-                # fallback por nombre/MRN en objeto (menos confiable)
-                if not self._same_patient(obj, current_ar):
-                    continue
-
-            # Filtra por PERFIL: requiere que el otro AR comparta el mismo profile_key
-            if cur_profile:
-                other_profile = self._profile_key(obj)
-                if other_profile and other_profile != cur_profile:
+            # Si no tenemos índice MRN, filtra por paciente programáticamente
+            if not (mrn and has_mrn_index):
+                if not self._same_patient(obj, pkeys):
                     continue
 
             out.append(obj)
-            seen.add(buid)
+            seen.add(b.UID)
 
-        # Orden descendente por fecha (previo inmediato = primero distinto del actual)
-        out.sort(key=lambda x: self._date_of_ar(x) or "", reverse=True)
         return out
 
-    def _same_patient(self, other_ar, current_ar):
-        """Fallback blando si no hay índice: compara MRN/nombre."""
-        patient = self._patient_of(current_ar)
-        mrns_cur = self._mrn_set(current_ar, patient)
-        mrns_other = self._mrn_set(other_ar, self._patient_of(other_ar))
-        if mrns_cur and mrns_other and (mrns_cur & mrns_other):
-            return True
-        # Nombre como última opción
-        full_cur = None
-        for k in ("getPatientFullName", "getFullname", "Title"):
-            v = self._get(current_ar, k)
-            if v:
-                full_cur = _norm(v)
-                break
-        full_oth = None
-        for k in ("getPatientFullName", "getFullname", "Title"):
-            v = self._get(other_ar, k)
-            if v:
-                full_oth = _norm(v)
-                break
-        return bool(full_cur and full_oth and full_cur == full_oth)
-
-    # ----------------- series por analito (de AR previos del mismo perfil) -----------------
+    # ------------------ Serie por analito vía catálogo de analyses ------------------
     def _series_for_uid(self, ars, analito_uid, keyword, title):
-        pts = []
+        """
+        Construye la serie (date,value) del analito:
+        - Filtra analyses por getRequestID ∈ IDs de AR candidatos
+        - y por getKeyword (o getServiceUID si quisieras).
+        - Usa fecha del AR (verificada->publicada->recepción->creado).
+        """
+        acat = self._acat()
+
+        # Mapa: RequestID -> (AR, fecha del AR)
+        ar_by_id = {}
+        ar_ids = []
         for ar in ars:
-            st = self._state_of(ar)
-            if st and st not in self.STATES_OK:
+            rid = self._get(ar, "getRequestID") or self._get(ar, "getId")
+            if not rid:
                 continue
-            dt = self._date_of_ar(ar)
-            for a in self._analyses_of(ar):
+            ar_ids.append(rid)
+            ar_by_id[rid] = (ar, self._date_of_ar(ar))
+
+        if not ar_ids:
+            return []
+
+        query = {
+            "portal_type": "Analysis",
+            "getRequestID": ar_ids,
+        }
+
+        # Si hay índice de keyword, úsalo (más directo y robusto)
+        if keyword and self._catalog_has_index("getKeyword", analyses=True):
+            query["getKeyword"] = keyword
+        # Alternativa opcional: por UID de servicio (descomentar si te conviene)
+        # elif analito_uid and self._catalog_has_index("getServiceUID", analyses=True) and not analito_uid.startswith("kw:"):
+        #     query["getServiceUID"] = analito_uid
+
+        sort_on = "getResultCaptureDate" if self._catalog_has_index("getResultCaptureDate", analyses=True) else "created"
+
+        try:
+            abrains = acat.searchResults(sort_on=sort_on, sort_order="ascending", **query)
+        except Exception:
+            abrains = []
+
+        pts = []
+        ok_states = self.STATES_OK
+
+        for ab in abrains:
+            # Estado por brain
+            try:
+                astate = getattr(ab, "review_state", None)
+                if astate and _u(astate) not in ok_states:
+                    continue
+            except Exception:
+                pass
+
+            # Objeto y valor numérico
+            try:
+                aobj = ab.getObject()
+            except Exception:
+                continue
+
+            raw_val, fval = self._result_value(aobj)
+            if fval is None:
+                continue
+
+            rid = getattr(ab, "getRequestID", None)
+            rid = rid() if callable(rid) else rid
+            ar_ref, ar_dt = ar_by_id.get(rid, (None, None))
+
+            # Fecha del punto: prioriza fecha del AR
+            dt = ar_dt
+            if not dt:
+                # fallback: usa índice del analysis si no hay fecha AR
+                dt = getattr(ab, "getResultCaptureDate", None) or getattr(ab, "created", None)
+
+            if not dt:
+                continue
+
+            iso = self._iso(dt)
+            pts.append({"date": iso, "value": fval, "ar": ar_ref or self.context})
+
+        # Asegura orden temporal
+        pts.sort(key=lambda p: p["date"])
+
+        # Último intento: si la query por catálogo no devolvió el punto actual (p.ej. falta de índice),
+        # añade el del AR actual por inspección directa
+        if not pts:
+            cur_ar = self.context
+            dt = self._date_of_ar(cur_ar)
+            for a in self._analyses_of(cur_ar):
                 keys = self._analysis_keys(a)
+                ok = False
                 if analito_uid and keys["uid"] == analito_uid:
                     ok = True
-                elif keyword and keys["keyword"] and keys["keyword"].lower() == (keyword or u"").lower():
+                elif keyword and keys["keyword"] and keys["keyword"].lower() == (keyword or "").lower():
                     ok = True
-                elif title and keys["title"] and keys["title"].lower() == (title or u"").lower():
+                elif title and keys["title"] and keys["title"].lower() == (title or "").lower():
                     ok = True
-                else:
-                    ok = False
                 if not ok:
                     continue
                 _, f = self._result_value(a)
                 if f is None:
                     continue
-                pts.append({'date': self._iso(dt), 'value': f, 'ar': ar})
+                iso = self._iso(dt)
+                pts.append({"date": iso, "value": f, "ar": cur_ar})
                 break
-        pts.sort(key=lambda p: p['date'])
+
+            pts.sort(key=lambda p: p["date"])
+
         return pts
 
-    # ----------------- principal -----------------
+    # ------------------ Vista ------------------
     def __call__(self):
         ar = self.context
+        patient = self._patient_obj(ar)
+        pkeys = self._patient_keys(ar, patient)
 
-        # Paciente actual
-        patient = self._patient_of(ar)
-        patient_uid = self._patient_uid(patient)
-        mrn_values = self._mrn_set(ar, patient)
+        # AR previos del mismo paciente (por MRN si hay índice)
+        prev_ars = self._candidate_ars(ar, patient, pkeys)
 
-        # Perfil del AR actual
-        profile_key = self._profile_key(ar)
-
-        # Candidatos: MISMO PACIENTE + MISMO PERFIL (independiente del cliente)
-        prev_ars = self._candidate_ars(ar, patient_uid, mrn_values, profile_key)
+        # Serie se arma con [previos + actual]
         ars_for_series = list(prev_ars) + [ar]
 
         rows = []
-        for a in self._analyses_of(ar):
+        now_analyses = self._analyses_of(ar)
+        for a in now_analyses:
             keys = self._analysis_keys(a)
             raw, val_now = self._result_value(a)
 
@@ -470,20 +545,14 @@ class InfolabsaDeltaCheck(BrowserView):
                 pv = prev['value']
                 if pv is not None and pv != 0:
                     delta = ((val_now - pv) / abs(pv)) * 100.0
-                    try:
-                        delta_pct = u"%.1f%%" % (delta)
-                    except Exception:
-                        delta_pct = u"%s%%" % (delta)
+                    delta_pct = u"%.1f%%" % (delta)
                     delta_dir = u'▲' if val_now > pv else (u'▼' if val_now < pv else u'Δ')
                 if prev['ar']:
                     prev_id = (self._get(prev['ar'], "getRequestID") or
                                self._get(prev['ar'], "getId") or u'—')
                     dt = self._date_of_ar(prev['ar'])
                     prev_date = self._iso(dt) if dt else u'—'
-                    try:
-                        prev_date_fmt = (dt and api and api.to_localized_time(dt)) or u'—'
-                    except Exception:
-                        prev_date_fmt = u'—'
+                    prev_date_fmt = self._fmt_local(dt) if dt else u'—'
 
             rows.append({
                 'uid': keys["uid"],
@@ -494,9 +563,9 @@ class InfolabsaDeltaCheck(BrowserView):
                 'delta_dir': delta_dir,
                 'delta_note': u'',
                 'prev_sample_id': prev_id,
-                'prev_date': prev_date,         # ISO (para depuración / datos crudos)
-                'prev_date_fmt': prev_date_fmt, # Localizado (para mostrar en el PT)
-                'rcv_pct': None,                # espacio para futuro (RCV)
+                'prev_date': prev_date,          # ISO (para debug/JSON)
+                'prev_date_fmt': prev_date_fmt,  # Localizado (para el PDF)
+                'rcv_pct': None,
                 'series': [{'date': p['date'], 'value': p['value']} for p in series if p.get('value') is not None],
             })
 
