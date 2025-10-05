@@ -2,16 +2,16 @@
 from Products.Five import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from DateTime import DateTime
-from Products.CMFCore.utils import getToolByName  # Reference Definitions
+from Products.CMFCore.utils import getToolByName
 
 try:
     unicode
-except NameError:  # py3 compat por si acaso
+except NameError:
     unicode = str
 
 try:
     from bika.lims import logger
-except Exception:  # pragma: no cover
+except Exception:
     import logging
     logger = logging.getLogger("senaite.impress")
 
@@ -47,7 +47,6 @@ class InfolabsaResultsWithState(BrowserView):
 
     def _num(self, x):
         try:
-            # Acepta "100", 100, "100.0", etc.
             if x in (None, u"", ""):
                 return None
             return float(x)
@@ -60,7 +59,7 @@ class InfolabsaResultsWithState(BrowserView):
     def _first_text_from_lo_hi(self, lo, hi):
         lo_t = u"" if lo in (None, u"", "") else self._u(lo)
         hi_t = u"" if hi in (None, u"", "") else self._u(hi)
-        return (lo_t + (u" – " if lo_t or hi_t else u"") + hi_t).strip()
+        return (lo_t + (u" - " if lo_t or hi_t else u"") + hi_t).strip()
 
     def _get_service(self, a):
         try:
@@ -98,13 +97,10 @@ class InfolabsaResultsWithState(BrowserView):
         if not obj:
             return None, None
         low_names = (
-            # genéricos
             "getLowerLimit", "getLowerResultLimit", "getLowerRange",
             "getMin", "getMinimum", "LowerLimit", "lower", "lower_limit",
-            # variantes comunes
             "getMinValue", "MinValue", "minValue",
             "getLowerNormal", "LowerNormal", "LowerNormalLimit",
-            # LOD/LOQ por si los usan como “rango”
             "getLowerDetectionLimit", "getLowerQuantitationLimit", "getLowerQuantificationLimit",
         )
         high_names = (
@@ -172,10 +168,8 @@ class InfolabsaResultsWithState(BrowserView):
             def _match_spec(container):
                 if not container:
                     return None
-                # dict mapeado por keyword
                 if isinstance(container, dict) and container.get(keyword):
                     return container.get(keyword)
-                # lista de filas
                 if isinstance(container, (list, tuple)):
                     for row in container:
                         k = None
@@ -296,7 +290,7 @@ class InfolabsaResultsWithState(BrowserView):
             pass
         return None, None, None
 
-    # ---------- 3) REFERENCE DEFINITIONS (Setup global) ----------
+    # ---------- 3) REFERENCE DEFINITIONS ----------
     def _extract_refdef_minmax(self, a):
         try:
             service = self._get_service(a)
@@ -320,7 +314,6 @@ class InfolabsaResultsWithState(BrowserView):
                     continue
 
                 def _row_to_match_row(row):
-                    # Devuelve (k, lo, hi)
                     k = None
                     lo = hi = None
                     if isinstance(row, dict):
@@ -413,7 +406,6 @@ class InfolabsaResultsWithState(BrowserView):
                 return None, None, None
 
             def _read_row(row):
-                # Devuelve (lo, hi) del primer match útil
                 lo = hi = None
                 if isinstance(row, dict):
                     lo = (row.get("min") or row.get("Min") or
@@ -438,68 +430,137 @@ class InfolabsaResultsWithState(BrowserView):
             pass
         return None, None, None
 
-    # ---------- selector maestro con prioridad ----------
+    # ---------- PRIORIDAD CORREGIDA PARA SENAITE 2.6+ ----------
     def _compute_ref_range(self, a):
         """
-        Devuelve (ref_text, low, high, src) usando prioridad:
-          0) Range getters ricos
-          1) Dinámicas
-          2) Analysis Specifications
-          3) Reference Definitions
-          4) Análisis/Servicio
-          4.b) Service.ReferenceValues
+        Devuelve (ref_text, low, high, src) usando prioridad CORRECTA para SENAITE 2.6+
         """
-        # 0) getters "ricos" con texto/dict
-        for g in ("getReferenceRange", "getResultsRange", "getRefRange",
-                  "getRange", "ReferenceRange", "range",
-                  "getReferenceResultsRange", "getResultRangeText"):
-            rr = self._get(a, g)
-            if rr not in (None, u"", ""):
-                text, lo, hi = self._ref_range_from_any(rr)
-                if text or lo is not None or hi is not None:
-                    logger.info("[impress] RefRange via %s", g)
-                    return (text if text else self._first_text_from_lo_hi(lo, hi), lo, hi, u"getter:%s" % g)
+        # ===== PRIORIDAD 1: Analysis.getResultsRange() - CANÓNICO =====
+        try:
+            results_range = self._get(a, "getResultsRange")
+            if results_range and isinstance(results_range, dict):
+                lo = results_range.get('min')
+                hi = results_range.get('max')
+                hide_min = results_range.get('hidemin', '') == 'on'
+                hide_max = results_range.get('hidemax', '') == 'on'
+                
+                if not hide_min and not hide_max and (lo is not None or hi is not None):
+                    text = self._first_text_from_lo_hi(lo, hi)
+                    logger.info("[impress] RefRange via Analysis.getResultsRange() [CANÓNICO]")
+                    return text, lo, hi, u"analysis.getResultsRange"
+        except Exception as e:
+            logger.debug("[impress] Error en Analysis.getResultsRange: %s", e)
 
-        # 1) Dinámicas
-        svc = self._get_service(a)
-        kw = getattr(svc, "getKeyword", lambda: None)() if svc else None
+        # ===== PRIORIDAD 2: Analysis.getSpecification() =====
+        try:
+            spec = self._get(a, "getSpecification")
+            if spec:
+                # Intentar getResultsRange del spec
+                results_range = self._get(spec, "getResultsRange")
+                if results_range and isinstance(results_range, dict):
+                    lo = results_range.get('min')
+                    hi = results_range.get('max')
+                    if lo is not None or hi is not None:
+                        text = self._first_text_from_lo_hi(lo, hi)
+                        logger.info("[impress] RefRange via Analysis.getSpecification().getResultsRange()")
+                        return text, lo, hi, u"analysis.spec.resultsrange"
+                
+                # Fallback: min/max directos
+                lo = self._get(spec, "min") or self._get(spec, "Min")
+                hi = self._get(spec, "max") or self._get(spec, "Max")
+                if lo is not None or hi is not None:
+                    text = self._first_text_from_lo_hi(lo, hi)
+                    logger.info("[impress] RefRange via Analysis.getSpecification() directo")
+                    return text, lo, hi, u"analysis.spec.direct"
+        except Exception as e:
+            logger.debug("[impress] Error en Analysis.getSpecification: %s", e)
+
+        # ===== PRIORIDAD 3: Service.getResultsRange() =====
+        try:
+            service = self._get_service(a)
+            if service:
+                results_range = self._get(service, "getResultsRange")
+                if results_range and isinstance(results_range, dict):
+                    lo = results_range.get('min')
+                    hi = results_range.get('max')
+                    hide_min = results_range.get('hidemin', '') == 'on'
+                    hide_max = results_range.get('hidemax', '') == 'on'
+                    
+                    if not hide_min and not hide_max and (lo is not None or hi is not None):
+                        text = self._first_text_from_lo_hi(lo, hi)
+                        logger.info("[impress] RefRange via Service.getResultsRange()")
+                        return text, lo, hi, u"service.getResultsRange"
+        except Exception as e:
+            logger.debug("[impress] Error en Service.getResultsRange: %s", e)
+
+        # ===== PRIORIDAD 4: AR.getSpecification() con keyword =====
+        try:
+            ar, sample, st, client, contact = self._get_ar_ctx(a)
+            if ar:
+                ar_spec = self._get(ar, "getSpecification")
+                if ar_spec:
+                    service = self._get_service(a)
+                    keyword = self._get(service, "getKeyword") if service else None
+                    
+                    if keyword:
+                        try:
+                            results_range = ar_spec.getResultsRange(keyword)
+                            if results_range and isinstance(results_range, dict):
+                                lo = results_range.get('min')
+                                hi = results_range.get('max')
+                                if lo is not None or hi is not None:
+                                    text = self._first_text_from_lo_hi(lo, hi)
+                                    logger.info("[impress] RefRange via AR.getSpecification().getResultsRange(keyword)")
+                                    return text, lo, hi, u"ar.spec.keyword"
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug("[impress] Error en AR.getSpecification: %s", e)
+
+        # ===== PRIORIDAD 5-9: Mantener tus métodos existentes =====
+        # 5) Dinámicas
+        service = self._get_service(a)
+        kw = self._get(service, "getKeyword") if service else None
         if kw:
             dlo, dhi, dsrc = self._extract_dynamic_specs_minmax(a, kw)
             if dlo is not None or dhi is not None:
                 txt = self._first_text_from_lo_hi(dlo, dhi)
-                logger.info("[impress] RefRange via %s", dsrc)
                 return txt, dlo, dhi, dsrc
 
-        # 2) Analysis Specifications
+        # 6) Analysis Specifications
         slo, shi, ssrc = self._extract_specs_minmax_for_analysis(a)
         if slo is not None or shi is not None:
             txt = self._first_text_from_lo_hi(slo, shi)
-            logger.info("[impress] RefRange via %s", ssrc)
             return txt, slo, shi, ssrc
 
-        # 3) Reference Definitions
+        # 7) Reference Definitions
         rlo, rhi, rsrc = self._extract_refdef_minmax(a)
         if rlo is not None or rhi is not None:
             txt = self._first_text_from_lo_hi(rlo, rhi)
-            logger.info("[impress] RefRange via %s", rsrc)
             return txt, rlo, rhi, rsrc
 
-        # 4) Análisis / Servicio (campos de límite)
+        # 8) Análisis / Servicio (campos directos)
         alo, ahi, asrc = self._extract_analysis_or_service_minmax(a)
         if alo is not None or ahi is not None:
             txt = self._first_text_from_lo_hi(alo, ahi)
-            logger.info("[impress] RefRange via %s (analysis/service fields)", asrc)
             return txt, alo, ahi, asrc
 
-        # 4.b) Fallback explícito: Service.ReferenceValues()
+        # 9) Service.ReferenceValues
         sv_lo, sv_hi, sv_src = self._extract_service_refvalues(a)
         if sv_lo is not None or sv_hi is not None:
             txt = self._first_text_from_lo_hi(sv_lo, sv_hi)
-            logger.info("[impress] RefRange via %s", sv_src)
             return txt, sv_lo, sv_hi, sv_src
 
-        # Nada
-        return u"", None, None, u""
+        # SIN RANGO
+        try:
+            keyword = self._get(service, "getKeyword") if service else "UNKNOWN"
+            title = self._get(a, "Title") or "UNKNOWN"
+            uid = self._get(a, "UID")
+            logger.warning("[impress] NO RANGO para '%s' (kw=%s, uid=%s)", title, keyword, uid)
+        except Exception:
+            pass
+
+        return u"", None, None, u"not_found"
 
     # ------------------------- data extraction -------------------------
     def analyses(self):
@@ -514,7 +575,6 @@ class InfolabsaResultsWithState(BrowserView):
         return []
 
     def _status_payload(self, value, low, high, is_critical=False, delta_flag=None):
-        # default: no aplica
         estado_class = u''
         estado_symbol = u'—'
         estado_text = u'No aplica'
@@ -525,7 +585,7 @@ class InfolabsaResultsWithState(BrowserView):
 
         if is_critical:
             estado_class = u'al-critical'
-            estado_symbol = u'❗'
+            estado_symbol = u'●'
             estado_text = u'Crítico'
         elif v is not None and (lo is not None or hi is not None):
             if lo is not None and v < lo:
@@ -541,7 +601,6 @@ class InfolabsaResultsWithState(BrowserView):
                 estado_symbol = u'✓'
                 estado_text = u'En rango'
 
-        # Delta (▲/▼) no cambia estado_symbol, va como alerta
         alert_classes = u''
         alert_text = u''
         alert_title = u''
@@ -558,7 +617,6 @@ class InfolabsaResultsWithState(BrowserView):
         return estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title
 
     def row(self, a):
-        # Nombre del análisis
         name = (
             self._get(a, 'Title') or
             self._get(a, 'title') or
@@ -566,54 +624,36 @@ class InfolabsaResultsWithState(BrowserView):
             u''
         )
 
-        # Resultado y unidad
         result = self._get_result(a)
         unit = self._get_unit(a)
 
-        # Rango de referencia con prioridad completa
+        # USAR LA PRIORIDAD CORREGIDA
         ref_text, low, high, ref_src = self._compute_ref_range(a)
 
-        # Flags: crítico / delta (si existen)
         is_critical = bool(self._get(a, 'getCritical', False) or self._get(a, 'isCritical', False))
         try:
-            delta_flag = self._get(a, 'getDeltaFlag')  # idealmente un dict
+            delta_flag = self._get(a, 'getDeltaFlag')
         except Exception:
             delta_flag = None
 
         estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title = \
             self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
 
-        # Log informativo si no hay rango
-        try:
-            if not ref_text and low is None and high is None:
-                uid = getattr(a, 'UID', lambda: None)()
-                logger.info("[impress] Sin rango detectable para '%s' (uid=%r). "
-                            "Revisar DynamicSpecs/Specs/RefDefs/limits.", name, uid)
-            else:
-                logger.debug("[impress] Rango '%s' -> low=%r high=%r src=%s", name, low, high, ref_src or "n/a")
-        except Exception:
-            pass
-
         return {
-            # EXACTAMENTE lo que el template espera + alias extra
             'name': name,
             'result': result,
             'unit': unit,
-
-            # Claves canónicas
             'ref_range': ref_text or u'',
             'ref_low': low,
             'ref_high': high,
             'ref_src': ref_src or u'',
-
-            # === ALIAS para templates viejos/variantes ===
-            'reference_range': (ref_text or u''),   # alias 1
-            'range_text': (ref_text or u''),        # alias 2
-            'range': (ref_text or u''),             # alias 3
-            'reference_low': low,                   # alias low
-            'reference_high': high,                 # alias high
-
-            # Estado y alertas
+            # Alias
+            'reference_range': (ref_text or u''),
+            'range_text': (ref_text or u''),
+            'range': (ref_text or u''),
+            'reference_low': low,
+            'reference_high': high,
+            # Estado
             'estado_class': estado_class,
             'estado_symbol': estado_symbol,
             'estado_text': estado_text,
@@ -627,7 +667,6 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ------------------------- rendering -------------------------
     def __call__(self):
-        # Si pide JSON, devuelve la misma estructura que usa el template
         if (self.request.get('format', '').lower() == 'json'):
             import json
             data = {'items': self.rows()}
@@ -637,12 +676,12 @@ class InfolabsaResultsWithState(BrowserView):
         return self.index()
 
 
-# Compatibilidad por si el ZCML apunta al nombre antiguo
+# Compatibilidad
 InfolabsaResults = InfolabsaResultsWithState
 
 
 # ======================================================================
-# === COMPLEMENTO: Vista para Mini-Panel Delta Check (no altera lo de arriba)
+# === VISTA DELTA CHECK (COMPATIBLE CON RANGOS)
 # ======================================================================
 
 class InfolabsaDeltaCheck(BrowserView):
@@ -708,9 +747,9 @@ class InfolabsaDeltaCheck(BrowserView):
                 delta_abs = None
                 delta_pct = None
 
-        arrow = u"→"
+        arrow = u"↔"
         if delta_abs is not None:
-            arrow = u"↑" if delta_abs > 0 else (u"↓" if delta_abs < 0 else u"→")
+            arrow = u"↑" if delta_abs > 0 else (u"↓" if delta_abs < 0 else u"↔")
 
         points = [(p['date'].ISO(), p.get('value')) for p in win]
         spark = self._spark_svg(points)
@@ -740,8 +779,11 @@ class InfolabsaDeltaCheck(BrowserView):
         }
         return row
 
-    # DEMO: sustituir por consulta real
     def _fetch_series_for_ar(self, ar):
+        """
+        REEMPLAZAR con tu lógica real de búsqueda histórica
+        Esta es solo una DEMO
+        """
         return [
             {'name': 'Glucosa', 'unit': 'mg/dL', 'series': [
                 {'sid': 'AR001', 'date': DateTime() - 120, 'value': 88.0},
