@@ -253,6 +253,14 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return None
 
+    def _service_code(self, svc):
+        # Campos comunes para identificar el "código" del servicio
+        for g in ("getAnalysisCode", "getCode", "getServiceID", "getId", "id"):
+            v = self._get(svc, g)
+            if v:
+                return _u(v)
+        return None
+
     def _analysis_keys(self, a):
         svc = self._service_of(a)
         svc_uid = self._get(svc, "UID")
@@ -260,6 +268,7 @@ class InfolabsaDeltaCheck(BrowserView):
         if not kw:
             kw = self._get(a, "getKeyword")
         title = self._title_of(svc) if svc else (self._get(a, "Title") or u"")
+        code = self._service_code(svc) if svc else None
 
         uid = None
         if svc_uid:
@@ -270,9 +279,10 @@ class InfolabsaDeltaCheck(BrowserView):
             uid = u"title:" + _u(title).strip().lower()
 
         return {
-            "svc_uid": svc_uid,
+            "svc_uid": _u(svc_uid) if svc_uid else None,
             "keyword": _u(kw).strip() if kw else None,
             "title": _u(title).strip() if title else None,
+            "code": _u(code).strip() if code else None,
             "uid": uid,
             "unit": self._unit_of(a),
             "name": _u(title or kw or self._get(a, "Title") or u""),
@@ -439,24 +449,71 @@ class InfolabsaDeltaCheck(BrowserView):
         """Busca el valor del analito en el AR previo global usando coincidencia robusta."""
         if not prev_ar:
             return (u"—", None)
-        tgt_uid = (target_keys or {}).get("uid")
-        tgt_kw  = (target_keys or {}).get("keyword")
-        tgt_tit = (target_keys or {}).get("title")
+
+        # claves del analito actual
+        tgt_svc_uid = (target_keys or {}).get("svc_uid")
+        tgt_kw      = (target_keys or {}).get("keyword")
+        tgt_code    = (target_keys or {}).get("code")
+        tgt_title_n = _norm((target_keys or {}).get("title"))
+        tgt_name_n  = _norm((target_keys or {}).get("name"))
+        tgt_unit_n  = _norm((target_keys or {}).get("unit"))
+
         analyses = self._analyses_of(prev_ar)
-        for a in analyses:
-            keys = self._analysis_keys(a)
-            ok = False
-            if tgt_uid and keys.get("uid") == tgt_uid:
-                ok = True
-            elif tgt_kw and keys.get("keyword") and keys["keyword"].lower() == tgt_kw.lower():
-                ok = True
-            elif tgt_tit and keys.get("title") and keys["title"].lower() == tgt_tit.lower():
-                ok = True
-            if not ok:
-                continue
+
+        def _service_code(svc):
+            for g in ("getAnalysisCode", "getCode", "getServiceID", "getId", "id"):
+                v = self._get(svc, g)
+                if v:
+                    return _u(v)
+            return None
+
+        def _kw_of(a):
+            # keyword puede estar en el service o en el analysis
+            svc = self._service_of(a)
+            return (self._get(svc, "getKeyword") or self._get(a, "getKeyword"))
+
+        def _match_and_return(a):
             raw, num = self._result_value(a)
-            if num is not None or (raw not in (None, u"", "")):
+            if (num is not None) or (raw not in (None, u"", "")):
                 return (raw if raw not in (None, u"", "") else u"—", num)
+            return None
+
+        # 1) UID del servicio
+        if tgt_svc_uid:
+            for a in analyses:
+                svc = self._service_of(a)
+                svuid = self._get(svc, "UID")
+                if svuid and _u(svuid) == tgt_svc_uid:
+                    r = _match_and_return(a);  return r if r else (u"—", None)
+
+        # 2) keyword (service o analysis)
+        if tgt_kw:
+            for a in analyses:
+                kw_other = _kw_of(a)
+                if kw_other and _u(kw_other).strip().lower() == _u(tgt_kw).strip().lower():
+                    r = _match_and_return(a);  return r if r else (u"—", None)
+
+        # 3) código del servicio
+        if tgt_code:
+            for a in analyses:
+                code_other = _service_code(self._service_of(a))
+                if code_other and _norm(code_other) == _norm(tgt_code):
+                    r = _match_and_return(a);  return r if r else (u"—", None)
+
+        # 4) título normalizado
+        if tgt_title_n:
+            for a in analyses:
+                t_other = self._title_of(self._service_of(a)) if self._service_of(a) else (self._get(a, "Title") or u"")
+                if _norm(t_other) == tgt_title_n:
+                    r = _match_and_return(a);  return r if r else (u"—", None)
+
+        # 5) nombre + unidad (fallback muy laxo)
+        for a in analyses:
+            unit_o = self._unit_of(a)
+            name_o = self._title_of(self._service_of(a)) if self._service_of(a) else (self._get(a, "Title") or u"")
+            if _norm(name_o) == tgt_name_n and _norm(unit_o) == tgt_unit_n:
+                r = _match_and_return(a);  return r if r else (u"—", None)
+
         return (u"—", None)
 
     # ------------------ Serie por analito (para chispa) ------------------
@@ -488,8 +545,10 @@ class InfolabsaDeltaCheck(BrowserView):
             "getRequestID": ar_ids,
         }
 
+        # Si hay índice de keyword, úsalo (más directo y robusto)
         if keyword and self._catalog_has_index("getKeyword", analyses=True):
             query["getKeyword"] = keyword
+        # Alternativa opcional: por UID de servicio (descomentable si lo prefieres)
         # elif analito_uid and self._catalog_has_index("getServiceUID", analyses=True) and not analito_uid.startswith("kw:"):
         #     query["getServiceUID"] = analito_uid
 
