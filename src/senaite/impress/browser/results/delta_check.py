@@ -180,6 +180,14 @@ class InfolabsaDeltaCheck(BrowserView):
                 return v
         return None
 
+    def _received_date_of_ar(self, ar):
+        # Para definir el "previo global" por RECEPCIÓN
+        for g in ("getDateReceived", "getReceptionDate", "getSamplingDate", "created"):
+            v = self._get(ar, g)
+            if v:
+                return v
+        return None
+
     # ------------------ AR / Paciente ------------------
     def _patient_obj(self, ar):
         for pa in ("getPatient", "Patient", "getRelatedPatient"):
@@ -281,6 +289,7 @@ class InfolabsaDeltaCheck(BrowserView):
     def _result_value(self, a):
         for g in ("getFormattedResult", "getResult", "Result", "result", "getValue"):
             v = self._get(a, g)
+        # Mantener primero el formateado como "raw"; numérico para cálculo
             if v not in (None, u"", ""):
                 return v, _to_num(v)
         return u"—", None
@@ -399,7 +408,66 @@ class InfolabsaDeltaCheck(BrowserView):
 
         return out
 
-    # ------------------ Serie por analito vía catálogo de analyses ------------------
+    # ------------------ helpers para previo global ------------------
+    def _choose_prev_ar_global(self, current_ar, candidate_ars):
+        """Devuelve el AR previo (mismo paciente) por FECHA DE RECEPCIÓN inmediatamente anterior al actual."""
+        # Tomar fechas de recepción
+        cur_recv = self._received_date_of_ar(current_ar)
+        if not cur_recv:
+            return None
+
+        # Filtrar candidatos con recepción < actual y estados OK
+        dated = []
+        for ar in candidate_ars:
+            dt = self._received_date_of_ar(ar)
+            if not dt:
+                continue
+            # Solo anteriores por recepción
+            try:
+                if dt >= cur_recv:
+                    continue
+            except Exception:
+                # Si no se puede comparar, descartar
+                continue
+            # Estado OK ya filtrado aguas arriba, pero revalidamos por seguridad
+            st = self._state_of(ar)
+            if st and _u(st) not in self.STATES_OK:
+                continue
+            dated.append((dt, ar))
+
+        if not dated:
+            return None
+
+        # El inmediatamente anterior: el de recepción máxima < actual
+        dated.sort(key=lambda x: x[0])
+        return dated[-1][1]
+
+    def _find_prev_value_in_ar(self, prev_ar, target_keys):
+        """Busca el valor del analito en el AR previo global usando coincidencia robusta."""
+        if not prev_ar:
+            return (u"—", None)
+        # Claves del analito actual
+        tgt_uid = (target_keys or {}).get("uid")
+        tgt_kw  = (target_keys or {}).get("keyword")
+        tgt_tit = (target_keys or {}).get("title")
+        analyses = self._analyses_of(prev_ar)
+        for a in analyses:
+            keys = self._analysis_keys(a)
+            ok = False
+            if tgt_uid and keys.get("uid") == tgt_uid:
+                ok = True
+            elif tgt_kw and keys.get("keyword") and keys["keyword"].lower() == tgt_kw.lower():
+                ok = True
+            elif tgt_tit and keys.get("title") and keys["title"].lower() == tgt_tit.lower():
+                ok = True
+            if not ok:
+                continue
+            raw, num = self._result_value(a)
+            if num is not None or (raw not in (None, u"", "")):
+                return (raw if raw not in (None, u"", "") else u"—", num)
+        return (u"—", None)
+
+    # ------------------ Serie por analito (para chispa) ------------------
     def _series_for_uid(self, ars, analito_uid, keyword, title):
         """
         Construye la serie (date,value,raw,ar,rid) del analito:
@@ -428,10 +496,8 @@ class InfolabsaDeltaCheck(BrowserView):
             "getRequestID": ar_ids,
         }
 
-        # Si hay índice de keyword, úsalo (más directo y robusto)
         if keyword and self._catalog_has_index("getKeyword", analyses=True):
             query["getKeyword"] = keyword
-        # Alternativa opcional por UID de servicio:
         # elif analito_uid and self._catalog_has_index("getServiceUID", analyses=True) and not analito_uid.startswith("kw:"):
         #     query["getServiceUID"] = analito_uid
 
@@ -446,7 +512,6 @@ class InfolabsaDeltaCheck(BrowserView):
         ok_states = self.STATES_OK
 
         for ab in abrains:
-            # Estado por brain
             try:
                 astate = getattr(ab, "review_state", None)
                 if astate and _u(astate) not in ok_states:
@@ -454,7 +519,6 @@ class InfolabsaDeltaCheck(BrowserView):
             except Exception:
                 pass
 
-            # Objeto y valor numérico
             try:
                 aobj = ab.getObject()
             except Exception:
@@ -468,21 +532,15 @@ class InfolabsaDeltaCheck(BrowserView):
             rid = rid() if callable(rid) else rid
             ar_ref, ar_dt = ar_by_id.get(rid, (None, None))
 
-            # Fecha del punto: prioriza fecha del AR
-            dt = ar_dt
-            if not dt:
-                # fallback: usa índice del analysis si no hay fecha AR
-                dt = getattr(ab, "getResultCaptureDate", None) or getattr(ab, "created", None)
-
+            dt = ar_dt or getattr(ab, "getResultCaptureDate", None) or getattr(ab, "created", None)
             if not dt:
                 continue
 
             iso = self._iso(dt)
             pts.append({"date": iso, "value": fval, "raw": raw_val, "ar": ar_ref or self.context, "rid": rid})
 
-        # Último intento: si la query por catálogo no devolvió el punto actual (p.ej. falta de índices),
-        # añade el del AR actual por inspección directa
         if not pts:
+            # fallback: inspección directa del AR actual
             cur_ar = self.context
             cur_rid = self._get(cur_ar, "getRequestID") or self._get(cur_ar, "getId")
             dt = self._date_of_ar(cur_ar)
@@ -504,7 +562,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 pts.append({"date": iso, "value": f, "raw": raw, "ar": cur_ar, "rid": cur_rid})
                 break
 
-        # Deduplicar por rid: conservar el punto con fecha más reciente para cada AR
+        # Deduplicar por rid conservando el punto más reciente por AR
         by_rid = {}
         for p in pts:
             rid = p.get("rid")
@@ -529,15 +587,13 @@ class InfolabsaDeltaCheck(BrowserView):
         patient = self._patient_obj(ar)
         pkeys = self._patient_keys(ar, patient)
 
-        # Datos del AR actual para selección precisa del "previo"
-        cur_rid = self._get(ar, "getRequestID") or self._get(ar, "getId")
-        cur_dt = self._date_of_ar(ar)
-        cur_iso = self._iso(cur_dt) if cur_dt else u""
-
         # AR previos del mismo paciente (por MRN si hay índice; si no, fallback)
         prev_ars = self._candidate_ars(ar, patient, pkeys)
 
-        # Serie se arma con [previos + actual]
+        # Elegir el AR previo GLOBAL por FECHA DE RECEPCIÓN inmediatamente anterior
+        prev_ar_global = self._choose_prev_ar_global(ar, prev_ars)
+
+        # Serie (sparklines) se arma con [previos + actual] pero no define el "previo"
         ars_for_series = list(prev_ars) + [ar]
 
         rows = []
@@ -546,66 +602,44 @@ class InfolabsaDeltaCheck(BrowserView):
             keys = self._analysis_keys(a)
             raw_now, val_now = self._result_value(a)
 
+            # Serie histórica solo para chispa
             series = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
-            # Debe haber al menos 2 puntos en total (alguno previo + actual)
-            if len(series) < 2 or val_now is None:
-                continue
+            # Valor PREVIO tomado EXCLUSIVAMENTE del AR previo global
+            prev_raw, prev_num = self._find_prev_value_in_ar(prev_ar_global, keys)
 
-            # Previo inmediato: último punto con rid != rid actual y con fecha < fecha actual
-            prev = None
-            for pt in reversed(series):
-                if pt.get("rid") and cur_rid and pt["rid"] == cur_rid:
-                    continue
-                if cur_iso and pt["date"] >= cur_iso:
-                    continue
-                prev = pt
-                break
-
-            # Fallback si no se encontró por fecha (p.ej. timestamps iguales)
-            if not prev:
-                for pt in reversed(series):
-                    if pt.get("rid") and cur_rid and pt["rid"] == cur_rid:
-                        continue
-                    prev = pt
-                    break
-
-            if not prev:
-                continue  # no hay previo válido
-
-            # Valores y formatos
-            pv = prev.get("value")
-            raw_prev = prev.get("raw")
-            prev_value_raw = (raw_prev if raw_prev not in (None, u"", "") else
-                              (u"%s" % pv if pv is not None else u"—"))
-
+            # Si no hay previo numérico, la fila puede mostrarse pero Δ será "—"
             delta_abs = None
             delta_pct = u"N/A"
             delta_dir = u"∙"
 
-            if pv is not None:
+            if val_now is not None and prev_num is not None:
                 try:
-                    delta_abs = float(val_now) - float(pv)
-                    if pv != 0:
-                        pct = ((float(val_now) - float(pv)) / abs(float(pv))) * 100.0
+                    delta_abs = float(val_now) - float(prev_num)
+                    if prev_num != 0:
+                        pct = ((float(val_now) - float(prev_num)) / abs(float(prev_num))) * 100.0
                         delta_pct = u"%.1f%%" % pct
-                    if float(val_now) > float(pv):
+                    if float(val_now) > float(prev_num):
                         delta_dir = u"▲"
-                    elif float(val_now) < float(pv):
+                    elif float(val_now) < float(prev_num):
                         delta_dir = u"▼"
                     else:
                         delta_dir = u"Δ"
                 except Exception:
                     pass
 
-            # Fechas/IDs del previo
-            prev_id = (self._get(prev.get('ar'), "getRequestID") or
-                       self._get(prev.get('ar'), "getId") or u"—")
-            pdt = self._date_of_ar(prev.get('ar')) if prev.get('ar') else None
-            prev_date = self._iso(pdt) if pdt else u"—"
-            prev_date_fmt = self._fmt_local(pdt) if pdt else u"—"
+            # Datos del AR previo global (ID/fecha) — si existe
+            prev_id = u"—"
+            prev_date = u"—"
+            prev_date_fmt = u"—"
+            if prev_ar_global:
+                prev_id = (self._get(prev_ar_global, "getRequestID") or
+                           self._get(prev_ar_global, "getId") or u"—")
+                pdt = self._date_of_ar(prev_ar_global)
+                prev_date = self._iso(pdt) if pdt else u"—"
+                prev_date_fmt = self._fmt_local(pdt) if pdt else u"—"
 
-            # Formatos bonitos del Δ para la plantilla
+            # Formatos bonitos del Δ
             delta_abs_fmt = u"—"
             try:
                 if delta_abs is not None:
@@ -613,8 +647,11 @@ class InfolabsaDeltaCheck(BrowserView):
             except Exception:
                 pass
             delta_combo_fmt = (u"%s (%s)" % (delta_abs_fmt, delta_pct)
-                               if delta_abs_fmt != u"—" and delta_pct not in (None, u"", u"N/A")
+                               if delta_abs is not None
                                else u"—")
+
+            # Valor previo "raw" para mostrar encima de ID/fecha
+            prev_value_raw = prev_raw if prev_raw not in (None, u"", "") else (u"%s" % prev_num if prev_num is not None else u"—")
 
             rows.append({
                 'uid': keys["uid"],
@@ -624,8 +661,8 @@ class InfolabsaDeltaCheck(BrowserView):
 
                 'delta_pct': delta_pct,
                 'delta_dir': delta_dir,
-                'delta_abs_fmt': delta_abs_fmt,     # p.ej. +8.00
-                'delta_combo_fmt': delta_combo_fmt, # p.ej. +8.00 (+7.0%)
+                'delta_abs_fmt': delta_abs_fmt,     # p.ej. +115.00
+                'delta_combo_fmt': delta_combo_fmt, # p.ej. +115.00 (85.2%)
                 'delta_note': u'',
 
                 'prev_sample_id': prev_id,
