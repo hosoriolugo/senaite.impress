@@ -76,7 +76,6 @@ class InfolabsaDeltaCheck(BrowserView):
     def _cat(self):
         """Catálogo de AnalysisRequest (samples)."""
         portal = self.context.portal_url.getPortalObject()
-        # Senaite 2.x: cat de AR suele ser senaite_catalog_sample
         cat = getToolByName(portal, "senaite_catalog_sample", None)
         if cat:
             return cat
@@ -289,7 +288,7 @@ class InfolabsaDeltaCheck(BrowserView):
     def _result_value(self, a):
         for g in ("getFormattedResult", "getResult", "Result", "result", "getValue"):
             v = self._get(a, g)
-        # Mantener primero el formateado como "raw"; numérico para cálculo
+            # Mantener primero el formateado como "raw"; numérico para cálculo
             if v not in (None, u"", ""):
                 return v, _to_num(v)
         return u"—", None
@@ -411,25 +410,20 @@ class InfolabsaDeltaCheck(BrowserView):
     # ------------------ helpers para previo global ------------------
     def _choose_prev_ar_global(self, current_ar, candidate_ars):
         """Devuelve el AR previo (mismo paciente) por FECHA DE RECEPCIÓN inmediatamente anterior al actual."""
-        # Tomar fechas de recepción
         cur_recv = self._received_date_of_ar(current_ar)
         if not cur_recv:
             return None
 
-        # Filtrar candidatos con recepción < actual y estados OK
         dated = []
         for ar in candidate_ars:
             dt = self._received_date_of_ar(ar)
             if not dt:
                 continue
-            # Solo anteriores por recepción
             try:
                 if dt >= cur_recv:
                     continue
             except Exception:
-                # Si no se puede comparar, descartar
                 continue
-            # Estado OK ya filtrado aguas arriba, pero revalidamos por seguridad
             st = self._state_of(ar)
             if st and _u(st) not in self.STATES_OK:
                 continue
@@ -438,7 +432,6 @@ class InfolabsaDeltaCheck(BrowserView):
         if not dated:
             return None
 
-        # El inmediatamente anterior: el de recepción máxima < actual
         dated.sort(key=lambda x: x[0])
         return dated[-1][1]
 
@@ -446,7 +439,6 @@ class InfolabsaDeltaCheck(BrowserView):
         """Busca el valor del analito en el AR previo global usando coincidencia robusta."""
         if not prev_ar:
             return (u"—", None)
-        # Claves del analito actual
         tgt_uid = (target_keys or {}).get("uid")
         tgt_kw  = (target_keys or {}).get("keyword")
         tgt_tit = (target_keys or {}).get("title")
@@ -581,6 +573,59 @@ class InfolabsaDeltaCheck(BrowserView):
 
         return pts
 
+    # ------------------ Tendencia (flecha) ------------------
+    def _trend_dir(self, series_points):
+        """
+        Devuelve '▲', '▼' o '∙' según la tendencia de la serie.
+        - Si hay >= 3 puntos: usa pendiente de regresión lineal (t vs y).
+        - Si hay 2 puntos: compara primero vs último.
+        - Umbral de "plano": |pendiente relativa| < 0.5% del rango por unidad de tiempo.
+        """
+        try:
+            n = len(series_points or [])
+            if n < 2:
+                return u"∙"
+            # convertir fechas ISO a t numérico (días)
+            import datetime
+            def _to_ts_days(iso):
+                # Date.parse en JS usa ms; aquí usamos días (UTC) para estabilidad
+                try:
+                    dt = datetime.datetime.strptime(iso.replace("Z",""), "%Y-%m-%dT%H:%M:%S")
+                except Exception:
+                    # fallback: solo fecha
+                    try:
+                        dt = datetime.datetime.strptime(iso[:10], "%Y-%m-%d")
+                    except Exception:
+                        return None
+                return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
+
+            pts = [( _to_ts_days(p["date"]), float(p["value"]) ) for p in series_points if p.get("date") and p.get("value") is not None]
+            pts = [p for p in pts if p[0] is not None]
+            if len(pts) < 2:
+                return u"∙"
+
+            if len(pts) == 2:
+                return u"▲" if pts[-1][1] > pts[0][1] else (u"▼" if pts[-1][1] < pts[0][1] else u"∙")
+
+            # regresión lineal simple
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            xbar = sum(xs) / float(len(xs))
+            ybar = sum(ys) / float(len(ys))
+            sxy = sum((x - xbar)*(y - ybar) for x,y in pts)
+            sxx = sum((x - xbar)*(x - xbar) for x in xs) or 1.0
+            slope = sxy / sxx  # unidades: valor / día
+
+            # Normalizar: si el rango temporal es pequeño, ignora ruido
+            t_span = max(xs) - min(xs) or 1.0
+            y_span = max(ys) - min(ys) or 1.0
+            rel = abs(slope) * t_span / y_span  # cuánto cambia relativo al rango en el periodo
+            if rel < 0.005:  # <0.5% del rango en todo el periodo => plano
+                return u"∙"
+            return u"▲" if slope > 0 else u"▼"
+        except Exception:
+            return u"∙"
+
     # ------------------ Vista ------------------
     def __call__(self):
         ar = self.context
@@ -597,23 +642,31 @@ class InfolabsaDeltaCheck(BrowserView):
         ars_for_series = list(prev_ars) + [ar]
 
         rows = []
+        multi_series = []  # para el gráfico grande opcional
         now_analyses = self._analyses_of(ar)
         for a in now_analyses:
             keys = self._analysis_keys(a)
             raw_now, val_now = self._result_value(a)
 
-            # Serie histórica solo para chispa
+            # Serie histórica para chispa / tendencia
             series = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
             # Valor PREVIO tomado EXCLUSIVAMENTE del AR previo global
             prev_raw, prev_num = self._find_prev_value_in_ar(prev_ar_global, keys)
 
-            # Si no hay previo numérico, la fila puede mostrarse pero Δ será "—"
+            # Reglas de visibilidad: solo filas con al menos 2 puntos y valor actual numérico
+            if len(series) < 2 or val_now is None:
+                # aun así, recolecta multi_series para el gráfico grande si quieres mostrar tendencias
+                if len(series) >= 2:
+                    multi_series.append({"name": keys["name"], "unit": keys["unit"] or u"", "series": [{'date': p['date'], 'value': p['value']} for p in series]})
+                continue
+
+            # Δ (absoluto y %)
             delta_abs = None
             delta_pct = u"N/A"
             delta_dir = u"∙"
 
-            if val_now is not None and prev_num is not None:
+            if prev_num is not None:
                 try:
                     delta_abs = float(val_now) - float(prev_num)
                     if prev_num != 0:
@@ -639,7 +692,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 prev_date = self._iso(pdt) if pdt else u"—"
                 prev_date_fmt = self._fmt_local(pdt) if pdt else u"—"
 
-            # Formatos bonitos del Δ
+            # Δ formateado
             delta_abs_fmt = u"—"
             try:
                 if delta_abs is not None:
@@ -649,6 +702,9 @@ class InfolabsaDeltaCheck(BrowserView):
             delta_combo_fmt = (u"%s (%s)" % (delta_abs_fmt, delta_pct)
                                if delta_abs is not None
                                else u"—")
+
+            # Tendencia por serie
+            trend_dir = self._trend_dir(series)
 
             # Valor previo "raw" para mostrar encima de ID/fecha
             prev_value_raw = prev_raw if prev_raw not in (None, u"", "") else (u"%s" % prev_num if prev_num is not None else u"—")
@@ -661,20 +717,42 @@ class InfolabsaDeltaCheck(BrowserView):
 
                 'delta_pct': delta_pct,
                 'delta_dir': delta_dir,
-                'delta_abs_fmt': delta_abs_fmt,     # p.ej. +115.00
-                'delta_combo_fmt': delta_combo_fmt, # p.ej. +115.00 (85.2%)
+                'delta_abs_fmt': delta_abs_fmt,      # p.ej. +115.00
+                'delta_combo_fmt': delta_combo_fmt,  # p.ej. +115.00 (85.2%)
                 'delta_note': u'',
 
                 'prev_sample_id': prev_id,
-                'prev_date': prev_date,            # ISO (para debug/JSON)
-                'prev_date_fmt': prev_date_fmt,    # Localizado (para el PDF)
-                'prev_value': prev_value_raw,      # Valor previo (raw) para mostrar en la plantilla
+                'prev_date': prev_date,              # ISO (para debug/JSON)
+                'prev_date_fmt': prev_date_fmt,      # Localizado (para el PDF)
+                'prev_value': prev_value_raw,        # Valor previo (raw) para mostrar en la plantilla
 
-                'rcv_pct': None,  # No disponible en SENAITE 2.6
+                'rcv_pct': None,                     # Oculto por ahora en la plantilla
 
-                'series': [{'date': p['date'], 'value': p['value']}
-                           for p in series if p.get('value') is not None],
+                'trend_dir': trend_dir,              # ▲ / ▼ / ∙
+
+                'series': [{'date': p['date'], 'value': p['value']} for p in series if p.get('value') is not None],
+            })
+
+            # Acumular para gráfico grande
+            multi_series.append({
+                "name": keys["name"],
+                "unit": keys["unit"] or u"",
+                "series": [{'date': p['date'], 'value': p['value']} for p in series]
             })
 
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
-        return {'period_label': label, 'rows': rows}
+
+        # Señal para la plantilla: ¿hay material para gráfico grande?
+        has_chart = bool([s for s in multi_series if len(s.get("series") or []) >= 2])
+
+        return {
+            'period_label': label,
+            'rows': rows,
+            # para el gráfico multi-analito opcional debajo del panel
+            'chart': {
+                'series': multi_series,
+                'max_points': self.MAX_POINTS,
+                'window_days': self.PERIOD_DAYS,
+            },
+            'has_chart': has_chart,
+        }
