@@ -534,7 +534,8 @@
                       <span i18n:translate="">ID</span>:
                       <strong tal:content="python:r.get('prev_sample_id') or u'—'">—</strong>
                       &nbsp;|&nbsp;
-                      <span tal:content="python:r.get('prev_date') or u'—'">—</span>
+                      <!-- MOSTRAR FECHA PREVIA LOCALIZADA (prev_date_fmt) CON FALLBACK A prev_date -->
+                      <span tal:content="python:r.get('prev_date_fmt') or r.get('prev_date') or u'—'">—</span>
                     </div>
                   </td>
                   <td>
