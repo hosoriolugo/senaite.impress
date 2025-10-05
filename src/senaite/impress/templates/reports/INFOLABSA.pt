@@ -69,7 +69,7 @@
     }
     .results-center-cells table.table.table-condensed thead th {
       border-bottom: 0 !important;
-      padding-top: 2px; 
+      padding-top: 2px;
       padding-bottom: 2px;
       vertical-align: bottom;
     }
@@ -82,24 +82,24 @@
       vertical-align: middle;
     }
 
-    /* === NUEVO: Subtítulos "General" y "Química clínica" como título en negro === */
     .section-interp h3 { color: #000; font-weight: 800; }
 
-    /* === NUEVO: Mini-panel Delta Check (última página) === */
+    /* === Panel Delta Check (última página) === */
     .section-delta h2 { color:#000; font-weight:800; margin-bottom:6px !important; }
     .section-delta .small { font-size:90%; color:#6c757d; }
     .section-delta table.table-sm td, .section-delta table.table-sm th { padding-top:2px; padding-bottom:2px; }
     .section-delta .delta-up   { color:#fd7e14; font-weight:700; } /* ▲ */
     .section-delta .delta-down { color:#0d6efd; font-weight:700; } /* ▼ */
     .section-delta .spark { width:120px; height:36px; }
+    .section-delta .rcv-ok  { color:#198754; font-weight:700; }  /* verde */
+    .section-delta .rcv-bad { color:#dc3545; font-weight:700; }  /* rojo */
 
-    /* AJUSTE: utilidades de corte de página para impresión */
     @media print {
       .pagebreak { page-break-before: always; }
       .pagebreak-before { page-break-before: always; }
       .avoid-break-inside { page-break-inside: avoid; }
       .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
-      .section-delta { page-break-before: always; } /* fuerza que el panel vaya en su propia hoja al final */
+      .section-delta { page-break-before: always; }
     }
   </style>
 
@@ -372,16 +372,13 @@
       </div>
     </tal:sample>
 
-    <!-- Resumen de la Muestra (estándar) —> COMENTADO, no eliminado -->
-    <!-- <tal:t replace="structure python:view.render_summary(ar, **options)" /> -->
-
     <!-- Resultados con Estado + Alertas -->
     <h2 class="mb-1 section-title">Resultados</h2>
     <div class="results-center-cells">
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretacion de resultados (dinámico + salto de página antes) -->
+    <!-- Interpretacion de resultados -->
     <tal:interp define="
       get python:getattr;
 
@@ -435,24 +432,20 @@
 
       show python:any([gen, qc, has_dept]);
     ">
-      <!-- Salto de página antes de Interpretación -->
       <div class="row section-interp no-gutters pagebreak-before" tal:condition="show">
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Interpretación de resultados</h2>
 
-          <!-- General -->
           <tal:gen tal:condition="gen">
             <h3 class="mb-0" i18n:translate="">General</h3>
             <div tal:content="structure gen">-</div>
           </tal:gen>
 
-          <!-- Química clínica -->
           <tal:qc tal:condition="qc">
             <h3 class="mb-0">Química clínica</h3>
             <div tal:content="structure qc">-</div>
           </tal:qc>
 
-          <!-- Por Departamento -->
           <tal:dept tal:condition="has_dept">
             <tal:loop tal:repeat="item dept_items">
               <h3 class="mb-0" tal:content="python:item.get('title') or u'Departamento'">Departamento</h3>
@@ -474,7 +467,7 @@
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== NUEVO: Delta Check al final (última página) =========== -->
+    <!-- =========== Delta Check (última página) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
@@ -494,63 +487,92 @@
           <table class="table table-sm table-condensed mt-1">
             <thead>
               <tr>
-                <th i18n:translate="">Análisis</th>
-                <th i18n:translate="">Último</th>
+                <th i18n:translate="">Analito</th>
+                <th i18n:translate="">Actual</th>
+                <th i18n:translate="">Analito previo</th>
                 <th i18n:translate="">Δ vs. previo</th>
-                <th i18n:translate="">Muestra previa</th>
                 <th i18n:translate="">RCV</th>
                 <th i18n:translate="">Tendencia</th>
               </tr>
             </thead>
             <tbody>
               <tal:loop repeat="r rows">
-                <tr>
-                  <td>
-                    <div><strong tal:content="r/name">Analito</strong></div>
-                    <div class="small" tal:condition="python:r.get('unit')" tal:content="python:r.get('unit')">U</div>
-                  </td>
-                  <td>
-                    <!-- usa la clave real 'value_now' y la fecha del AR actual -->
-                    <div tal:content="python:r.get('value_now') or u'—'">—</div>
-                    <div class="small"
-                         tal:content="python:view.to_localized_time(
-                           (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
-                           (get(ar,'getDateVerified',None) and ar.getDateVerified()) or
-                           (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
-                           (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
-                           get(ar,'created',None)
-                         )">—</div>
-                  </td>
-                  <td>
-                    <!-- usa 'delta_dir' y 'delta_pct' con get() seguro -->
-                    <div tal:condition="python:(r.get('delta_pct') is not None)">
-                      <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
-                            tal:content="python:u'%s %s' % (r.get('delta_dir') or u'Δ', r.get('delta_pct') or u'—')">Δ 0%</span>
-                    </div>
-                    <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
-                  </td>
-                  <td>
-                    <div class="small">
-                      <span i18n:translate="">ID</span>:
-                      <strong tal:content="python:r.get('prev_sample_id') or u'—'">—</strong>
-                      &nbsp;|&nbsp;
-                      <!-- MOSTRAR FECHA PREVIA LOCALIZADA (prev_date_fmt) CON FALLBACK A prev_date -->
-                      <span tal:content="python:r.get('prev_date_fmt') or r.get('prev_date') or u'—'">—</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span tal:condition="python:r.get('rcv_pct') is not None" tal:content="python:u'%s%%' % r.get('rcv_pct')">—</span>
-                    <span tal:condition="python:r.get('rcv_pct') is None">—</span>
-                  </td>
-                  <td>
-                    <canvas class="spark"
-                            tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
-                    <!-- Datos crudos para JS -->
-                    <input type="hidden"
-                           tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
-                                           value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
-                  </td>
-                </tr>
+                <!-- Variables auxiliares para delta absoluto, % y RCV -->
+                <tal:calc define="
+                  ser python:r.get('series') or [];
+                  n python:len(ser);
+                  delta_abs_val python:( (n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None );
+                  delta_abs_str python:( (delta_abs_val is not None) and (u'%+.2f' % delta_abs_val) or u'—' );
+                  delta_pct_str python:(r.get('delta_pct') or u'N/A');
+                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
+                  delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
+                  rcv python:r.get('rcv_pct');
+                  has_rcv python:(rcv is not None);
+                  rcv_ok python:( has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)) );
+                ">
+                  <tr>
+                    <!-- Analito -->
+                    <td>
+                      <div><strong tal:content="r/name">Analito</strong></div>
+                      <div class="small" tal:condition="python:r.get('unit')" tal:content="python:r.get('unit')">U</div>
+                    </td>
+
+                    <!-- Actual -->
+                    <td>
+                      <div tal:content="python:r.get('value_now') or u'—'">—</div>
+                      <div class="small"
+                           tal:content="python:view.to_localized_time(
+                             (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
+                             (get(ar,'getDateVerified',None) and ar.getDateVerified()) or
+                             (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
+                             (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
+                             get(ar,'created',None)
+                           )">—</div>
+                    </td>
+
+                    <!-- Analito previo (valor arriba; ID | fecha abajo) -->
+                    <td>
+                      <div tal:content="python:r.get('prev_value') or u'—'">—</div>
+                      <div class="small">
+                        <span i18n:translate="">ID</span>:
+                        <strong tal:content="python:r.get('prev_sample_id') or u'—'">—</strong>
+                        &nbsp;|&nbsp;
+                        <span tal:content="python:r.get('prev_date_fmt') or r.get('prev_date') or u'—'">—</span>
+                      </div>
+                    </td>
+
+                    <!-- Δ vs. previo  =>  +8.00 (+7%) y flecha -->
+                    <td>
+                      <div tal:condition="python:(r.get('delta_pct') is not None)">
+                        <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
+                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'Δ', (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
+                      </div>
+                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
+                    </td>
+
+                    <!-- RCV (porcentaje) + veredicto Δ ≤ RCV -->
+                    <td>
+                      <div>
+                        <span tal:condition="has_rcv" tal:content="python:u'%s%%' % rcv">—</span>
+                        <span tal:condition="python:not has_rcv">—</span>
+                      </div>
+                      <div class="small" tal:condition="has_rcv">
+                        <span tal:attributes="class python:(rcv_ok and 'rcv-ok' or 'rcv-bad')"
+                              tal:content="python:(rcv_ok and u'Δ \u2264 RCV' or u'Δ > RCV')">Δ ≤ RCV</span>
+                      </div>
+                    </td>
+
+                    <!-- Tendencia (sparkline) -->
+                    <td>
+                      <canvas class="spark"
+                              tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
+                      <!-- Datos crudos para JS -->
+                      <input type="hidden"
+                             tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
+                                             value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
+                    </td>
+                  </tr>
+                </tal:calc>
               </tal:loop>
             </tbody>
           </table>
@@ -621,7 +643,7 @@
       })();
       </script>
     </tal:delta>
-    <!-- =========== FIN: Delta Check al final (última página) =========== -->
+    <!-- =========== FIN: Delta Check =========== -->
 
   </div>
 </tal:report>
