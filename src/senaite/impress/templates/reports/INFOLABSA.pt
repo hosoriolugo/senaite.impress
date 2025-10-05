@@ -284,14 +284,14 @@
         (get(ar,'getReceptionDate',None) and ar.getReceptionDate()) or
         None
       );
-      pub_dt python:(
-        (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
-        (get(ar,'getPublicationDate',None) and ar.getPublicationDate()) or
+      ver_dt python:(
+        (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
+        (get(ar,'getDateVerified',None) and ar.getDateVerified()) or
         None
       );
       rec_txt python:(rec_dt and view.to_localized_time(rec_dt) or u'');
-      pub_txt python:(pub_dt and view.to_localized_time(pub_dt) or u'');
-      show_sample python:any([sid, stype, rec_dt, pub_dt]);
+      ver_txt python:(ver_dt and view.to_localized_time(ver_dt) or u'');
+      show_sample python:any([sid, stype, rec_dt, ver_dt]);
     ">
       <div class="row section-summary no-gutters" tal:condition="show_sample">
         <div class="w-100">
@@ -358,14 +358,14 @@
             <tr>
               <td class="label">ID de muestra</td>
               <td class="barcode-cell"><span tal:content="sid|nothing">-</span></td>
-              <td class="label">Tipo</td>
+              <td class="label">Tipo de muestra</td>
               <td><span tal:content="stype|nothing">-</span></td>
             </tr>
             <tr>
               <td class="label">Recepción</td>
               <td><span tal:content="rec_txt|nothing">-</span></td>
-              <td class="label">Publicación</td>
-              <td><span tal:content="pub_txt|nothing">-</span></td>
+              <td class="label">Verificación</td>
+              <td><span tal:content="ver_txt|nothing">-</span></td>
             </tr>
           </table>
         </div>
