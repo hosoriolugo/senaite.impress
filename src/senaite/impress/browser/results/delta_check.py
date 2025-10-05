@@ -32,8 +32,13 @@ def _to_num(x):
         return None
 
 
+def _norm(s):
+    # normaliza para comparar nombres: minúsculas y colapsa espacios
+    return u" ".join(_u(s).strip().lower().split()) if s else u""
+
+
 class InfolabsaDeltaCheck(BrowserView):
-    """Delta check robusto por paciente y analito (con múltiples llaves)."""
+    """Delta check robusto por paciente y analito con fechas ISO-8601."""
 
     PERIOD_DAYS = 365  # 12 meses
 
@@ -64,7 +69,25 @@ class InfolabsaDeltaCheck(BrowserView):
         portal = self.context.portal_url.getPortalObject()
         return getToolByName(portal, "portal_catalog")
 
-    # ------------ AR / Patient ------------
+    # ------------ fechas ISO-8601 (para sparkline JS) ------------
+    def _iso(self, dt):
+        if not dt:
+            return u""
+        # api helper si existe
+        if api:
+            try:
+                # api.to_iso_date suele devolver YYYY-MM-DD HH:MM, pero mejor ISO completo
+                zdt = api.to_datetime(dt)
+                return zdt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                pass
+        # Zope DateTime tiene ISO8601()
+        try:
+            return dt.ISO8601()
+        except Exception:
+            return _u(dt)
+
+    # ------------ AR / Paciente ------------
     def _patient_obj(self, ar):
         for pa in ("getPatient", "Patient", "getRelatedPatient"):
             if hasattr(ar, pa):
@@ -77,9 +100,9 @@ class InfolabsaDeltaCheck(BrowserView):
         return None
 
     def _patient_keys(self, ar, patient):
-        """Conjunto de llaves para identificar paciente cuando no hay patient UID."""
+        """Llaves para identificar paciente incluso sin Patient UID."""
         keys = {}
-        # MRN y variantes comunes en AR/patient
+        # MRN-like de AR y Patient (varios nombres)
         for obj in (ar, patient):
             if not obj:
                 continue
@@ -90,7 +113,8 @@ class InfolabsaDeltaCheck(BrowserView):
                 v = self._get(obj, name)
                 if v:
                     keys.setdefault("mrn_like", set()).add(_u(v).strip())
-        # nombre completo (para fallback “suave”)
+
+        # Nombre completo (fallback)
         full = None
         for obj in (ar, patient):
             if not obj:
@@ -103,7 +127,7 @@ class InfolabsaDeltaCheck(BrowserView):
             if full:
                 break
         if full:
-            keys["fullname"] = full
+            keys["fullname"] = _norm(full)
         return keys
 
     def _date_of_ar(self, ar):
@@ -131,14 +155,13 @@ class InfolabsaDeltaCheck(BrowserView):
             return None
 
     def _analysis_keys(self, a):
-        """Llaves para identificar el analito de forma estable entre ARs."""
         svc = self._service_of(a)
         svc_uid = self._get(svc, "UID")
         kw = self._get(svc, "getKeyword") if svc else None
         if not kw:
-            kw = self._get(a, "getKeyword")  # a veces el analysis lo trae
+            kw = self._get(a, "getKeyword")
         title = self._title_of(svc) if svc else (self._get(a, "Title") or u"")
-        # uid: preferir UID; si no hay, usar keyword; si no, Title normalizado
+
         uid = None
         if svc_uid:
             uid = _u(svc_uid)
@@ -146,6 +169,7 @@ class InfolabsaDeltaCheck(BrowserView):
             uid = u"kw:" + _u(kw).strip().lower()
         elif title:
             uid = u"title:" + _u(title).strip().lower()
+
         return {
             "svc_uid": svc_uid,
             "keyword": _u(kw).strip() if kw else None,
@@ -169,70 +193,82 @@ class InfolabsaDeltaCheck(BrowserView):
                 return v, _to_num(v)
         return u"—", None
 
-    # ------------ Búsqueda de previos ------------
-    def _search_candidate_ars(self, current_ar, patient, pkeys):
-        """Busca AR previos por:
-           1) patient UID (si existe)
-           2) MRN-like en índices comunes (si existen)
-           3) fallback por fullname (menos estricto)
-        """
+    # ------------ Búsqueda de previos (robusta) ------------
+    def _same_patient(self, other_ar, pkeys):
+        """Evalúa si other_ar pertenece al mismo paciente, sin depender de índices."""
+        # MRN-like en el AR other
+        found = set()
+        for name in (
+            "getMedicalRecordNumberValue", "getMedicalRecordNumber", "getMRN",
+            "getClientPatientID", "getPatientID", "getIdentifier",
+        ):
+            v = self._get(other_ar, name)
+            if v:
+                found.add(_u(v).strip())
+        if found and pkeys.get("mrn_like"):
+            if any(x in pkeys["mrn_like"] for x in found):
+                return True
+
+        # Nombre completo como último recurso
+        full = None
+        for name in ("getPatientFullName", "getFullname", "Title"):
+            v = self._get(other_ar, name)
+            if v:
+                full = _norm(v)
+                break
+        if full and pkeys.get("fullname") and full == pkeys["fullname"]:
+            return True
+
+        return False
+
+    def _candidate_ars(self, current_ar, patient, pkeys):
+        """Amplía el radio de búsqueda: toma últimos N AR y filtra programáticamente."""
         cat = self._cat()
-        portal = self.context.portal_url.getPortalObject()
         cur_uid = self._get(current_ar, "UID")
-        brains = []
+        # Trae un conjunto amplio (p.ej. últimos 500 AR) y filtra por periodo y paciente
+        brains = cat.searchResults(
+            portal_type="AnalysisRequest",
+            sort_on="created",
+            sort_order="descending",
+            # Si tu catálogo tiene 'created' como DateIndex puedes filtrar por rango;
+            # si no, el corte por periodo lo hacemos después.
+        )[:500]
 
-        # 1) Por patient UID
-        pid = self._get(patient, "UID") if patient else None
-        if pid:
-            brains += list(cat.searchResults(
-                portal_type="AnalysisRequest",
-                sort_on="created", sort_order="descending",
-                getPatientUID=pid,
-            ))
-
-        # 2) Por MRN-like (agrega si el índice existe en tu catálogo)
-        mrn_vals = pkeys.get("mrn_like", set())
-        for q in mrn_vals:
-            # probamos varios índices conocidos; si no existen, el catálogo ignora
-            for idx in ("getMedicalRecordNumber", "getMedicalRecordNumberValue",
-                        "getClientPatientID", "getPatientID"):
-                brains += list(cat.searchResults(
-                    portal_type="AnalysisRequest",
-                    sort_on="created", sort_order="descending",
-                    **{idx: q}
-                ))
-
-        # 3) Por Fullname (muy laxo; úsalo solo de backup)
-        if pkeys.get("fullname"):
-            brains += list(cat.searchResults(
-                portal_type="AnalysisRequest",
-                sort_on="created", sort_order="descending",
-                Title=pkeys["fullname"],
-            ))
-
-        # unique y sin el actual
-        seen = set()
         out = []
+        seen = set([cur_uid])
+        # Límite por periodo
+        from DateTime import DateTime as ZDT
+        try:
+            cutoff = ZDT() - self.PERIOD_DAYS  # días atrás
+        except Exception:
+            cutoff = None
+
         for b in brains:
-            if b.UID == cur_uid:
-                continue
             if b.UID in seen:
                 continue
-            seen.add(b.UID)
+            # Periodo (si podemos)
+            if cutoff and getattr(b, "created", None):
+                try:
+                    if b.created < cutoff:
+                        continue
+                except Exception:
+                    pass
             try:
-                out.append(b.getObject())
+                obj = b.getObject()
             except Exception:
-                pass
+                continue
+            if self._same_patient(obj, pkeys):
+                out.append(obj)
+                seen.add(b.UID)
         return out
 
     def _series_for_uid(self, ars, analito_uid, keyword, title):
-        """Construye serie (date,value) para analito identificado por uid/keyword/title."""
+        """Construye serie (date,value) para el analito identificado por uid/keyword/title."""
         pts = []
         for ar in ars:
             dt = self._date_of_ar(ar)
             for a in self._analyses_of(ar):
                 keys = self._analysis_keys(a)
-                # match por prioridad
                 ok = False
                 if analito_uid and keys["uid"] == analito_uid:
                     ok = True
@@ -245,13 +281,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 _, f = self._result_value(a)
                 if f is None:
                     continue
-                if api and dt:
-                    try:
-                        iso = api.to_iso_date(dt)
-                    except Exception:
-                        iso = _u(dt)
-                else:
-                    iso = _u(dt) if dt else u""
+                iso = self._iso(dt)
                 pts.append({'date': iso, 'value': f, 'ar': ar})
                 break
         pts.sort(key=lambda p: p['date'])
@@ -262,17 +292,15 @@ class InfolabsaDeltaCheck(BrowserView):
         patient = self._patient_obj(ar)
         pkeys = self._patient_keys(ar, patient)
 
-        # candidatos: previos del mismo paciente (por UID/MRN/nombre)
-        prev_ars = self._search_candidate_ars(ar, patient, pkeys)
+        prev_ars = self._candidate_ars(ar, patient, pkeys)
+        ars_for_series = list(prev_ars) + [ar]
 
         rows = []
         now_analyses = self._analyses_of(ar)
         for a in now_analyses:
-            keys = self._analysis_keys(a)  # asegura uid/keyword/title
+            keys = self._analysis_keys(a)
             raw, val_now = self._result_value(a)
 
-            # serie histórica para este analito
-            ars_for_series = list(prev_ars) + [ar]
             series = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
             # previo inmediato (antes del actual)
@@ -294,15 +322,10 @@ class InfolabsaDeltaCheck(BrowserView):
                     delta_pct = u"%.1f%%" % (delta)
                     delta_dir = u'▲' if val_now > pv else (u'▼' if val_now < pv else u'Δ')
                 if prev['ar']:
-                    prev_id = self._get(prev['ar'], "getRequestID") or self._get(prev['ar'], "getId") or u'—'
+                    prev_id = (self._get(prev['ar'], "getRequestID") or
+                               self._get(prev['ar'], "getId") or u'—')
                     dt = self._date_of_ar(prev['ar'])
-                    if api and dt:
-                        try:
-                            prev_date = api.to_localized_time(dt)
-                        except Exception:
-                            prev_date = _u(dt) if dt else u'—'
-                    else:
-                        prev_date = _u(dt) if dt else u'—'
+                    prev_date = self._iso(dt) if dt else u'—'
 
             rows.append({
                 'uid': keys["uid"],
