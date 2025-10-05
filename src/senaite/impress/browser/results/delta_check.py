@@ -107,7 +107,7 @@ class InfolabsaDeltaCheck(BrowserView):
             pass
         return None
 
-    # ------------ fechas ISO-8601 (para sparkline JS) ------------
+    # ------------ fechas (ISO-8601 para spark; localizado para mostrar) ------------
     def _iso(self, dt):
         if not dt:
             return u""
@@ -123,6 +123,21 @@ class InfolabsaDeltaCheck(BrowserView):
             return dt.ISO8601()
         except Exception:
             return _u(dt)
+
+    def _localized(self, dt):
+        """Devuelve fecha/hora localizada (legible). Fallback a ISO si falla."""
+        if not dt:
+            return u"—"
+        try:
+            portal = self.context.portal_url.getPortalObject()
+            toloc = getattr(portal, "toLocalizedTime", None) or getattr(self.context, "toLocalizedTime", None)
+            if callable(toloc):
+                # long_format=True para incluir hora
+                return _u(toloc(dt, long_format=True))
+        except Exception:
+            pass
+        # si falla, usa ISO compacto
+        return self._iso(dt) or u"—"
 
     # ------------ AR / Paciente ------------
     def _patient_obj(self, ar):
@@ -375,7 +390,8 @@ class InfolabsaDeltaCheck(BrowserView):
             delta_pct = u'N/A'
             delta_dir = u'∙'
             prev_id = u'—'
-            prev_date = u'—'
+            prev_date_iso = u'—'
+            prev_date_fmt = u'—'
 
             if prev and val_now is not None:
                 pv = prev['value']
@@ -387,7 +403,8 @@ class InfolabsaDeltaCheck(BrowserView):
                     prev_id = (self._get(prev['ar'], "getRequestID") or
                                self._get(prev['ar'], "getId") or u'—')
                     dt = self._date_of_ar(prev['ar'])
-                    prev_date = self._iso(dt) if dt else u'—'
+                    prev_date_iso = self._iso(dt) if dt else u'—'
+                    prev_date_fmt = self._localized(dt) if dt else u'—'
 
             rows.append({
                 'uid': keys["uid"],
@@ -398,7 +415,8 @@ class InfolabsaDeltaCheck(BrowserView):
                 'delta_dir': delta_dir,
                 'delta_note': u'',
                 'prev_sample_id': prev_id,
-                'prev_date': prev_date,
+                'prev_date': prev_date_iso,      # se mantiene por compatibilidad
+                'prev_date_fmt': prev_date_fmt,  # NUEVO: legible/localizado
                 'rcv_pct': None,
                 'series': [{'date': p['date'], 'value': p['value']} for p in series if p.get('value') is not None],
             })
