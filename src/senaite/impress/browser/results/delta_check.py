@@ -171,6 +171,19 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return u"—"
 
+    # === NUEVO: formateo rápido de ISO a dd/mm/aaaa (para el rango en la plantilla) ===
+    def _fmt_iso_local(self, iso):
+        if not iso:
+            return u"—"
+        try:
+            import datetime
+            s = _u(iso).replace("Z", "")
+            fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
+            dt = datetime.datetime.strptime(s, fmt)
+            return dt.strftime("%d/%m/%Y")
+        except Exception:
+            return _u(iso)
+
     def _date_of_ar(self, ar):
         # PRIORIDAD: Verificado -> Publicado -> Recepción -> creado
         for g in ("getDateVerified", "getDatePublished", "getDateReceived", "created"):
@@ -253,6 +266,15 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return None
 
+    # === NUEVO: obtener ServiceUID siempre que sea posible ===
+    def _service_uid_of(self, a):
+        for g in ("getServiceUID", "ServiceUID"):
+            v = self._get(a, g)
+            if v:
+                return _u(v)
+        svc = self._service_of(a)
+        return self._get(svc, "UID")
+
     def _service_code(self, svc):
         # Campos comunes para identificar el "código" del servicio
         for g in ("getAnalysisCode", "getCode", "getServiceID", "getId", "id"):
@@ -263,7 +285,7 @@ class InfolabsaDeltaCheck(BrowserView):
 
     def _analysis_keys(self, a):
         svc = self._service_of(a)
-        svc_uid = self._get(svc, "UID")
+        svc_uid = self._get(svc, "UID") or self._service_uid_of(a)  # CHANGED: asegura UID
         kw = self._get(svc, "getKeyword") if svc else None
         if not kw:
             kw = self._get(a, "getKeyword")
@@ -272,7 +294,7 @@ class InfolabsaDeltaCheck(BrowserView):
 
         uid = None
         if svc_uid:
-            uid = _u(svc_uid)
+            uid = _u(svc_uid)                     # CHANGED: preferimos ServiceUID
         elif kw:
             uid = u"kw:" + _u(kw).strip().lower()
         elif title:
@@ -478,11 +500,11 @@ class InfolabsaDeltaCheck(BrowserView):
                 return (raw if raw not in (None, u"", "") else u"—", num)
             return None
 
-        # 1) UID del servicio
+        # 1) UID del servicio  (NUEVO y prioritario)
         if tgt_svc_uid:
             for a in analyses:
                 svc = self._service_of(a)
-                svuid = self._get(svc, "UID")
+                svuid = self._get(svc, "UID") or self._service_uid_of(a)
                 if svuid and _u(svuid) == tgt_svc_uid:
                     r = _match_and_return(a);  return r if r else (u"—", None)
 
@@ -521,7 +543,7 @@ class InfolabsaDeltaCheck(BrowserView):
         """
         Construye la serie (date,value,raw,ar,rid) del analito:
         - Filtra analyses por getRequestID ∈ IDs de AR candidatos
-        - y por getKeyword (o getServiceUID si quisieras).
+        - y por getKeyword (o getServiceUID si existe).
         - Usa fecha del AR (verificada->publicada->recepción->creado).
         - Deduplica por rid quedándote con el punto más reciente por AR.
         """
@@ -545,12 +567,13 @@ class InfolabsaDeltaCheck(BrowserView):
             "getRequestID": ar_ids,
         }
 
-        # Si hay índice de keyword, úsalo (más directo y robusto)
+        # Preferir índice por ServiceUID si el uid parece ser un UID real
+        if analito_uid and not analito_uid.startswith("kw:") and not analito_uid.startswith("title:"):
+            if self._catalog_has_index("getServiceUID", analyses=True):
+                query["getServiceUID"] = analito_uid
+        # Además, si hay índice de keyword, úsalo como ayuda (no estorba)
         if keyword and self._catalog_has_index("getKeyword", analyses=True):
             query["getKeyword"] = keyword
-        # Alternativa opcional: por UID de servicio (descomentable si lo prefieres)
-        # elif analito_uid and self._catalog_has_index("getServiceUID", analyses=True) and not analito_uid.startswith("kw:"):
-        #     query["getServiceUID"] = analito_uid
 
         sort_on = "getResultCaptureDate" if self._catalog_has_index("getResultCaptureDate", analyses=True) else "created"
 
@@ -713,12 +736,13 @@ class InfolabsaDeltaCheck(BrowserView):
             # Valor PREVIO tomado EXCLUSIVAMENTE del AR previo global
             prev_raw, prev_num = self._find_prev_value_in_ar(prev_ar_global, keys)
 
-            # Reglas de visibilidad: solo filas con al menos 2 puntos y valor actual numérico
+            # Reglas de visibilidad actuales: solo filas con al menos 2 puntos y valor actual numérico
+            # (Si prefieres mostrar siempre la fila, comenta el 'continue' de abajo)
             if len(series) < 2 or val_now is None:
                 # aun así, recolecta multi_series para el gráfico grande si quieres mostrar tendencias
                 if len(series) >= 2:
                     multi_series.append({"name": keys["name"], "unit": keys["unit"] or u"", "series": [{'date': p['date'], 'value': p['value']} for p in series]})
-                continue
+                continue  # <-- comenta esta línea si deseas que SIEMPRE salga la fila, tenga o no 2 puntos
 
             # Δ (absoluto y %)
             delta_abs = None
@@ -768,6 +792,10 @@ class InfolabsaDeltaCheck(BrowserView):
             # Valor previo "raw" para mostrar encima de ID/fecha
             prev_value_raw = prev_raw if prev_raw not in (None, u"", "") else (u"%s" % prev_num if prev_num is not None else u"—")
 
+            # Fechas (desde/hasta) de la serie — por si las quieres mostrar en la plantilla
+            trend_from_fmt = self._fmt_iso_local(series[0]['date']) if series else u"—"
+            trend_to_fmt   = self._fmt_iso_local(series[-1]['date']) if series else u"—"
+
             rows.append({
                 'uid': keys["uid"],
                 'name': keys["name"],
@@ -790,6 +818,10 @@ class InfolabsaDeltaCheck(BrowserView):
                 'trend_dir': trend_dir,              # ▲ / ▼ / ∙
 
                 'series': [{'date': p['date'], 'value': p['value']} for p in series if p.get('value') is not None],
+
+                # NUEVO: rango de fechas de la serie (si lo necesitas en la UI)
+                'trend_from_fmt': trend_from_fmt,
+                'trend_to_fmt': trend_to_fmt,
             })
 
             # Acumular para gráfico grande
