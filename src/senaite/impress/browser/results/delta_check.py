@@ -36,7 +36,7 @@ def _strip_accents(s):
 
 
 def _to_num(x):
-    """Convierte x a float si es posible. Acepta '1,23', '<1', '> 3.5'."""
+    """Convierte x a float si es posible. Acepta '1,23', '<1', '> 3.5' y limpia sufijos raros."""
     try:
         if x in (None, u"", ""):
             return None
@@ -47,9 +47,14 @@ def _to_num(x):
         if isinstance(x, num_types):
             return float(x)
         s = _u(x)
-        # quita signos de censura como < y > para poder graficar un número aproximado
+        # elimina sufijos tipo 'JS:180' o unidades simples después de dos puntos
+        s = re.sub(r'\s*JS:\s*[-+]?\d+(?:[.,]\d+)?$', u"", s.strip(), flags=re.I)
+        # quita signos comparativos para tener un aproximado
         s = s.replace("<", "").replace(">", "")
         s = s.replace(",", ".")
+        m = re.search(r'[-+]?\d+(?:\.\d+)?', s)
+        if m:
+            return float(m.group(0))
         return float(s)
     except Exception:
         return None
@@ -364,15 +369,12 @@ class InfolabsaDeltaCheck(BrowserView):
                 return _u(v)
         return u""
 
-    # ===== CAMBIO: extraer numérico aunque haya unidades + mapear cualitativos =====
+    # ===== Valor del análisis -> (raw, num) =====
     def _result_value(self, a):
         """
         Devuelve (raw, num) donde:
           - raw: el texto mostrado (formateado si existe)
-          - num: float para cálculos/gráficos. Intenta:
-              1) numérico directo (getResult / result / getValue)
-              2) extraer número del getFormattedResult
-              3) mapear cualitativos comunes (ausente/negativo -> 0, presente/positivo -> 1)
+          - num: float para cálculos/gráficos
         """
         # 1) Intento directo
         for g in ("getResult", "Result", "result", "getValue"):
@@ -395,13 +397,11 @@ class InfolabsaDeltaCheck(BrowserView):
 
             # 3) Mapear cualitativos
             sn = _norm(_strip_accents(s))
-            # negativos (0)
             neg_keys = (
                 u"ausente", u"no detectado", u"no-detectado", u"nd",
                 u"negativo", u"sin crecimiento", u"no growth",
                 u"absent", u"none detected", u"not detected", u"no se detecta",
             )
-            # positivos (1)
             pos_keys = (
                 u"presente", u"detectado", u"positivo", u"con crecimiento",
                 u"present", u"detected", u"growth",
@@ -766,8 +766,7 @@ class InfolabsaDeltaCheck(BrowserView):
                         return None
                 return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
 
-            # acepta puntos con claves 'date' y 'value'
-            pts = [( _to_ts_days(p["date"]), float(p["value"]) ) for p in series_points if p.get("date") and p.get("value") is not None]
+            pts = [( _to_ts_days(p["date"]), float(_to_num(p["value"])) ) for p in series_points if p.get("date") and p.get("value") is not None]
             pts = [p for p in pts if p[0] is not None]
             if len(pts) < 2:
                 return u"∙"
@@ -862,7 +861,10 @@ class InfolabsaDeltaCheck(BrowserView):
         multi_series = []
         now_analyses = self._analyses_of(ar)
 
+        # Flags de salida
         dbg = self.request.form.get("debug") or self.request.get("debug")
+        x_mode = (self.request.form.get("x") or self.request.get("x") or u"").strip().lower()  # "" | "ddmmyy"
+
         if dbg:
             cat = self._cat()
             pf = self._best_patient_query_for_catalog(cat, pkeys)
@@ -881,33 +883,40 @@ class InfolabsaDeltaCheck(BrowserView):
 
             series = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
-            # Construye puntos compatibles (date/value + x/y + ddmmyy + ms)
+            # Construye puntos compatibles
             points = []
             for p in series:
-                if p.get('value') is None or not p.get('date'):
+                if not p.get('date'):
+                    continue
+                val = _to_num(p.get('value'))
+                if val is None:
                     continue
                 iso = p['date']
-                val = p['value']
+                ms  = self._to_epoch_ms(iso)
+                if ms is None and x_mode != "ddmmyy":
+                    # si no hay ms y no estamos en modo categorías, no lo usamos
+                    continue
                 points.append({
-                    'date': iso,                      # ISO-8601 (tiempo máquina)
-                    'value': val,                     # num
+                    'date': iso,                      # ISO-8601
+                    'value': float(val),              # número puro
                     'x': iso,                         # alias compat
-                    'y': val,                         # alias compat
+                    'y': float(val),                  # número puro
                     'ddmmyy': self._fmt_ddmmyy(iso),  # etiqueta humana DDMMYY
-                    'ms': self._to_epoch_ms(iso),     # epoch ms para charts
+                    'ms': ms,                         # epoch ms
                 })
 
-            # SIEMPRE agregar la serie al gráfico si hay ≥ 2 puntos
+            # serie lista para UI interna
             if len(points) >= 2:
                 multi_series.append({
                     "name": keys["name"],
                     "unit": keys["unit"] or u"",
-                    "series": points,  # compat: {date,value} y {x,y}
+                    "series": points,
                     "xy": [{'x': pt['x'], 'y': pt['y']} for pt in points],
-                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],
+                    "data": [[pt['ms'], float(pt['value'])] for pt in points if pt.get('ms') is not None],
+                    "categories_ddmmyy": [pt['ddmmyy'] for pt in points],
                 })
 
-            # Si no hay base suficiente o no hay valor actual, pasar al siguiente
+            # Si no hay base suficiente o no hay valor actual, pasar
             if len(points) < 2 or val_now is None:
                 continue
 
@@ -981,26 +990,35 @@ class InfolabsaDeltaCheck(BrowserView):
 
                 'trend_dir': trend_dir,
 
-                # usa los mismos puntos compatibles
-                'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],
+                'series': [{'date': pt['date'], 'value': float(pt['value'])} for pt in points],
 
                 'trend_from_fmt': trend_from_fmt,
                 'trend_to_fmt': trend_to_fmt,
             })
 
-        # Serie lista para librerías (data = [[ms, val], ...])
+        # ---- chart_v2: por defecto (x=ms), opcional categorías ddmmyy ----
+        use_categories = (x_mode == "ddmmyy")
+
         chart_v2_series = []
         for s in multi_series:
+            if use_categories:
+                # [[ 'ddmmyy', y ], ...]  (x como categoría)
+                data = [[pt['ddmmyy'], float(pt['value'])] for pt in (s.get("series") or [])]
+            else:
+                # [[ ms, y ], ...]  (datetime)
+                data = [[pt['ms'], float(pt['value'])] for pt in (s.get("series") or []) if pt.get('ms') is not None]
+
             chart_v2_series.append({
                 "name": s.get("name"),
                 "unit": s.get("unit") or u"",
-                "data": s.get("data") or [],
+                "data": data,
+                "categories_ddmmyy": s.get("categories_ddmmyy") or [],
             })
 
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
         has_chart = bool([s for s in multi_series if len(s.get("series") or []) >= 2])
 
-        # Salida JSON directa si se pide ?as=json (no rompe la salida tradicional)
+        # Salida JSON directa si se pide ?as=json
         as_json = self.request.form.get("as") or self.request.get("as")
         if as_json == "json":
             payload = {
@@ -1015,6 +1033,7 @@ class InfolabsaDeltaCheck(BrowserView):
                     'series': chart_v2_series,
                     'max_points': self.MAX_POINTS,
                     'window_days': self.PERIOD_DAYS,
+                    'x_mode': (u"ddmmyy" if use_categories else u"ms"),
                 },
                 'has_chart': has_chart,
             }
@@ -1032,10 +1051,11 @@ class InfolabsaDeltaCheck(BrowserView):
                 'max_points': self.MAX_POINTS,
                 'window_days': self.PERIOD_DAYS,
             },
-            'chart_v2': {  # NUEVO
+            'chart_v2': {
                 'series': chart_v2_series,
                 'max_points': self.MAX_POINTS,
                 'window_days': self.PERIOD_DAYS,
+                'x_mode': (u"ddmmyy" if use_categories else u"ms"),
             },
             'has_chart': has_chart,
         }
