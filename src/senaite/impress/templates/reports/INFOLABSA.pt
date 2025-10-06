@@ -94,6 +94,20 @@
     .section-delta .rcv-ok  { color:#198754; font-weight:700; }  /* verde */
     .section-delta .rcv-bad { color:#dc3545; font-weight:700; }  /* rojo */
 
+    /* === NUEVO: centrar columnas del panel Delta, con o sin RCV === */
+    /* Sin RCV (5 columnas: 1 Analito, 2 Actual, 3 Previo, 4 Δ, 5 Tendencia) */
+    .section-delta table.table-condensed thead th:nth-child(2),
+    .section-delta table.table-condensed thead th:nth-child(3),
+    .section-delta table.table-condensed thead th:nth-child(4),
+    .section-delta table.table-condensed thead th:nth-child(5) { text-align: center; }
+    .section-delta table.table-condensed tbody td:nth-child(2),
+    .section-delta table.table-condensed tbody td:nth-child(3),
+    .section-delta table.table-condensed tbody td:nth-child(4),
+    .section-delta table.table-condensed tbody td:nth-child(5) { text-align: center; vertical-align: middle; }
+    /* Con RCV (6 columnas): centramos 2..6 también por si se vuelve a activar */
+    .section-delta table.table-condensed thead th:nth-child(6),
+    .section-delta table.table-condensed tbody td:nth-child(6) { text-align: center; vertical-align: middle; }
+
     @media print {
       .pagebreak { page-break-before: always; }
       .pagebreak-before { page-break-before: always; }
@@ -132,6 +146,7 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
+    <!-- (sin cambios) -->
     <tal:patient define="
       get python:getattr;
 
@@ -265,7 +280,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra -->
+    <!-- Resumen de la Muestra (sin cambios) -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -378,7 +393,7 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretacion de resultados -->
+    <!-- Interpretacion de resultados (sin cambios) -->
     <tal:interp define="
       get python:getattr;
 
@@ -491,13 +506,15 @@
                 <th i18n:translate="">Actual</th>
                 <th i18n:translate="">Analito previo</th>
                 <th i18n:translate="">Δ vs. previo</th>
+                <!-- RCV oculto temporalmente
                 <th i18n:translate="">RCV</th>
+                -->
                 <th i18n:translate="">Tendencia</th>
               </tr>
             </thead>
             <tbody>
               <tal:loop repeat="r rows">
-                <!-- Variables auxiliares para delta absoluto, % y RCV -->
+                <!-- Variables auxiliares para delta absoluto, % y (RCV) -->
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
@@ -550,7 +567,7 @@
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
-                    <!-- RCV (porcentaje) + veredicto Δ ≤ RCV -->
+                    <!-- RCV (porcentaje) + veredicto Δ ≤ RCV) — OCULTO TEMPORALMENTE
                     <td>
                       <div>
                         <span tal:condition="has_rcv" tal:content="python:u'%s%%' % rcv">—</span>
@@ -561,6 +578,7 @@
                               tal:content="python:(rcv_ok and u'Δ \u2264 RCV' or u'Δ > RCV')">Δ ≤ RCV</span>
                       </div>
                     </td>
+                    -->
 
                     <!-- Tendencia (sparkline) -->
                     <td>
