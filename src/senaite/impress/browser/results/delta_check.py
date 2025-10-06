@@ -179,6 +179,28 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return _u(iso)
 
+    def _fmt_ddmmyy(self, iso):
+        """Devuelve una etiqueta humana DDMMYY a partir de un ISO-8601."""
+        try:
+            import datetime
+            s = _u(iso).replace("Z", "")
+            fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
+            dt = datetime.datetime.strptime(s, fmt)
+            return dt.strftime("%d%m%y")
+        except Exception:
+            return re.sub(r"\D+", "", _u(iso))[:6] or _u(iso)
+
+    def _to_epoch_ms(self, iso):
+        """Convierte ISO-8601 a epoch en milisegundos (para librerías de charts)."""
+        try:
+            import datetime
+            s = _u(iso).replace("Z", "")
+            fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
+            dt = datetime.datetime.strptime(s, fmt)
+            return int((dt - datetime.datetime(1970, 1, 1)).total_seconds() * 1000.0)
+        except Exception:
+            return None
+
     def _date_of_ar(self, ar):
         for g in ("getDateVerified", "getDatePublished", "getDateReceived", "created"):
             v = self._get(ar, g)
@@ -688,6 +710,7 @@ class InfolabsaDeltaCheck(BrowserView):
                         return None
                 return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
 
+            # acepta puntos con claves 'date' y 'value'
             pts = [( _to_ts_days(p["date"]), float(p["value"]) ) for p in series_points if p.get("date") and p.get("value") is not None]
             pts = [p for p in pts if p[0] is not None]
             if len(pts) < 2:
@@ -802,16 +825,38 @@ class InfolabsaDeltaCheck(BrowserView):
 
             series = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
-            prev_raw, prev_num = self._find_prev_value_in_ar(prev_ar_global, keys)
+            # Construye puntos compatibles (date/value + x/y + ddmmyy + ms)
+            points = []
+            for p in series:
+                if p.get('value') is None or not p.get('date'):
+                    continue
+                iso = p['date']
+                val = p['value']
+                points.append({
+                    'date': iso,                      # ISO-8601 (tiempo máquina)
+                    'value': val,                     # num
+                    'x': iso,                         # alias compat
+                    'y': val,                         # alias compat
+                    'ddmmyy': self._fmt_ddmmyy(iso),  # etiqueta humana DDMMYY
+                    'ms': self._to_epoch_ms(iso),     # epoch ms para charts
+                })
 
-            if len(series) < 2 or val_now is None:
-                if len(series) >= 2:
-                    multi_series.append({
-                        "name": keys["name"],
-                        "unit": keys["unit"] or u"",
-                        "series": [{'date': p['date'], 'value': p['value']} for p in series]
-                    })
+            # SIEMPRE agregar la serie al gráfico si hay ≥ 2 puntos
+            if len(points) >= 2:
+                multi_series.append({
+                    "name": keys["name"],
+                    "unit": keys["unit"] or u"",
+                    "series": points,  # compat: {date,value} y {x,y}
+                    "xy": [{'x': pt['x'], 'y': pt['y']} for pt in points],
+                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],
+                })
+
+            # Si no hay base suficiente o no hay valor actual, pasar al siguiente
+            if len(points) < 2 or val_now is None:
                 continue
+
+            # ---- Cálculo de deltas ----
+            prev_raw, prev_num = self._find_prev_value_in_ar(prev_ar_global, keys)
 
             delta_abs = None
             delta_pct = u"N/A"
@@ -852,12 +897,12 @@ class InfolabsaDeltaCheck(BrowserView):
                                if delta_abs is not None
                                else u"—")
 
-            trend_dir = self._trend_dir(series)
+            trend_dir = self._trend_dir(points)
 
             prev_value_raw = prev_raw if prev_raw not in (None, u"", "") else (u"%s" % prev_num if prev_num is not None else u"—")
 
-            trend_from_fmt = self._fmt_iso_local(series[0]['date']) if series else u"—"
-            trend_to_fmt   = self._fmt_iso_local(series[-1]['date']) if series else u"—"
+            trend_from_fmt = self._fmt_iso_local(points[0]['date']) if points else u"—"
+            trend_to_fmt   = self._fmt_iso_local(points[-1]['date']) if points else u"—"
 
             rows.append({
                 'uid': keys["uid"],
@@ -880,26 +925,59 @@ class InfolabsaDeltaCheck(BrowserView):
 
                 'trend_dir': trend_dir,
 
-                'series': [{'date': p['date'], 'value': p['value']} for p in series if p.get('value') is not None],
+                # usa los mismos puntos compatibles
+                'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],
 
                 'trend_from_fmt': trend_from_fmt,
                 'trend_to_fmt': trend_to_fmt,
             })
 
-            multi_series.append({
-                "name": keys["name"],
-                "unit": keys["unit"] or u"",
-                "series": [{'date': p['date'], 'value': p['value']} for p in series]
+        # Serie lista para librerías (data = [[ms, val], ...])
+        chart_v2_series = []
+        for s in multi_series:
+            chart_v2_series.append({
+                "name": s.get("name"),
+                "unit": s.get("unit") or u"",
+                "data": s.get("data") or [],
             })
 
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
         has_chart = bool([s for s in multi_series if len(s.get("series") or []) >= 2])
+
+        # Salida JSON directa si se pide ?as=json (no rompe la salida tradicional)
+        as_json = self.request.form.get("as") or self.request.get("as")
+        if as_json == "json":
+            payload = {
+                'period_label': label,
+                'rows': rows,
+                'chart': {
+                    'series': multi_series,
+                    'max_points': self.MAX_POINTS,
+                    'window_days': self.PERIOD_DAYS,
+                },
+                'chart_v2': {
+                    'series': chart_v2_series,
+                    'max_points': self.MAX_POINTS,
+                    'window_days': self.PERIOD_DAYS,
+                },
+                'has_chart': has_chart,
+            }
+            self.request.response.setHeader("Content-Type", "application/json; charset=utf-8")
+            try:
+                return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            except Exception:
+                return json.dumps(payload, ensure_ascii=False)
 
         return {
             'period_label': label,
             'rows': rows,
             'chart': {
                 'series': multi_series,
+                'max_points': self.MAX_POINTS,
+                'window_days': self.PERIOD_DAYS,
+            },
+            'chart_v2': {  # NUEVO
+                'series': chart_v2_series,
                 'max_points': self.MAX_POINTS,
                 'window_days': self.PERIOD_DAYS,
             },
