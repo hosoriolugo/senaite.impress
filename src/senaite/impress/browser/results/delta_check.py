@@ -9,6 +9,8 @@ except Exception:
     import logging
     logger = logging.getLogger("senaite.impress")
 
+import json
+
 
 def _u(v):
     try:
@@ -96,6 +98,13 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return False
 
+    def _list_indexes(self, analyses=False):
+        try:
+            cat = self._acat() if analyses else self._cat()
+            return sorted(list(cat.indexes()))
+        except Exception:
+            return []
+
     def _wftool(self):
         try:
             portal = self.context.portal_url.getPortalObject()
@@ -151,28 +160,6 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return _u(dt)
 
-    # === NUEVO: fecha simple para el GRÁFICO (solo día) ===
-    def _iso_chart(self, dt):
-        """Fecha simple para el gráfico: 'YYYY/MM/DD' (sin hora), amigable a Date.parse en motores WebKit/Qt."""
-        if not dt:
-            return u""
-        try:
-            if api:
-                zdt = api.to_datetime(dt)
-                return zdt.strftime("%Y/%m/%d")
-        except Exception:
-            pass
-        try:
-            return dt.strftime("%Y/%m/%d")
-        except Exception:
-            pass
-        try:
-            s = _u(dt)
-            # cortar fecha y homogeneizar separadores
-            return s[:10].replace("-", "/")
-        except Exception:
-            return u""
-
     def _fmt_local(self, dt):
         if not dt:
             return u"—"
@@ -193,14 +180,13 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return u"—"
 
-    # === Ajustado: acepta también 'YYYY/MM/DD' ===
+    # === NUEVO: formateo rápido de ISO a dd/mm/aaaa (para el rango en la plantilla) ===
     def _fmt_iso_local(self, iso):
         if not iso:
             return u"—"
         try:
             import datetime
             s = _u(iso).replace("Z", "")
-            s = s.replace("/", "-")  # <- soporta YYYY/MM/DD
             fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
             dt = datetime.datetime.strptime(s, fmt)
             return dt.strftime("%d/%m/%Y")
@@ -249,12 +235,28 @@ class InfolabsaDeltaCheck(BrowserView):
                     return _u(v).strip()
         return None
 
+    def _patient_uid_of(self, patient):
+        for name in ("UID", "getUID", "getId"):
+            v = getattr(patient, name, None)
+            try:
+                v = v() if callable(v) else v
+            except Exception:
+                pass
+            if v:
+                return _u(v)
+        return None
+
     def _patient_keys(self, ar, patient):
-        """Llaves para identificar paciente (MRN preferente + nombre full)."""
+        """Llaves para identificar paciente (MRN preferente + nombre full + UID si existe)."""
         keys = {}
         mrn = self._mrn_of_ar(ar, patient)
         if mrn:
             keys["mrn"] = mrn
+
+        if patient:
+            puid = self._patient_uid_of(patient)
+            if puid:
+                keys["patient_uid"] = puid
 
         # Nombre completo como fallback
         full = None
@@ -293,7 +295,6 @@ class InfolabsaDeltaCheck(BrowserView):
     def _service_uid_of(self, a):
         for g in ("getServiceUID", "ServiceUID"):
             v = self._get(a, g)
-        # preferir el ServiceUID del service si no vino directo
             if v:
                 return _u(v)
         svc = self._service_of(a)
@@ -344,7 +345,7 @@ class InfolabsaDeltaCheck(BrowserView):
     def _result_value(self, a):
         for g in ("getFormattedResult", "getResult", "Result", "result", "getValue"):
             v = self._get(a, g)
-            # Mantener primero el formateado como "raw"; numérico para cálculo
+        # Mantener primero el formateado como "raw"; numérico para cálculo
             if v not in (None, u"", ""):
                 return v, _to_num(v)
         return u"—", None
@@ -377,17 +378,47 @@ class InfolabsaDeltaCheck(BrowserView):
 
         return False
 
+    def _best_patient_query_for_catalog(self, cat, pkeys):
+        """
+        Devuelve un dict de filtros para el catálogo de AR usando el índice disponible:
+        - Prioridad: PatientUID (getPatientUID / getPatientUIDExact)
+        - Luego MRN/IDs del paciente en cualquiera de estos índices si existen:
+          getMedicalRecordNumber, medical_record_number, getClientPatientID, getPatientID, getIdentifier
+        Si no hay índice compatible, devuelve {} para que usemos el fallback programático.
+        """
+        indexes = set()
+        try:
+            indexes = set(cat.indexes())
+        except Exception:
+            pass
+
+        # 1) Patient UID
+        puid = pkeys.get("patient_uid")
+        for idx_name in ("getPatientUIDExact", "getPatientUID"):
+            if puid and idx_name in indexes:
+                return {idx_name: puid}
+
+        # 2) MRN-like
+        mrn = pkeys.get("mrn")
+        for idx_name in ("getMedicalRecordNumber", "medical_record_number",
+                         "getClientPatientID", "getPatientID", "getIdentifier"):
+            if mrn and idx_name in indexes:
+                return {idx_name: mrn}
+
+        # Sin índice compatible -> fallback
+        return {}
+
     def _candidate_ars(self, current_ar, patient, pkeys):
         """
         Saca los AR del mismo paciente dentro del período:
-        - Si existe índice 'medical_record_number', se usa directamente.
-        - Si no, se hace fallback programático (últimos N) + filtro por paciente.
-        - Se quedan sólo AR en estados >= verified.
+        - Primero intenta por PatientUID/MRN usando el índice disponible del catálogo.
+        - Si no hay índice compatible, hace fallback programático (últimos N) + filtro por paciente.
+        - Mantiene sólo AR en estados >= verified y dentro de 12 meses.
         """
         cat = self._cat()
         cur_uid = self._get(current_ar, "UID")
 
-        # Límite por periodo
+        # Límite por periodo (ahora) - 365 días
         from DateTime import DateTime as ZDT
         try:
             cutoff = ZDT() - self.PERIOD_DAYS  # días atrás
@@ -395,19 +426,31 @@ class InfolabsaDeltaCheck(BrowserView):
             cutoff = None
 
         brains = []
-        mrn = pkeys.get("mrn")
-        has_mrn_index = self._catalog_has_index("medical_record_number", analyses=False)
+        query = {
+            "portal_type": "AnalysisRequest",
+            "sort_on": "created",
+            "sort_order": "descending",
+        }
+
+        # Filtros por paciente usando el mejor índice disponible
+        patient_filter = self._best_patient_query_for_catalog(cat, pkeys)
+        query.update(patient_filter)
+
+        # Filtro temporal por índice disponible
+        # preferimos getDateReceived si existe; si no, created
+        try:
+            idxs = set(cat.indexes())
+        except Exception:
+            idxs = set()
+        if "getDateReceived" in idxs:
+            if cutoff:
+                query["getDateReceived"] = {"query": cutoff, "range": "min"}
+        elif "created" in idxs:
+            if cutoff:
+                query["created"] = {"query": cutoff, "range": "min"}
 
         try:
-            if mrn and has_mrn_index:
-                query = {
-                    "portal_type": "AnalysisRequest",
-                    "medical_record_number": mrn,
-                    "sort_on": "created",
-                    "sort_order": "descending",
-                }
-                if cutoff and self._catalog_has_index("created", analyses=False):
-                    query["created"] = {"query": cutoff, "range": "min"}
+            if patient_filter:
                 brains = cat.searchResults(**query)
             else:
                 # Fallback: trae un conjunto amplio y filtra a mano
@@ -435,7 +478,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 pass
 
             # Periodo en fallback (si no pudimos filtrar arriba)
-            if not (mrn and has_mrn_index) and cutoff and getattr(b, "created", None):
+            if not patient_filter and cutoff and getattr(b, "created", None):
                 try:
                     if b.created < cutoff:
                         continue
@@ -453,8 +496,8 @@ class InfolabsaDeltaCheck(BrowserView):
                 if st and st not in self.STATES_OK:
                     continue
 
-            # Si no tenemos índice MRN, filtra por paciente programáticamente
-            if not (mrn and has_mrn_index):
+            # Si no tenemos índice de paciente, filtra por paciente programáticamente
+            if not patient_filter:
                 if not self._same_patient(obj, pkeys):
                     continue
 
@@ -634,8 +677,7 @@ class InfolabsaDeltaCheck(BrowserView):
             if not dt:
                 continue
 
-            # >>> SOLO PARA GRÁFICO/SPARKS: fecha simple
-            iso = self._iso_chart(dt)
+            iso = self._iso(dt)
             pts.append({"date": iso, "value": fval, "raw": raw_val, "ar": ar_ref or self.context, "rid": rid})
 
         if not pts:
@@ -657,8 +699,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 raw, f = self._result_value(a)
                 if f is None:
                     continue
-                # >>> SOLO PARA GRÁFICO/SPARKS: fecha simple
-                iso = self._iso_chart(dt)
+                iso = self._iso(dt)
                 pts.append({"date": iso, "value": f, "raw": raw, "ar": cur_ar, "rid": cur_rid})
                 break
 
@@ -698,11 +739,11 @@ class InfolabsaDeltaCheck(BrowserView):
             def _to_ts_days(iso):
                 # Date.parse en JS usa ms; aquí usamos días (UTC) para estabilidad
                 try:
-                    dt = datetime.datetime.strptime(iso.replace("Z","").replace("/","-"), "%Y-%m-%dT%H:%M:%S")
+                    dt = datetime.datetime.strptime(iso.replace("Z",""), "%Y-%m-%dT%H:%M:%S")
                 except Exception:
                     # fallback: solo fecha
                     try:
-                        dt = datetime.datetime.strptime(iso.replace("/","-")[:10], "%Y-%m-%d")
+                        dt = datetime.datetime.strptime(iso[:10], "%Y-%m-%d")
                     except Exception:
                         return None
                 return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
@@ -734,24 +775,100 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return u"∙"
 
+    # ------------------ DEBUG HELPERS ------------------
+    def _debug_summary(self, ar, patient, pkeys, prev_ars, now_analyses, multi_series, patient_filter):
+        # Catálogos e índices
+        sample_indexes = self._list_indexes(analyses=False)
+        analysis_indexes = self._list_indexes(analyses=True)
+
+        # Resumen AR previos
+        prev_summary = []
+        for x in prev_ars[:30]:
+            rid = self._get(x, "getRequestID") or self._get(x, "getId") or u""
+            dt = self._received_date_of_ar(x) or self._date_of_ar(x)
+            rs = self._state_of(x)
+            prev_summary.append({
+                "rid": _u(rid),
+                "date": self._iso(dt) if dt else u"",
+                "date_fmt": self._fmt_local(dt) if dt else u"",
+                "state": rs or u"",
+            })
+
+        # Series por analito actual
+        a_summ = []
+        for a in now_analyses:
+            k = self._analysis_keys(a)
+            # OJO: la serie real se arma después en flujo normal; aquí sólo contaremos luego
+            a_summ.append({
+                "name": k["name"],
+                "unit": k["unit"],
+                "svc_uid": k["svc_uid"],
+                "keyword": k["keyword"],
+                "code": k["code"],
+            })
+
+        # Multi-series ya calculadas (si el flujo normal siguió)
+        msum = []
+        for s in multi_series:
+            pts = s.get("series") or []
+            msum.append({
+                "name": s.get("name"),
+                "unit": s.get("unit"),
+                "points": len(pts),
+                "from": (pts[0]["date"] if pts else ""),
+                "to": (pts[-1]["date"] if pts else ""),
+            })
+
+        out = {
+            "patient_keys": pkeys,
+            "patient_uid_present": bool(pkeys.get("patient_uid")),
+            "mrn_present": bool(pkeys.get("mrn")),
+            "sample_catalog_indexes": sample_indexes,
+            "analysis_catalog_indexes": analysis_indexes,
+            "patient_filter_used_in_catalog_query": patient_filter,
+            "period_days": self.PERIOD_DAYS,
+            "max_points_per_analyte": self.MAX_POINTS,
+            "candidate_ARs_found": len(prev_ars),
+            "candidate_ARs_preview": prev_summary,
+            "current_AR_id": self._get(ar, "getRequestID") or self._get(ar, "getId"),
+            "current_AR_date": self._fmt_local(self._date_of_ar(ar)),
+            "current_analyses_meta": a_summ,
+            "multi_series_after_flow": msum,
+        }
+        return out
+
     # ------------------ Vista ------------------
     def __call__(self):
         ar = self.context
         patient = self._patient_obj(ar)
         pkeys = self._patient_keys(ar, patient)
 
-        # AR previos del mismo paciente (por MRN si hay índice; si no, fallback)
+        # AR previos del mismo paciente (por MRN/UID si hay índice; si no, fallback)
         prev_ars = self._candidate_ars(ar, patient, pkeys)
 
-        # Elegir el AR previo GLOBAL por FECHA DE RECEPCIÓN inmediatamente anterior al actual
-        prev_ar_global = self._choose_prev_ar_global(ar, prev_ars)
-
-        # Serie (sparklines) se arma con [previos + actual] pero no define el "previo"
+        # Serie (sparklines) se arma con [previos + actual]
         ars_for_series = list(prev_ars) + [ar]
 
         rows = []
         multi_series = []  # para el gráfico grande opcional
         now_analyses = self._analyses_of(ar)
+
+        # --- DEBUG early exit (sólo si se pide explícitamente) ---
+        dbg = self.request.form.get("debug") or self.request.get("debug")
+        if dbg:
+            # reconstruir el filtro que se eligió realmente
+            cat = self._cat()
+            patient_filter = self._best_patient_query_for_catalog(cat, pkeys)
+            payload = self._debug_summary(ar, patient, pkeys, prev_ars, now_analyses, multi_series, patient_filter)
+            self.request.response.setHeader("Content-Type", "application/json; charset=utf-8")
+            try:
+                return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+            except Exception:
+                return json.dumps(payload, indent=2)
+
+        # Elegir el AR previo GLOBAL por FECHA DE RECEPCIÓN inmediatamente anterior
+        prev_ar_global = self._choose_prev_ar_global(ar, prev_ars)
+
         for a in now_analyses:
             keys = self._analysis_keys(a)
             raw_now, val_now = self._result_value(a)
@@ -763,12 +880,14 @@ class InfolabsaDeltaCheck(BrowserView):
             prev_raw, prev_num = self._find_prev_value_in_ar(prev_ar_global, keys)
 
             # Reglas de visibilidad actuales: solo filas con al menos 2 puntos y valor actual numérico
-            # (Si prefieres mostrar siempre la fila, comenta el 'continue' de abajo)
             if len(series) < 2 or val_now is None:
-                # aun así, recolecta multi_series para el gráfico grande si quieres mostrar tendencias
                 if len(series) >= 2:
-                    multi_series.append({"name": keys["name"], "unit": keys["unit"] or u"", "series": [{'date': p['date'], 'value': p['value']} for p in series]})
-                continue  # <-- comenta esta línea si deseas que SIEMPRE salga la fila, tenga o no 2 puntos
+                    multi_series.append({
+                        "name": keys["name"],
+                        "unit": keys["unit"] or u"",
+                        "series": [{'date': p['date'], 'value': p['value']} for p in series]
+                    })
+                continue
 
             # Δ (absoluto y %)
             delta_abs = None
