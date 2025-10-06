@@ -108,7 +108,7 @@
     .section-delta table.table-condensed thead th:nth-child(6),
     .section-delta table.table-condensed tbody td:nth-child(6) { text-align: center; vertical-align: middle; }
 
-    /* === NUEVO: rótulo de rango de fechas bajo el sparkline === */
+    /* (dejamos la clase .trend-range aunque ya no se usa, por si la reactivas) */
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
 
     @media print {
@@ -570,40 +570,43 @@
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
-                    <!-- RCV — OCULTO (dejado en comentario)
-                    <td>
-                      <div>
-                        <span tal:condition="has_rcv" tal:content="python:u'%s%%' % rcv">—</span>
-                        <span tal:condition="python:not has_rcv">—</span>
-                      </div>
-                      <div class="small" tal:condition="has_rcv">
-                        <span tal:attributes="class python:(rcv_ok and 'rcv-ok' or 'rcv-bad')"
-                              tal:content="python:(rcv_ok and u'Δ \u2264 RCV' or u'Δ > RCV')">Δ ≤ RCV</span>
-                      </div>
-                    </td>
-                    -->
-
-                    <!-- Tendencia (sparkline + rango de fechas) -->
+                    <!-- Tendencia (sparkline, sin fechas visibles) -->
                     <td>
                       <canvas class="spark"
-                              tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index));
-                                              title python:u'%s → %s' % ((r.get('trend_from_fmt') or u''), (r.get('trend_to_fmt') or u''))"></canvas>
+                              tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
                       <!-- Datos crudos para JS -->
                       <input type="hidden"
                              tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
                                              value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
-                      <!-- NUEVO: rango de fechas visible -->
-                      <div class="trend-range">
-                        <span tal:content="python:r.get('trend_from_fmt') or u'—'">—</span>
-                        &nbsp;&rarr;&nbsp;
-                        <span tal:content="python:r.get('trend_to_fmt') or u'—'">—</span>
-                      </div>
                     </td>
                   </tr>
                 </tal:calc>
               </tal:loop>
             </tbody>
           </table>
+
+          <!-- ======= Gráfico multi-analito (debajo del panel) ======= -->
+          <tal:chart tal:condition="python:bool(delta.get('has_chart'))">
+            <h3 class="mt-2" style="color:#000;font-weight:800;margin-bottom:6px;">Tendencias por analito</h3>
+            <div class="small" style="color:#6c757d;">
+              Vista temporal de hasta <strong tal:content="python:delta.get('chart',{}).get('max_points') or 8">8</strong> puntos recientes por analito.
+            </div>
+
+            <!-- Canvas principal -->
+            <div style="border:1px solid #dee2e6;border-radius:4px;padding:6px;margin-top:6px;">
+              <canvas id="delta-multi-chart" width="820" height="280"></canvas>
+            </div>
+
+            <!-- Datos para el chart (una entrada por serie) -->
+            <tal:loop tal:repeat="s python:(delta.get('chart',{}).get('series') or [])">
+              <input type="hidden" class="chart-series"
+                     tal:attributes="
+                       data-name s/name;
+                       data-unit s/unit;
+                       value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (s.get('series') or [])])
+                     " />
+            </tal:loop>
+          </tal:chart>
         </div>
       </div>
 
@@ -651,7 +654,7 @@
           return pts.length ? pts : null;
         }
 
-        function init(){
+        function initSparks(){
           var rows = document.querySelectorAll('#delta-check-panel canvas.spark');
           for (var i=0;i<rows.length;i++){
             var c = rows[i];
@@ -661,6 +664,130 @@
             var pts = parseHidden('spark-data-'+uid);
             if (pts) drawSpark(c, pts);
           }
+        }
+
+        /* ===== Multi-chart profesional (vanilla Canvas) ===== */
+        function initBigChart(){
+          var canvas = document.getElementById('delta-multi-chart');
+          if (!canvas) return;
+          var ctx = canvas.getContext('2d');
+          var W = canvas.width, H = canvas.height;
+
+          // Margenes para ejes
+          var m = {l:50, r:120, t:18, b:26};
+          var plotW = W - m.l - m.r;
+          var plotH = H - m.t - m.b;
+
+          // Recolectar series
+          var inputs = Array.prototype.slice.call(document.querySelectorAll('.chart-series'));
+          if (!inputs.length) return;
+
+          // Parsear todas las series: [[{t,v}], name, unit]
+          var series = inputs.map(function(el){
+            var name = el.getAttribute('data-name') || 'Analito';
+            var unit = el.getAttribute('data-unit') || '';
+            var pts = (el.value||'').trim().split('|').map(function(s){
+              var kv = s.split(',');
+              var t = Date.parse(kv[0]) || 0;
+              var v = parseFloat(kv[1]);
+              return {t:t, v:(isFinite(v)?v:null)};
+            }).filter(function(p){ return p.t && p.v!==null && isFinite(p.v); });
+            // dedupe por tiempo, quedarse con el último
+            var byT = {};
+            pts.forEach(function(p){ byT[p.t]=p; });
+            var uniq = Object.keys(byT).map(function(k){return byT[k];}).sort(function(a,b){return a.t-b.t;});
+            return {name:name, unit:unit, pts:uniq};
+          }).filter(function(s){ return s.pts.length>=2; });
+          if (!series.length) return;
+
+          // Extremos globales
+          var Ts = [], Ys = [];
+          series.forEach(function(s){
+            s.pts.forEach(function(p){ Ts.push(p.t); Ys.push(p.v); });
+          });
+          var tmin = Math.min.apply(null, Ts), tmax = Math.max.apply(null, Ts);
+          var ymin = Math.min.apply(null, Ys), ymax = Math.max.apply(null, Ys);
+          if (tmin===tmax) { tmin -= 86400000; tmax += 86400000; } // ±1 día
+          if (ymin===ymax) { var d=(Math.abs(ymin)||1)*0.05; ymin -= d; ymax += d; }
+
+          function sx(t){ return m.l + (t - tmin) * plotW / (tmax - tmin); }
+          function sy(y){ return m.t + plotH - (y - ymin) * plotH / (ymax - ymin); }
+
+          // Fondo limpio
+          ctx.clearRect(0,0,W,H);
+
+          // Ejes
+          ctx.strokeStyle = '#adb5bd';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(m.l, m.t);
+          ctx.lineTo(m.l, m.t + plotH);
+          ctx.lineTo(m.l + plotW, m.t + plotH);
+          ctx.stroke();
+
+          // Ticks y labels (x: 4 marcas, y: 4 marcas)
+          function niceTicks(min, max, n){
+            var span = max-min, step = span/Math.max(n,1);
+            var out = [];
+            for (var i=0;i<=n;i++) out.push(min + i*step);
+            return out;
+          }
+          var xt = niceTicks(tmin, tmax, 4);
+          var yt = niceTicks(ymin, ymax, 4);
+
+          ctx.fillStyle = '#6c757d';
+          ctx.font = '11px sans-serif';
+          xt.forEach(function(t){
+            var x = sx(t);
+            ctx.strokeStyle='#e9ecef';
+            ctx.beginPath(); ctx.moveTo(x, m.t); ctx.lineTo(x, m.t+plotH); ctx.stroke();
+            var d=new Date(t);
+            var lab=(d.getDate().toString().padStart(2,'0')+'/'+(d.getMonth()+1).toString().padStart(2,'0'));
+            ctx.fillText(lab, x-12, m.t+plotH+16);
+          });
+          yt.forEach(function(y){
+            var ypx = sy(y);
+            ctx.strokeStyle='#f1f3f5';
+            ctx.beginPath(); ctx.moveTo(m.l, ypx); ctx.lineTo(m.l+plotW, ypx); ctx.stroke();
+            ctx.fillStyle='#6c757d';
+            ctx.fillText((Math.round(y*100)/100).toString(), 4, ypx+3);
+          });
+
+          // Paleta sobria
+          var cols = ['#343a40','#495057','#6c757d','#adb5bd','#212529','#868e96','#5c636a','#0b7285'];
+
+          // Trazar cada serie
+          series.forEach(function(s, idx){
+            var col = cols[idx % cols.length];
+            ctx.strokeStyle = col;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(sx(s.pts[0].t), sy(s.pts[0].v));
+            for (var i=1;i<s.pts.length;i++){
+              ctx.lineTo(sx(s.pts[i].t), sy(s.pts[i].v));
+            }
+            ctx.stroke();
+
+            // Marcadores
+            ctx.fillStyle = col;
+            s.pts.forEach(function(p, i){
+              ctx.beginPath();
+              ctx.arc(sx(p.t), sy(p.v), (i===s.pts.length-1?3:2), 0, Math.PI*2, true);
+              ctx.fill();
+            });
+
+            // Etiqueta al final (leyenda in-plot)
+            var last = s.pts[s.pts.length-1];
+            var label = s.name + (s.unit ? (' ['+s.unit+']') : '');
+            ctx.fillStyle = col;
+            ctx.font = '12px sans-serif';
+            ctx.fillText(label, Math.min(sx(last.t)+6, W-110), Math.max(sy(last.v)-6, 12));
+          });
+        }
+
+        function init(){
+          initSparks();
+          initBigChart();
         }
 
         if (document.readyState === 'loading'){
