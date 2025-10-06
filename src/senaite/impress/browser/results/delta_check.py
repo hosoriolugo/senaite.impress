@@ -27,7 +27,6 @@ def _to_num(x):
     try:
         if x in (None, u"", ""):
             return None
-        # Python 2 ints/longs/float (mantener compat)
         try:
             num_types = (int, long, float)  # noqa
         except NameError:
@@ -41,16 +40,14 @@ def _to_num(x):
 
 
 def _norm(s):
-    # normaliza para comparar nombres: minúsculas y colapsa espacios
     return u" ".join(_u(s).strip().lower().split()) if s else u""
 
 
 class InfolabsaDeltaCheck(BrowserView):
     """Delta check robusto por paciente y analito con fechas ISO-8601."""
 
-    PERIOD_DAYS = 365   # 12 meses (ventana)
-    MAX_POINTS  = 8     # tope de puntos por analito (más recientes)
-    # Estados considerados "ok" para el delta (>= verified)
+    PERIOD_DAYS = 365
+    MAX_POINTS  = 8
     STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
 
     # ------------------ utils base ------------------
@@ -77,7 +74,6 @@ class InfolabsaDeltaCheck(BrowserView):
         return _u(getattr(obj, "id", ""))
 
     def _cat(self):
-        """Catálogo de AnalysisRequest (samples)."""
         portal = self.context.portal_url.getPortalObject()
         cat = getToolByName(portal, "senaite_catalog_sample", None)
         if cat:
@@ -85,7 +81,6 @@ class InfolabsaDeltaCheck(BrowserView):
         return getToolByName(portal, "portal_catalog")
 
     def _acat(self):
-        """Catálogo de Analysis."""
         portal = self.context.portal_url.getPortalObject()
         acat = getToolByName(portal, "senaite_catalog_analysis", None)
         if acat:
@@ -113,9 +108,8 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return None
 
-    # ------------------ estado (review_state) ------------------
+    # ------------------ estado ------------------
     def _state_of(self, obj, brain=None):
-        # 1) si viene del brain, úsalo
         try:
             if brain is not None:
                 rs = getattr(brain, "review_state", None)
@@ -123,7 +117,6 @@ class InfolabsaDeltaCheck(BrowserView):
                     return _u(rs)
         except Exception:
             pass
-        # 2) atributo simple o getter en el objeto
         for g in ("getReviewState", "review_state", "state"):
             try:
                 v = getattr(obj, g, None)
@@ -132,7 +125,6 @@ class InfolabsaDeltaCheck(BrowserView):
                     return _u(v)
             except Exception:
                 continue
-        # 3) workflow tool
         try:
             wftool = self._wftool()
             if wftool:
@@ -147,15 +139,12 @@ class InfolabsaDeltaCheck(BrowserView):
     def _iso(self, dt):
         if not dt:
             return u""
-        # api helper si existe
         if api:
             try:
                 zdt = api.to_datetime(dt)
-                # ISO con Z para JS Date.parse
                 return zdt.strftime("%Y-%m-%dT%H:%M:%SZ")
             except Exception:
                 pass
-        # Zope DateTime tiene ISO8601()
         try:
             return dt.ISO8601()
         except Exception:
@@ -164,24 +153,20 @@ class InfolabsaDeltaCheck(BrowserView):
     def _fmt_local(self, dt):
         if not dt:
             return u"—"
-        # bika api
         if api:
             try:
                 return api.to_localized_time(dt)
             except Exception:
                 pass
-        # Plone helper
         try:
             return self.context.toLocalizedTime(dt)
         except Exception:
             pass
         try:
-            # último recurso
             return _u(dt)
         except Exception:
             return u"—"
 
-    # === formateo rápido de ISO a dd/mm/aaaa (para el rango en la plantilla) ===
     def _fmt_iso_local(self, iso):
         if not iso:
             return u"—"
@@ -195,7 +180,6 @@ class InfolabsaDeltaCheck(BrowserView):
             return _u(iso)
 
     def _date_of_ar(self, ar):
-        # PRIORIDAD: Verificado -> Publicado -> Recepción -> creado
         for g in ("getDateVerified", "getDatePublished", "getDateReceived", "created"):
             v = self._get(ar, g)
             if v:
@@ -203,7 +187,6 @@ class InfolabsaDeltaCheck(BrowserView):
         return None
 
     def _received_date_of_ar(self, ar):
-        # Para definir el "previo global" por RECEPCIÓN
         for g in ("getDateReceived", "getReceptionDate", "getSamplingDate", "created"):
             v = self._get(ar, g)
             if v:
@@ -223,7 +206,6 @@ class InfolabsaDeltaCheck(BrowserView):
         return None
 
     def _mrn_of_ar(self, ar, patient):
-        # Mismos nombres que el template INFOLABSA.pt
         for obj in (ar, patient):
             if not obj:
                 continue
@@ -248,18 +230,14 @@ class InfolabsaDeltaCheck(BrowserView):
         return None
 
     def _patient_keys(self, ar, patient):
-        """Llaves para identificar paciente (MRN preferente + nombre full + UID si existe)."""
         keys = {}
         mrn = self._mrn_of_ar(ar, patient)
         if mrn:
             keys["mrn"] = mrn
-
         if patient:
             puid = self._patient_uid_of(patient)
             if puid:
                 keys["patient_uid"] = puid
-
-        # Nombre completo como fallback
         full = None
         for obj in (ar, patient):
             if not obj:
@@ -278,7 +256,6 @@ class InfolabsaDeltaCheck(BrowserView):
     def _analyses_of(self, ar):
         for g in ("getAnalyses", "analyses", "getAnalysis"):
             v = self._get(ar, g)
-        # noqa
             if v:
                 try:
                     return list(v)
@@ -293,7 +270,6 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return None
 
-    # obtener ServiceUID siempre que sea posible
     def _service_uid_of(self, a):
         for g in ("getServiceUID", "ServiceUID"):
             v = self._get(a, g)
@@ -303,7 +279,6 @@ class InfolabsaDeltaCheck(BrowserView):
         return self._get(svc, "UID")
 
     def _service_code(self, svc):
-        # Campos comunes para identificar el "código" del servicio
         for g in ("getAnalysisCode", "getCode", "getServiceID", "getId", "id"):
             v = self._get(svc, g)
             if v:
@@ -312,7 +287,7 @@ class InfolabsaDeltaCheck(BrowserView):
 
     def _analysis_keys(self, a):
         svc = self._service_of(a)
-        svc_uid = self._get(svc, "UID") or self._service_uid_of(a)  # asegura UID
+        svc_uid = self._get(svc, "UID") or self._service_uid_of(a)
         kw = self._get(svc, "getKeyword") if svc else None
         if not kw:
             kw = self._get(a, "getKeyword")
@@ -321,7 +296,7 @@ class InfolabsaDeltaCheck(BrowserView):
 
         uid = None
         if svc_uid:
-            uid = _u(svc_uid)     # preferimos ServiceUID
+            uid = _u(svc_uid)
         elif kw:
             uid = u"kw:" + _u(kw).strip().lower()
         elif title:
@@ -344,37 +319,27 @@ class InfolabsaDeltaCheck(BrowserView):
                 return _u(v)
         return u""
 
-    # ================== CAMBIO CLAVE: NUMÉRICO A PRUEBA DE UNIDADES ==================
+    # ===== CAMBIO: extraer numérico aunque haya unidades en el formateado =====
     def _result_value(self, a):
-        """
-        Devuelve (raw, num). Prioriza getters numéricos y, si sólo hay
-        getFormattedResult con unidades, extrae el número con regex.
-        """
-        # 1) Getters numéricos primero
         for g in ("getResult", "Result", "result", "getValue"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
                 num = _to_num(v)
                 if num is not None:
-                    # Mantener raw elegante si también hay formateado
                     fr = self._get(a, "getFormattedResult")
                     return (fr if fr not in (None, u"", "") else _u(v)), float(num)
-
-        # 2) Formateado (p.ej. "12 mg/l"): intentar extraer número
         fr = self._get(a, "getFormattedResult")
         if fr not in (None, u"", ""):
             s = _u(fr)
-            # captura primer número con signo y decimales coma/punto
             m = re.search(r'[-+]?\d+(?:[.,]\d+)?', s)
             if m:
                 num = _to_num(m.group(0))
                 if num is not None:
                     return (s, float(num))
         return u"—", None
-    # ================================================================================
+
     # ------------------ Búsqueda de AR previos ------------------
     def _same_patient(self, other_ar, pkeys):
-        """Fallback programático si falta el índice MRN."""
         found = set()
         for name in (
             "getMedicalRecordNumberValue", "getMedicalRecordNumber", "getMRN",
@@ -399,11 +364,6 @@ class InfolabsaDeltaCheck(BrowserView):
         return False
 
     def _best_patient_query_for_catalog(self, cat, pkeys):
-        """
-        Devuelve un dict de filtros para el catálogo de AR usando el índice disponible:
-        - Prioridad: PatientUID (getPatientUID / getPatientUIDExact)
-        - Luego MRN/IDs del paciente según índice disponible.
-        """
         try:
             indexes = set(cat.indexes())
         except Exception:
@@ -423,12 +383,6 @@ class InfolabsaDeltaCheck(BrowserView):
         return {}
 
     def _candidate_ars(self, current_ar, patient, pkeys):
-        """
-        Saca los AR del mismo paciente dentro del período:
-        - Primero intenta por PatientUID/MRN usando el índice del catálogo.
-        - Si no hay índice compatible, hace fallback + filtro por paciente.
-        - Mantiene sólo AR en estados >= verified y dentro de 12 meses.
-        """
         cat = self._cat()
         cur_uid = self._get(current_ar, "UID")
 
@@ -505,7 +459,6 @@ class InfolabsaDeltaCheck(BrowserView):
 
     # ------------------ helpers para previo global ------------------
     def _choose_prev_ar_global(self, current_ar, candidate_ars):
-        """Devuelve el AR previo (mismo paciente) por FECHA DE RECEPCIÓN inmediatamente anterior al actual."""
         cur_recv = self._received_date_of_ar(current_ar)
         if not cur_recv:
             return None
@@ -532,7 +485,6 @@ class InfolabsaDeltaCheck(BrowserView):
         return dated[-1][1]
 
     def _find_prev_value_in_ar(self, prev_ar, target_keys):
-        """Busca el valor del analito en el AR previo global usando coincidencia robusta."""
         if not prev_ar:
             return (u"—", None)
 
@@ -595,17 +547,18 @@ class InfolabsaDeltaCheck(BrowserView):
 
         return (u"—", None)
 
-    # ------------------ Serie por analito (para chispa) ------------------
+    # ------------------ Serie por analito ------------------
     def _series_for_uid(self, ars, analito_uid, keyword, title):
         """
         Construye la serie (date,value,raw,ar,rid) del analito:
-        - Filtra analyses por getRequestID ∈ IDs de AR candidatos
-        - y por getKeyword (o getServiceUID si existe).
+        - Busca Analysis por getRequestID ∈ ARs candidatos (solo ese filtro en catálogo).
+        - Luego filtra en Python por coincidencia con el analito (ServiceUID/keyword/título).
         - Usa fecha del AR (verificada->publicada->recepción->creado).
         - Deduplica por rid quedándote con el punto más reciente por AR.
         """
         acat = self._acat()
 
+        # AR -> (obj, fecha)
         ar_by_id = {}
         ar_ids = []
         for ar in ars:
@@ -614,7 +567,6 @@ class InfolabsaDeltaCheck(BrowserView):
                 continue
             ar_ids.append(rid)
             ar_by_id[rid] = (ar, self._date_of_ar(ar))
-
         if not ar_ids:
             return []
 
@@ -622,13 +574,6 @@ class InfolabsaDeltaCheck(BrowserView):
             "portal_type": "Analysis",
             "getRequestID": ar_ids,
         }
-
-        if analito_uid and not analito_uid.startswith("kw:") and not analito_uid.startswith("title:"):
-            if self._catalog_has_index("getServiceUID", analyses=True):
-                query["getServiceUID"] = analito_uid
-        if keyword and self._catalog_has_index("getKeyword", analyses=True):
-            query["getKeyword"] = keyword
-
         sort_on = "getResultCaptureDate" if self._catalog_has_index("getResultCaptureDate", analyses=True) else "created"
 
         try:
@@ -638,6 +583,9 @@ class InfolabsaDeltaCheck(BrowserView):
 
         pts = []
         ok_states = self.STATES_OK
+        tgt_uid = analito_uid or u""
+        tgt_kw  = (keyword or u"").strip().lower()
+        tgt_title_n = _norm(title)
 
         for ab in abrains:
             try:
@@ -652,6 +600,23 @@ class InfolabsaDeltaCheck(BrowserView):
             except Exception:
                 continue
 
+            # ---- Filtrado robusto por analito (en Python) ----
+            svc = self._service_of(aobj)
+            svuid = self._get(svc, "UID") or self._service_uid_of(aobj)
+            kw_other = (self._get(svc, "getKeyword") or self._get(aobj, "getKeyword") or u"").strip().lower()
+            title_other = self._title_of(svc) if svc else (self._get(aobj, "Title") or u"")
+            title_other_n = _norm(title_other)
+
+            match = False
+            if tgt_uid and svuid and _u(svuid) == tgt_uid:
+                match = True
+            elif tgt_kw and kw_other and kw_other == tgt_kw:
+                match = True
+            elif tgt_title_n and title_other_n and title_other_n == tgt_title_n:
+                match = True
+            if not match:
+                continue
+
             raw_val, fval = self._result_value(aobj)
             if fval is None:
                 continue
@@ -659,7 +624,6 @@ class InfolabsaDeltaCheck(BrowserView):
             rid = getattr(ab, "getRequestID", None)
             rid = rid() if callable(rid) else rid
             ar_ref, ar_dt = ar_by_id.get(rid, (None, None))
-
             dt = ar_dt or getattr(ab, "getResultCaptureDate", None) or getattr(ab, "created", None)
             if not dt:
                 continue
@@ -822,8 +786,8 @@ class InfolabsaDeltaCheck(BrowserView):
         dbg = self.request.form.get("debug") or self.request.get("debug")
         if dbg:
             cat = self._cat()
-            patient_filter = self._best_patient_query_for_catalog(cat, pkeys)
-            payload = self._debug_summary(ar, patient, pkeys, prev_ars, now_analyses, multi_series, patient_filter)
+            pf = self._best_patient_query_for_catalog(cat, pkeys)
+            payload = self._debug_summary(ar, patient, pkeys, prev_ars, now_analyses, multi_series, pf)
             self.request.response.setHeader("Content-Type", "application/json; charset=utf-8")
             try:
                 return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
