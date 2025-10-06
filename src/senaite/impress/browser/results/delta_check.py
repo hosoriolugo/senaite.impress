@@ -166,6 +166,13 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return _u(dt)
 
+    def _strip_tz(self, iso):
+        """Quita 'Z' o el offset '+HH:MM' / '-HH:MM' al final."""
+        s = _u(iso)
+        s = s.replace("Z", "")
+        s = re.sub(r"([+-]\d{2}:\d{2})$", "", s)
+        return s
+
     def _fmt_local(self, dt):
         if not dt:
             return u"—"
@@ -188,7 +195,7 @@ class InfolabsaDeltaCheck(BrowserView):
             return u"—"
         try:
             import datetime
-            s = _u(iso).replace("Z", "")
+            s = self._strip_tz(iso)
             fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
             dt = datetime.datetime.strptime(s, fmt)
             return dt.strftime("%d/%m/%Y")
@@ -199,7 +206,7 @@ class InfolabsaDeltaCheck(BrowserView):
         """Devuelve una etiqueta humana DDMMYY a partir de un ISO-8601."""
         try:
             import datetime
-            s = _u(iso).replace("Z", "")
+            s = self._strip_tz(iso)
             fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
             dt = datetime.datetime.strptime(s, fmt)
             return dt.strftime("%d%m%y")
@@ -210,7 +217,7 @@ class InfolabsaDeltaCheck(BrowserView):
         """Convierte ISO-8601 a epoch en milisegundos (para librerías de charts)."""
         try:
             import datetime
-            s = _u(iso).replace("Z", "")
+            s = self._strip_tz(iso)
             fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
             dt = datetime.datetime.strptime(s, fmt)
             return int((dt - datetime.datetime(1970, 1, 1)).total_seconds() * 1000.0)
@@ -750,10 +757,11 @@ class InfolabsaDeltaCheck(BrowserView):
             import datetime
             def _to_ts_days(iso):
                 try:
-                    dt = datetime.datetime.strptime(iso.replace("Z",""), "%Y-%m-%dT%H:%M:%S")
+                    s = self._strip_tz(iso)
+                    dt = datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
                 except Exception:
                     try:
-                        dt = datetime.datetime.strptime(iso[:10], "%Y-%m-%d")
+                        dt = datetime.datetime.strptime(s[:10], "%Y-%m-%d")
                     except Exception:
                         return None
                 return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
