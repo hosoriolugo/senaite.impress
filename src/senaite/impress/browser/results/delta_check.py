@@ -14,6 +14,8 @@ import re
 import unicodedata
 
 
+# ------------------ utilidades de texto/número ------------------
+
 def _u(v):
     try:
         return unicode(v)
@@ -36,7 +38,7 @@ def _strip_accents(s):
 
 
 def _to_num(x):
-    """Convierte x a float si es posible. Acepta '1,23', '<1', '> 3.5', '180.0JS:180'."""
+    """Convierte x a float si es posible. Acepta '1,23', '<1', '> 3.5'."""
     try:
         if x in (None, u"", ""):
             return None
@@ -46,16 +48,10 @@ def _to_num(x):
             num_types = (int, float)
         if isinstance(x, num_types):
             return float(x)
-        s = _u(x).strip()
-        # elimina sufijo 'JS:180' al final (sin tocar el resto del string)
-        s = re.sub(r'\s*JS:\s*[-+]?\d+(?:[.,]\d+)?$', u"", s, flags=re.I)
-        # quita signos comparativos
+        s = _u(x)
+        # quita signos de censura como < y > para poder graficar un número aproximado
         s = s.replace("<", "").replace(">", "")
         s = s.replace(",", ".")
-        # intenta primer número dentro del string
-        m = re.search(r'[-+]?\d+(?:\.\d+)?', s)
-        if m:
-            return float(m.group(0))
         return float(s)
     except Exception:
         return None
@@ -65,35 +61,109 @@ def _norm(s):
     return u" ".join(_u(s).strip().lower().split()) if s else u""
 
 
-# ---- SCRUBBER POST-SERIALIZACIÓN -------------------------------------------
-_JS_NUM_RE = re.compile(r'JS:\s*[-+]?\d+(?:[.,]\d+)?$', re.I)
+# ---- SCRUBBERS contra 'JS:' y normalización numérica ------------------------
+_JS_ANY_RE = re.compile(r'([-+]?\d+(?:[.,]\d+)?)\s*JS:\s*([-+]?\d+(?:[.,]\d+)?)', re.I)
 
 def _scrub_js_value(v):
-    """Convierte '180.0JS:180' -> 180.0; deja intacto cualquier otro valor."""
+    """Convierte '180.0JS:180' (o variantes) a 180.0. Deja intactas etiquetas tipo '041025'."""
     if isinstance(v, (int, float)):
-        return v
+        return float(v)
     try:
         sv = _u(v)
     except Exception:
         return v
-    if _JS_NUM_RE.search(sv):
-        num = _to_num(sv)
+    m = _JS_ANY_RE.search(sv)
+    if m:
+        # Si hay dos números, prioriza el de la derecha (tras 'JS:')
+        right = m.group(2)
+        num = _to_num(right) if right else _to_num(m.group(1))
         return float(num) if num is not None else v
+    # Si no trae 'JS:', pero es un string con un número simple, NO tocar
     return v
 
-def _scrub_payload(o):
-    """Recorre dict/list y limpia SOLO strings con sufijo 'JS:<num>'.
-       No convierte etiquetas como '041025' ni otros strings."""
-    if isinstance(o, list):
-        return [_scrub_payload(x) for x in o]
-    if isinstance(o, dict):
-        return {k: _scrub_payload(v) for k, v in o.items()}
-    return _scrub_js_value(o)
-# ---------------------------------------------------------------------------
 
+def _scrub_payload(obj):
+    """Recorre dicts/listas/tuplas/strings y limpia 'JS:' en strings numéricas."""
+    try:
+        from collections import Mapping, Iterable
+    except Exception:
+        Mapping = dict
+        Iterable = (list, tuple, dict)
+
+    if isinstance(obj, (int, float)):
+        return float(obj)
+    if isinstance(obj, basestring if str is not unicode else (str, unicode)):  # Py2/Py3 tolerant-ish
+        return _scrub_js_value(obj)
+    if isinstance(obj, list):
+        return [_scrub_payload(x) for x in obj]
+    if isinstance(obj, tuple):
+        return tuple(_scrub_payload(list(obj)))
+    if isinstance(obj, dict):
+        return {k: _scrub_payload(v) for k, v in obj.items()}
+    return obj
+
+
+def _force_numeric_payload(payload):
+    """Asegura floats puros en:
+       - rows[*].series[*].value / y
+       - chart_v2.series[*].data[*][1]
+       - chart.series[*].series[*].value / y
+       También limpia 'JS:' en cualquier rama.
+    """
+    payload = _scrub_payload(payload)
+
+    # rows[*].series[*].value / y
+    try:
+        for r in payload.get('rows', []):
+            for p in r.get('series', []):
+                if 'value' in p:
+                    nv = _to_num(p['value'])
+                    if nv is not None:
+                        p['value'] = float(nv)
+                if 'y' in p:
+                    ny = _to_num(p['y'])
+                    if ny is not None:
+                        p['y'] = float(ny)
+    except Exception:
+        pass
+
+    # chart_v2.series[*].data[*] -> [x, y]
+    try:
+        c2 = payload.get('chart_v2', {}) or {}
+        for s in c2.get('series', []):
+            data = s.get('data', [])
+            for i, pair in enumerate(list(data)):
+                if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                    y = _to_num(pair[1])
+                    if y is not None:
+                        pair[1] = float(y)
+                        data[i] = pair
+    except Exception:
+        pass
+
+    # chart.series[*].series[*].value / y
+    try:
+        ch = payload.get('chart', {}) or {}
+        for s in ch.get('series', []):
+            for p in s.get('series', []):
+                if 'value' in p:
+                    nv = _to_num(p['value'])
+                    if nv is not None:
+                        p['value'] = float(nv)
+                if 'y' in p:
+                    ny = _to_num(p['y'])
+                    if ny is not None:
+                        p['y'] = float(ny)
+    except Exception:
+        pass
+
+    return payload
+
+
+# ------------------ Vista principal ------------------
 
 class InfolabsaDeltaCheck(BrowserView):
-    """Delta check robusto por paciente y analito con soporte ddmmyy."""
+    """Delta check robusto por paciente y analito con fechas ISO-8601."""
 
     PERIOD_DAYS = 365
     MAX_POINTS  = 8
@@ -199,13 +269,6 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return _u(dt)
 
-    def _strip_tz(self, iso):
-        """Quita 'Z' o el offset '+HH:MM' / '-HH:MM' al final."""
-        s = _u(iso)
-        s = s.replace("Z", "")
-        s = re.sub(r"([+-]\d{2}:\d{2})$", "", s)
-        return s
-
     def _fmt_local(self, dt):
         if not dt:
             return u"—"
@@ -228,7 +291,7 @@ class InfolabsaDeltaCheck(BrowserView):
             return u"—"
         try:
             import datetime
-            s = self._strip_tz(iso)
+            s = _u(iso).replace("Z", "")
             fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
             dt = datetime.datetime.strptime(s, fmt)
             return dt.strftime("%d/%m/%Y")
@@ -236,10 +299,10 @@ class InfolabsaDeltaCheck(BrowserView):
             return _u(iso)
 
     def _fmt_ddmmyy(self, iso):
-        """Devuelve etiqueta DDMMYY a partir de ISO-8601."""
+        """Devuelve una etiqueta humana DDMMYY a partir de un ISO-8601."""
         try:
             import datetime
-            s = self._strip_tz(iso)
+            s = _u(iso).replace("Z", "")
             fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
             dt = datetime.datetime.strptime(s, fmt)
             return dt.strftime("%d%m%y")
@@ -247,10 +310,10 @@ class InfolabsaDeltaCheck(BrowserView):
             return re.sub(r"\D+", "", _u(iso))[:6] or _u(iso)
 
     def _to_epoch_ms(self, iso):
-        """Convierte ISO-8601 a epoch ms (para charts datetime)."""
+        """Convierte ISO-8601 a epoch en milisegundos (para librerías de charts)."""
         try:
             import datetime
-            s = self._strip_tz(iso)
+            s = _u(iso).replace("Z", "")
             fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
             dt = datetime.datetime.strptime(s, fmt)
             return int((dt - datetime.datetime(1970, 1, 1)).total_seconds() * 1000.0)
@@ -397,12 +460,15 @@ class InfolabsaDeltaCheck(BrowserView):
                 return _u(v)
         return u""
 
-    # ===== Valor del análisis -> (raw, num) =====
+    # ===== Extractor de resultado con mapeo cualitativo =====
     def _result_value(self, a):
         """
         Devuelve (raw, num) donde:
           - raw: el texto mostrado (formateado si existe)
-          - num: float para cálculos/gráficos
+          - num: float para cálculos/gráficos. Intenta:
+              1) numérico directo (getResult / result / getValue)
+              2) extraer número del getFormattedResult
+              3) mapear cualitativos comunes (ausente/negativo -> 0, presente/positivo -> 1)
         """
         # 1) Intento directo
         for g in ("getResult", "Result", "result", "getValue"):
@@ -425,11 +491,13 @@ class InfolabsaDeltaCheck(BrowserView):
 
             # 3) Mapear cualitativos
             sn = _norm(_strip_accents(s))
+            # negativos (0)
             neg_keys = (
                 u"ausente", u"no detectado", u"no-detectado", u"nd",
                 u"negativo", u"sin crecimiento", u"no growth",
                 u"absent", u"none detected", u"not detected", u"no se detecta",
             )
+            # positivos (1)
             pos_keys = (
                 u"presente", u"detectado", u"positivo", u"con crecimiento",
                 u"present", u"detected", u"growth",
@@ -656,9 +724,9 @@ class InfolabsaDeltaCheck(BrowserView):
     def _series_for_uid(self, ars, analito_uid, keyword, title):
         """
         Construye la serie (date,value,raw,ar,rid) del analito:
-        - Busca Analysis por getRequestID ∈ ARs candidatos (solo ese filtro).
-        - Filtra en Python por analito (ServiceUID/keyword/título).
-        - Fecha del AR (verificada->publicada->recepción->creado).
+        - Busca Analysis por getRequestID ∈ ARs candidatos (solo ese filtro en catálogo).
+        - Luego filtra en Python por coincidencia con el analito (ServiceUID/keyword/título).
+        - Usa fecha del AR (verificada->publicada->recepción->creado).
         - Deduplica por rid quedándote con el punto más reciente por AR.
         """
         acat = self._acat()
@@ -705,6 +773,7 @@ class InfolabsaDeltaCheck(BrowserView):
             except Exception:
                 continue
 
+            # ---- Filtrado robusto por analito (en Python) ----
             svc = self._service_of(aobj)
             svuid = self._get(svc, "UID") or self._service_uid_of(aobj)
             kw_other = (self._get(svc, "getKeyword") or self._get(aobj, "getKeyword") or u"").strip().lower()
@@ -784,16 +853,16 @@ class InfolabsaDeltaCheck(BrowserView):
             import datetime
             def _to_ts_days(iso):
                 try:
-                    s = self._strip_tz(iso)
-                    dt = datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+                    dt = datetime.datetime.strptime(iso.replace("Z",""), "%Y-%m-%dT%H:%M:%S")
                 except Exception:
                     try:
-                        dt = datetime.datetime.strptime(s[:10], "%Y-%m-%d")
+                        dt = datetime.datetime.strptime(iso[:10], "%Y-%m-%d")
                     except Exception:
                         return None
                 return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
 
-            pts = [( _to_ts_days(p["date"]), float(_to_num(p["value"])) ) for p in series_points if p.get("date") and p.get("value") is not None]
+            # acepta puntos con claves 'date' y 'value'
+            pts = [( _to_ts_days(p["date"]), float(p["value"]) ) for p in series_points if p.get("date") and p.get("value") is not None]
             pts = [p for p in pts if p[0] is not None]
             if len(pts) < 2:
                 return u"∙"
@@ -888,10 +957,7 @@ class InfolabsaDeltaCheck(BrowserView):
         multi_series = []
         now_analyses = self._analyses_of(ar)
 
-        # Flags de salida
         dbg = self.request.form.get("debug") or self.request.get("debug")
-        x_mode = (self.request.form.get("x") or self.request.get("x") or u"").strip().lower()  # "" | "ddmmyy"
-
         if dbg:
             cat = self._cat()
             pf = self._best_patient_query_for_catalog(cat, pkeys)
@@ -910,40 +976,34 @@ class InfolabsaDeltaCheck(BrowserView):
 
             series = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
-            # Construye puntos compatibles (forzando número)
+            # Construye puntos compatibles (date/value + x/y + ddmmyy + ms)
             points = []
             for p in series:
-                if not p.get('date'):
-                    continue
-                val = _to_num(p.get('value'))
-                if val is None:
+                if p.get('value') is None or not p.get('date'):
                     continue
                 iso = p['date']
-                ms  = self._to_epoch_ms(iso)
-                if ms is None and x_mode != "ddmmyy":
-                    continue
-                val = float(val)
+                val = p['value']
                 points.append({
-                    'date': iso,           # ISO-8601
-                    'value': val,          # número puro
-                    'x': iso,              # alias compat
-                    'y': val,              # número puro
-                    'ddmmyy': self._fmt_ddmmyy(iso),
-                    'ms': ms,
+                    'date': iso,                      # ISO-8601 (tiempo máquina)
+                    'value': val,                     # num
+                    'x': iso,                         # alias compat
+                    'y': val,                         # alias compat
+                    'ddmmyy': self._fmt_ddmmyy(iso),  # etiqueta humana DDMMYY
+                    'ms': self._to_epoch_ms(iso),     # epoch ms para charts
                 })
 
-            # serie para UI interna (todo numérico)
+            # SIEMPRE agregar la serie al gráfico si hay ≥ 2 puntos
             if len(points) >= 2:
                 multi_series.append({
                     "name": keys["name"],
                     "unit": keys["unit"] or u"",
-                    "series": points,
+                    "series": points,  # compat: {date,value} y {x,y}
                     "xy": [{'x': pt['x'], 'y': pt['y']} for pt in points],
                     "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],
                     "categories_ddmmyy": [pt['ddmmyy'] for pt in points],
                 })
 
-            # Si no hay base suficiente o no hay valor actual, pasar
+            # Si no hay base suficiente o no hay valor actual, pasar al siguiente
             if len(points) < 2 or val_now is None:
                 continue
 
@@ -1017,63 +1077,28 @@ class InfolabsaDeltaCheck(BrowserView):
 
                 'trend_dir': trend_dir,
 
-                'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],  # numérico
+                # usa los mismos puntos compatibles
+                'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],
 
                 'trend_from_fmt': trend_from_fmt,
                 'trend_to_fmt': trend_to_fmt,
             })
 
-        # ---- chart_v2: por defecto (x=ms), opcional categorías ddmmyy ----
-        use_categories = (x_mode == "ddmmyy")
-
+        # Serie lista para librerías
         chart_v2_series = []
         for s in multi_series:
-            pts = s.get("series") or []
-            if use_categories:
-                data = [[pt['ddmmyy'], pt['value']] for pt in pts]  # x como categoría
-            else:
-                data = [[pt['ms'], pt['value']] for pt in pts if pt.get('ms') is not None]
-
             chart_v2_series.append({
                 "name": s.get("name"),
                 "unit": s.get("unit") or u"",
-                "data": data,
-                "categories_ddmmyy": [pt['ddmmyy'] for pt in pts],
+                # x en ddmmyy (string) + y float
+                "data": [[dd, val] for dd, val in zip(s.get("categories_ddmmyy") or [], [p['value'] for p in s.get("series", [])])],
+                "categories_ddmmyy": s.get("categories_ddmmyy") or [],
             })
 
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
         has_chart = bool([s for s in multi_series if len(s.get("series") or []) >= 2])
 
-        # Salida JSON directa si se pide ?as=json
-        as_json = self.request.form.get("as") or self.request.get("as")
-        if as_json == "json":
-            payload = {
-                'period_label': label,
-                'rows': rows,
-                'chart': {
-                    'series': multi_series,
-                    'max_points': self.MAX_POINTS,
-                    'window_days': self.PERIOD_DAYS,
-                },
-                'chart_v2': {
-                    'series': chart_v2_series,
-                    'max_points': self.MAX_POINTS,
-                    'window_days': self.PERIOD_DAYS,
-                    'x_mode': (u"ddmmyy" if use_categories else u"ms"),
-                },
-                'has_chart': has_chart,
-            }
-
-            # --- Limpieza final ANTES de devolver ---
-            payload = _scrub_payload(payload)
-
-            self.request.response.setHeader("Content-Type", "application/json; charset=utf-8")
-            try:
-                return json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            except Exception:
-                return json.dumps(payload, ensure_ascii=False)
-
-        # Respuesta no JSON (dict) para plantillas -> también se limpia
+        # ----- Construir viewdata común -----
         viewdata = {
             'period_label': label,
             'rows': rows,
@@ -1083,11 +1108,23 @@ class InfolabsaDeltaCheck(BrowserView):
                 'window_days': self.PERIOD_DAYS,
             },
             'chart_v2': {
+                'x_mode': 'ddmmyy',
                 'series': chart_v2_series,
                 'max_points': self.MAX_POINTS,
                 'window_days': self.PERIOD_DAYS,
-                'x_mode': (u"ddmmyy" if use_categories else u"ms"),
             },
             'has_chart': has_chart,
         }
-        return _scrub_payload(viewdata)
+
+        # ----- Salidas -----
+        as_json = self.request.form.get("as") or self.request.get("as")
+        if as_json == "json":
+            payload = _force_numeric_payload(viewdata)
+            self.request.response.setHeader("Content-Type", "application/json; charset=utf-8")
+            try:
+                return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            except Exception:
+                return json.dumps(payload, ensure_ascii=False)
+
+        # salida para plantilla
+        return _force_numeric_payload(viewdata)
