@@ -11,6 +11,7 @@ except Exception:
 
 import json
 import re
+import unicodedata
 
 
 def _u(v):
@@ -23,7 +24,19 @@ def _u(v):
             return u""
 
 
+def _strip_accents(s):
+    try:
+        s = _u(s)
+        return u"".join(
+            c for c in unicodedata.normalize("NFD", s)
+            if unicodedata.category(c) != "Mn"
+        )
+    except Exception:
+        return _u(s)
+
+
 def _to_num(x):
+    """Convierte x a float si es posible. Acepta '1,23', '<1', '> 3.5'."""
     try:
         if x in (None, u"", ""):
             return None
@@ -33,7 +46,10 @@ def _to_num(x):
             num_types = (int, float)
         if isinstance(x, num_types):
             return float(x)
-        s = _u(x).replace(",", ".")
+        s = _u(x)
+        # quita signos de censura como < y > para poder graficar un número aproximado
+        s = s.replace("<", "").replace(">", "")
+        s = s.replace(",", ".")
         return float(s)
     except Exception:
         return None
@@ -341,8 +357,17 @@ class InfolabsaDeltaCheck(BrowserView):
                 return _u(v)
         return u""
 
-    # ===== CAMBIO: extraer numérico aunque haya unidades en el formateado =====
+    # ===== CAMBIO: extraer numérico aunque haya unidades + mapear cualitativos =====
     def _result_value(self, a):
+        """
+        Devuelve (raw, num) donde:
+          - raw: el texto mostrado (formateado si existe)
+          - num: float para cálculos/gráficos. Intenta:
+              1) numérico directo (getResult / result / getValue)
+              2) extraer número del getFormattedResult
+              3) mapear cualitativos comunes (ausente/negativo -> 0, presente/positivo -> 1)
+        """
+        # 1) Intento directo
         for g in ("getResult", "Result", "result", "getValue"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
@@ -350,14 +375,37 @@ class InfolabsaDeltaCheck(BrowserView):
                 if num is not None:
                     fr = self._get(a, "getFormattedResult")
                     return (fr if fr not in (None, u"", "") else _u(v)), float(num)
+
+        # 2) Buscar número en FormattedResult
         fr = self._get(a, "getFormattedResult")
         if fr not in (None, u"", ""):
             s = _u(fr)
-            m = re.search(r'[-+]?\d+(?:[.,]\d+)?', s)
+            m = re.search(r'[-<>]?\s*\d+(?:[.,]\d+)?', s)
             if m:
                 num = _to_num(m.group(0))
                 if num is not None:
                     return (s, float(num))
+
+            # 3) Mapear cualitativos
+            sn = _norm(_strip_accents(s))
+            # negativos (0)
+            neg_keys = (
+                u"ausente", u"no detectado", u"no-detectado", u"nd",
+                u"negativo", u"sin crecimiento", u"no growth",
+                u"absent", u"none detected", u"not detected", u"no se detecta",
+            )
+            # positivos (1)
+            pos_keys = (
+                u"presente", u"detectado", u"positivo", u"con crecimiento",
+                u"present", u"detected", u"growth",
+            )
+            for k in neg_keys:
+                if k in sn:
+                    return (s, 0.0)
+            for k in pos_keys:
+                if k in sn:
+                    return (s, 1.0)
+
         return u"—", None
 
     # ------------------ Búsqueda de AR previos ------------------
