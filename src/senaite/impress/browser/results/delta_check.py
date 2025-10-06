@@ -47,9 +47,9 @@ def _to_num(x):
         if isinstance(x, num_types):
             return float(x)
         s = _u(x).strip()
-        # elimina sufijo 'JS:180' al final
+        # elimina sufijo 'JS:180' al final (sin tocar el resto del string)
         s = re.sub(r'\s*JS:\s*[-+]?\d+(?:[.,]\d+)?$', u"", s, flags=re.I)
-        # quita signos comparativos para tener un aproximado
+        # quita signos comparativos
         s = s.replace("<", "").replace(">", "")
         s = s.replace(",", ".")
         # intenta primer número dentro del string
@@ -63,6 +63,33 @@ def _to_num(x):
 
 def _norm(s):
     return u" ".join(_u(s).strip().lower().split()) if s else u""
+
+
+# ---- SCRUBBER POST-SERIALIZACIÓN -------------------------------------------
+_JS_NUM_RE = re.compile(r'JS:\s*[-+]?\d+(?:[.,]\d+)?$', re.I)
+
+def _scrub_js_value(v):
+    """Convierte '180.0JS:180' -> 180.0; deja intacto cualquier otro valor."""
+    if isinstance(v, (int, float)):
+        return v
+    try:
+        sv = _u(v)
+    except Exception:
+        return v
+    if _JS_NUM_RE.search(sv):
+        num = _to_num(sv)
+        return float(num) if num is not None else v
+    return v
+
+def _scrub_payload(o):
+    """Recorre dict/list y limpia SOLO strings con sufijo 'JS:<num>'.
+       No convierte etiquetas como '041025' ni otros strings."""
+    if isinstance(o, list):
+        return [_scrub_payload(x) for x in o]
+    if isinstance(o, dict):
+        return {k: _scrub_payload(v) for k, v in o.items()}
+    return _scrub_js_value(o)
+# ---------------------------------------------------------------------------
 
 
 class InfolabsaDeltaCheck(BrowserView):
@@ -629,9 +656,9 @@ class InfolabsaDeltaCheck(BrowserView):
     def _series_for_uid(self, ars, analito_uid, keyword, title):
         """
         Construye la serie (date,value,raw,ar,rid) del analito:
-        - Busca Analysis por getRequestID ∈ ARs candidatos (solo ese filtro en catálogo).
-        - Luego filtra en Python por coincidencia con el analito (ServiceUID/keyword/título).
-        - Usa fecha del AR (verificada->publicada->recepción->creado).
+        - Busca Analysis por getRequestID ∈ ARs candidatos (solo ese filtro).
+        - Filtra en Python por analito (ServiceUID/keyword/título).
+        - Fecha del AR (verificada->publicada->recepción->creado).
         - Deduplica por rid quedándote con el punto más reciente por AR.
         """
         acat = self._acat()
@@ -678,7 +705,6 @@ class InfolabsaDeltaCheck(BrowserView):
             except Exception:
                 continue
 
-            # ---- Filtrado robusto por analito (en Python) ----
             svc = self._service_of(aobj)
             svuid = self._get(svc, "UID") or self._service_uid_of(aobj)
             kw_other = (self._get(svc, "getKeyword") or self._get(aobj, "getKeyword") or u"").strip().lower()
@@ -991,7 +1017,7 @@ class InfolabsaDeltaCheck(BrowserView):
 
                 'trend_dir': trend_dir,
 
-                'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],  # <-- numérico
+                'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],  # numérico
 
                 'trend_from_fmt': trend_from_fmt,
                 'trend_to_fmt': trend_to_fmt,
@@ -1037,13 +1063,18 @@ class InfolabsaDeltaCheck(BrowserView):
                 },
                 'has_chart': has_chart,
             }
+
+            # --- Limpieza final ANTES de devolver ---
+            payload = _scrub_payload(payload)
+
             self.request.response.setHeader("Content-Type", "application/json; charset=utf-8")
             try:
                 return json.dumps(payload, ensure_ascii=False).encode("utf-8")
             except Exception:
                 return json.dumps(payload, ensure_ascii=False)
 
-        return {
+        # Respuesta no JSON (dict) para plantillas -> también se limpia
+        viewdata = {
             'period_label': label,
             'rows': rows,
             'chart': {
@@ -1059,3 +1090,4 @@ class InfolabsaDeltaCheck(BrowserView):
             },
             'has_chart': has_chart,
         }
+        return _scrub_payload(viewdata)
