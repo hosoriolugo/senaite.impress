@@ -91,11 +91,12 @@
     .section-delta .delta-up   { color:#fd7e14; font-weight:700; } /* ▲ */
     .section-delta .delta-down { color:#0d6efd; font-weight:700; } /* ▼ */
     .section-delta .spark { width:120px; height:36px; }
+
+    /* RCV (dejado pero comentado en markup) */
     .section-delta .rcv-ok  { color:#198754; font-weight:700; }  /* verde */
     .section-delta .rcv-bad { color:#dc3545; font-weight:700; }  /* rojo */
 
     /* === NUEVO: centrar columnas del panel Delta, con o sin RCV === */
-    /* Sin RCV (5 columnas: 1 Analito, 2 Actual, 3 Previo, 4 Δ, 5 Tendencia) */
     .section-delta table.table-condensed thead th:nth-child(2),
     .section-delta table.table-condensed thead th:nth-child(3),
     .section-delta table.table-condensed thead th:nth-child(4),
@@ -104,9 +105,11 @@
     .section-delta table.table-condensed tbody td:nth-child(3),
     .section-delta table.table-condensed tbody td:nth-child(4),
     .section-delta table.table-condensed tbody td:nth-child(5) { text-align: center; vertical-align: middle; }
-    /* Con RCV (6 columnas): centramos 2..6 también por si se vuelve a activar */
     .section-delta table.table-condensed thead th:nth-child(6),
     .section-delta table.table-condensed tbody td:nth-child(6) { text-align: center; vertical-align: middle; }
+
+    /* === NUEVO: rótulo de rango de fechas bajo el sparkline === */
+    .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
 
     @media print {
       .pagebreak { page-break-before: always; }
@@ -567,7 +570,7 @@
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
-                    <!-- RCV (porcentaje) + veredicto Δ ≤ RCV) — OCULTO TEMPORALMENTE
+                    <!-- RCV — OCULTO (dejado en comentario)
                     <td>
                       <div>
                         <span tal:condition="has_rcv" tal:content="python:u'%s%%' % rcv">—</span>
@@ -580,14 +583,21 @@
                     </td>
                     -->
 
-                    <!-- Tendencia (sparkline) -->
+                    <!-- Tendencia (sparkline + rango de fechas) -->
                     <td>
                       <canvas class="spark"
-                              tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
+                              tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index));
+                                              title python:u'%s → %s' % ((r.get('trend_from_fmt') or u''), (r.get('trend_to_fmt') or u''))"></canvas>
                       <!-- Datos crudos para JS -->
                       <input type="hidden"
                              tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
                                              value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
+                      <!-- NUEVO: rango de fechas visible -->
+                      <div class="trend-range">
+                        <span tal:content="python:r.get('trend_from_fmt') or u'—'">—</span>
+                        &nbsp;&rarr;&nbsp;
+                        <span tal:content="python:r.get('trend_to_fmt') or u'—'">—</span>
+                      </div>
                     </td>
                   </tr>
                 </tal:calc>
