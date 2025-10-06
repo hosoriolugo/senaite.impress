@@ -36,7 +36,7 @@ def _strip_accents(s):
 
 
 def _to_num(x):
-    """Convierte x a float si es posible. Acepta '1,23', '<1', '> 3.5' y limpia sufijos raros."""
+    """Convierte x a float si es posible. Acepta '1,23', '<1', '> 3.5', '180.0JS:180'."""
     try:
         if x in (None, u"", ""):
             return None
@@ -46,12 +46,13 @@ def _to_num(x):
             num_types = (int, float)
         if isinstance(x, num_types):
             return float(x)
-        s = _u(x)
-        # elimina sufijos tipo 'JS:180' o unidades simples después de dos puntos
-        s = re.sub(r'\s*JS:\s*[-+]?\d+(?:[.,]\d+)?$', u"", s.strip(), flags=re.I)
+        s = _u(x).strip()
+        # elimina sufijo 'JS:180' al final
+        s = re.sub(r'\s*JS:\s*[-+]?\d+(?:[.,]\d+)?$', u"", s, flags=re.I)
         # quita signos comparativos para tener un aproximado
         s = s.replace("<", "").replace(">", "")
         s = s.replace(",", ".")
+        # intenta primer número dentro del string
         m = re.search(r'[-+]?\d+(?:\.\d+)?', s)
         if m:
             return float(m.group(0))
@@ -65,7 +66,7 @@ def _norm(s):
 
 
 class InfolabsaDeltaCheck(BrowserView):
-    """Delta check robusto por paciente y analito con fechas ISO-8601."""
+    """Delta check robusto por paciente y analito con soporte ddmmyy."""
 
     PERIOD_DAYS = 365
     MAX_POINTS  = 8
@@ -208,7 +209,7 @@ class InfolabsaDeltaCheck(BrowserView):
             return _u(iso)
 
     def _fmt_ddmmyy(self, iso):
-        """Devuelve una etiqueta humana DDMMYY a partir de un ISO-8601."""
+        """Devuelve etiqueta DDMMYY a partir de ISO-8601."""
         try:
             import datetime
             s = self._strip_tz(iso)
@@ -219,7 +220,7 @@ class InfolabsaDeltaCheck(BrowserView):
             return re.sub(r"\D+", "", _u(iso))[:6] or _u(iso)
 
     def _to_epoch_ms(self, iso):
-        """Convierte ISO-8601 a epoch en milisegundos (para librerías de charts)."""
+        """Convierte ISO-8601 a epoch ms (para charts datetime)."""
         try:
             import datetime
             s = self._strip_tz(iso)
@@ -883,7 +884,7 @@ class InfolabsaDeltaCheck(BrowserView):
 
             series = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
-            # Construye puntos compatibles
+            # Construye puntos compatibles (forzando número)
             points = []
             for p in series:
                 if not p.get('date'):
@@ -894,25 +895,25 @@ class InfolabsaDeltaCheck(BrowserView):
                 iso = p['date']
                 ms  = self._to_epoch_ms(iso)
                 if ms is None and x_mode != "ddmmyy":
-                    # si no hay ms y no estamos en modo categorías, no lo usamos
                     continue
+                val = float(val)
                 points.append({
-                    'date': iso,                      # ISO-8601
-                    'value': float(val),              # número puro
-                    'x': iso,                         # alias compat
-                    'y': float(val),                  # número puro
-                    'ddmmyy': self._fmt_ddmmyy(iso),  # etiqueta humana DDMMYY
-                    'ms': ms,                         # epoch ms
+                    'date': iso,           # ISO-8601
+                    'value': val,          # número puro
+                    'x': iso,              # alias compat
+                    'y': val,              # número puro
+                    'ddmmyy': self._fmt_ddmmyy(iso),
+                    'ms': ms,
                 })
 
-            # serie lista para UI interna
+            # serie para UI interna (todo numérico)
             if len(points) >= 2:
                 multi_series.append({
                     "name": keys["name"],
                     "unit": keys["unit"] or u"",
                     "series": points,
                     "xy": [{'x': pt['x'], 'y': pt['y']} for pt in points],
-                    "data": [[pt['ms'], float(pt['value'])] for pt in points if pt.get('ms') is not None],
+                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],
                     "categories_ddmmyy": [pt['ddmmyy'] for pt in points],
                 })
 
@@ -990,7 +991,7 @@ class InfolabsaDeltaCheck(BrowserView):
 
                 'trend_dir': trend_dir,
 
-                'series': [{'date': pt['date'], 'value': float(pt['value'])} for pt in points],
+                'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],  # <-- numérico
 
                 'trend_from_fmt': trend_from_fmt,
                 'trend_to_fmt': trend_to_fmt,
@@ -1001,18 +1002,17 @@ class InfolabsaDeltaCheck(BrowserView):
 
         chart_v2_series = []
         for s in multi_series:
+            pts = s.get("series") or []
             if use_categories:
-                # [[ 'ddmmyy', y ], ...]  (x como categoría)
-                data = [[pt['ddmmyy'], float(pt['value'])] for pt in (s.get("series") or [])]
+                data = [[pt['ddmmyy'], pt['value']] for pt in pts]  # x como categoría
             else:
-                # [[ ms, y ], ...]  (datetime)
-                data = [[pt['ms'], float(pt['value'])] for pt in (s.get("series") or []) if pt.get('ms') is not None]
+                data = [[pt['ms'], pt['value']] for pt in pts if pt.get('ms') is not None]
 
             chart_v2_series.append({
                 "name": s.get("name"),
                 "unit": s.get("unit") or u"",
                 "data": data,
-                "categories_ddmmyy": s.get("categories_ddmmyy") or [],
+                "categories_ddmmyy": [pt['ddmmyy'] for pt in pts],
             })
 
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
