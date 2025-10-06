@@ -151,6 +151,28 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return _u(dt)
 
+    # === NUEVO: fecha simple para el GRÁFICO (solo día) ===
+    def _iso_chart(self, dt):
+        """Fecha simple para el gráfico: 'YYYY/MM/DD' (sin hora), amigable a Date.parse en motores WebKit/Qt."""
+        if not dt:
+            return u""
+        try:
+            if api:
+                zdt = api.to_datetime(dt)
+                return zdt.strftime("%Y/%m/%d")
+        except Exception:
+            pass
+        try:
+            return dt.strftime("%Y/%m/%d")
+        except Exception:
+            pass
+        try:
+            s = _u(dt)
+            # cortar fecha y homogeneizar separadores
+            return s[:10].replace("-", "/")
+        except Exception:
+            return u""
+
     def _fmt_local(self, dt):
         if not dt:
             return u"—"
@@ -171,13 +193,14 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return u"—"
 
-    # === NUEVO: formateo rápido de ISO a dd/mm/aaaa (para el rango en la plantilla) ===
+    # === Ajustado: acepta también 'YYYY/MM/DD' ===
     def _fmt_iso_local(self, iso):
         if not iso:
             return u"—"
         try:
             import datetime
             s = _u(iso).replace("Z", "")
+            s = s.replace("/", "-")  # <- soporta YYYY/MM/DD
             fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
             dt = datetime.datetime.strptime(s, fmt)
             return dt.strftime("%d/%m/%Y")
@@ -270,6 +293,7 @@ class InfolabsaDeltaCheck(BrowserView):
     def _service_uid_of(self, a):
         for g in ("getServiceUID", "ServiceUID"):
             v = self._get(a, g)
+        # preferir el ServiceUID del service si no vino directo
             if v:
                 return _u(v)
         svc = self._service_of(a)
@@ -610,7 +634,8 @@ class InfolabsaDeltaCheck(BrowserView):
             if not dt:
                 continue
 
-            iso = self._iso(dt)
+            # >>> SOLO PARA GRÁFICO/SPARKS: fecha simple
+            iso = self._iso_chart(dt)
             pts.append({"date": iso, "value": fval, "raw": raw_val, "ar": ar_ref or self.context, "rid": rid})
 
         if not pts:
@@ -632,7 +657,8 @@ class InfolabsaDeltaCheck(BrowserView):
                 raw, f = self._result_value(a)
                 if f is None:
                     continue
-                iso = self._iso(dt)
+                # >>> SOLO PARA GRÁFICO/SPARKS: fecha simple
+                iso = self._iso_chart(dt)
                 pts.append({"date": iso, "value": f, "raw": raw, "ar": cur_ar, "rid": cur_rid})
                 break
 
@@ -672,11 +698,11 @@ class InfolabsaDeltaCheck(BrowserView):
             def _to_ts_days(iso):
                 # Date.parse en JS usa ms; aquí usamos días (UTC) para estabilidad
                 try:
-                    dt = datetime.datetime.strptime(iso.replace("Z",""), "%Y-%m-%dT%H:%M:%S")
+                    dt = datetime.datetime.strptime(iso.replace("Z","").replace("/","-"), "%Y-%m-%dT%H:%M:%S")
                 except Exception:
                     # fallback: solo fecha
                     try:
-                        dt = datetime.datetime.strptime(iso[:10], "%Y-%m-%d")
+                        dt = datetime.datetime.strptime(iso.replace("/","-")[:10], "%Y-%m-%d")
                     except Exception:
                         return None
                 return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
@@ -717,7 +743,7 @@ class InfolabsaDeltaCheck(BrowserView):
         # AR previos del mismo paciente (por MRN si hay índice; si no, fallback)
         prev_ars = self._candidate_ars(ar, patient, pkeys)
 
-        # Elegir el AR previo GLOBAL por FECHA DE RECEPCIÓN inmediatamente anterior
+        # Elegir el AR previo GLOBAL por FECHA DE RECEPCIÓN inmediatamente anterior al actual
         prev_ar_global = self._choose_prev_ar_global(ar, prev_ars)
 
         # Serie (sparklines) se arma con [previos + actual] pero no define el "previo"
