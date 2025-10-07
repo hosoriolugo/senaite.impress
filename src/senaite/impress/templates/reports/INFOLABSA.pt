@@ -653,11 +653,17 @@
                      (get(model,'UID',None) and model.UID()) or
                      options.get('uid','')
                    );
+                   rid python:(
+                     (get(ar,'getId',None) and ar.getId()) or
+                     (hasattr(ar,'id') and ar.id) or
+                     (get(ar,'getRequestID',None) and ar.getRequestID()) or
+                     options.get('rid','')
+                   );
                  "
                  style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
               <img alt="Tendencias por analito (PNG)"
                    tal:attributes="
-                     src string:${context/portal_url}/@@infolabsa-trend-chart.png?uid=${ar_uid}&w=800&h=260&dpi=150;
+                     src string:${context/portal_url}/@@infolabsa-trend-chart.png?uid=${ar_uid}&rid=${rid}&w=800&h=260&dpi=150;
                      width string:800;
                      height string:260" />
             </div>
@@ -880,10 +886,16 @@
                (get(model,'UID',None) and model.UID()) or
                options.get('uid','')
              );
+             rid python:(
+               (get(ar,'getId',None) and ar.getId()) or
+               (hasattr(ar,'id') and ar.id) or
+               (get(ar,'getRequestID',None) and ar.getRequestID()) or
+               options.get('rid','')
+             );
            ">
         <img alt="Gráfico de tendencias (PNG)"
              tal:attributes="
-               src string:${context/portal_url}/@@infolabsa-trend-chart.png?uid=${ar_uid}&w=1000&h=360&dpi=150;
+               src string:${context/portal_url}/@@infolabsa-trend-chart.png?uid=${ar_uid}&rid=${rid}&w=1000&h=360&dpi=150;
                width string:1000;
                height string:360" />
         <p style="margin-top:8px;">Vista estática para PDF; en el visor web verás el gráfico interactivo.</p>
