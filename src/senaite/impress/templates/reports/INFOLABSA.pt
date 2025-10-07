@@ -114,8 +114,44 @@
     /* (conservada por si reactivas fechas) */
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
 
-    /* ===== Control de visibilidad del fallback SVG ===== */
+    /* ===== SECCIÓN TENDENCIAS ===== */
+    .section-trends { 
+      margin: 30px 0; 
+      page-break-inside: avoid;
+    }
+    .section-trends .section-title { 
+      color: #000; 
+      font-weight: 800; 
+      margin-bottom: 15px !important;
+      border-bottom: 2px solid #2c3e50;
+      padding-bottom: 5px;
+    }
+    .section-trends .chart-container {
+      width: 100%; 
+      height: 400px; 
+      margin: 20px 0;
+      border: 1px solid #e9ecef;
+      border-radius: 4px;
+      padding: 10px;
+      background: #fff;
+    }
+    .section-trends .fallback-message {
+      text-align: center; 
+      padding: 40px; 
+      background: #f8f9fa; 
+      border-radius: 5px;
+      border: 1px dashed #dee2e6;
+    }
+    .section-trends .fallback-message p {
+      color: #666; 
+      font-size: 14px; 
+      margin: 0;
+      font-style: italic;
+    }
+
+    /* Control de visibilidad */
     .weasy-fallback { }
+    .no-weasyprint { }
     body.has-highcharts .weasy-fallback { display: none !important; }
 
     @media print {
@@ -124,6 +160,12 @@
       .avoid-break-inside { page-break-inside: avoid; }
       .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
       .section-delta { page-break-before: always; }
+      .no-weasyprint { display: none !important; }
+      .weasy-fallback { display: block !important; }
+      .section-trends { 
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
     }
   </style>
 
@@ -845,6 +887,123 @@
       </script>
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
+
+    <!-- =========== GRÁFICO DE TENDENCIAS (DESPUÉS DEL DELTA CHECK) =========== -->
+    <div class="section-trends" 
+         tal:define="trends_data view/get_trends_data"
+         tal:condition="trends_data">
+      
+      <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
+      
+      <!-- Contenedor para Highcharts (solo en navegador) -->
+      <div id="trends-chart-container" class="chart-container no-weasyprint">
+        <!-- Highcharts se renderizará aquí -->
+      </div>
+      
+      <!-- Fallback para WeasyPrint (PDF) -->
+      <div class="weasy-fallback fallback-message">
+        <p>
+          <strong>Gráfico de Tendencias Disponible</strong><br/>
+          El gráfico interactivo de tendencias se muestra en la versión digital del informe.
+        </p>
+      </div>
+
+      <!-- Script para inicializar Highcharts con datos reales -->
+      <script>
+        (function() {
+          // Solo ejecutar en navegador (no en WeasyPrint)
+          if (typeof window.WeasyPrint === 'undefined') {
+            console.log("Inicializando gráfico de tendencias...");
+            
+            // Usar datos reales desde Python
+            var trendsData = <tal:span tal:replace="trends_data/json" />;
+            
+            // Configuración del gráfico
+            var options = {
+              chart: {
+                type: 'line',
+                height: 400,
+                backgroundColor: 'transparent'
+              },
+              title: {
+                text: trendsData.title || 'Tendencias de Resultados',
+                style: { 
+                  color: '#000', 
+                  fontWeight: 'bold', 
+                  fontSize: '16px',
+                  fontFamily: 'Arial, sans-serif'
+                }
+              },
+              xAxis: {
+                categories: trendsData.categories,
+                title: { 
+                  text: 'Fecha de Análisis', 
+                  style: { color: '#000', fontWeight: 'bold' } 
+                },
+                labels: { 
+                  style: { color: '#333' },
+                  rotation: -45
+                },
+                crosshair: true
+              },
+              yAxis: {
+                title: { 
+                  text: 'Valores (' + (trendsData.unit || '') + ')', 
+                  style: { color: '#000', fontWeight: 'bold' }
+                },
+                labels: { style: { color: '#333' } },
+                min: trendsData.yMin,
+                max: trendsData.yMax,
+                gridLineColor: '#f0f0f0'
+              },
+              legend: {
+                layout: 'horizontal',
+                align: 'center',
+                verticalAlign: 'bottom',
+                itemStyle: { 
+                  color: '#333', 
+                  fontWeight: 'normal',
+                  fontFamily: 'Arial, sans-serif'
+                }
+              },
+              plotOptions: {
+                line: {
+                  dataLabels: { 
+                    enabled: false 
+                  },
+                  enableMouseTracking: true,
+                  marker: {
+                    enabled: true,
+                    radius: 4
+                  }
+                }
+              },
+              tooltip: {
+                shared: true,
+                crosshairs: true,
+                valueSuffix: ' ' + (trendsData.unit || '')
+              },
+              series: trendsData.series,
+              credits: { 
+                enabled: false 
+              },
+              exporting: {
+                enabled: false
+              }
+            };
+            
+            // Crear el gráfico
+            Highcharts.chart('trends-chart-container', options);
+            
+            // Ocultar el fallback en navegador
+            var fallbackElement = document.querySelector('.section-trends .weasy-fallback');
+            if (fallbackElement) {
+              fallbackElement.style.display = 'none';
+            }
+          }
+        })();
+      </script>
+    </div>
 
   </div>
 </tal:report>
