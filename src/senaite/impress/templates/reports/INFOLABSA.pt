@@ -600,9 +600,20 @@
             <!-- Script para Highcharts -->
             <script type="text/javascript">
             (function() {
+              function toMs(x){
+                if (x === null || x === undefined) return NaN;
+                if (typeof x === 'number') return x;
+                var s = String(x).trim();
+                var t = Date.parse(s);
+                if (!isNaN(t)) return t;
+                var n = Number(s);
+                return isFinite(n) ? n : NaN;
+              }
+
+              function initChart(){
                 if (typeof Highcharts === 'undefined') {
-                    console.error('Highcharts no está cargado');
-                    return;
+                  console.error('Highcharts no está cargado');
+                  return;
                 }
 
                 // Leer datos desde el atributo data-json
@@ -617,44 +628,60 @@
                 }
 
                 if (!chartData.series || !chartData.series.length) {
-                    console.log('No hay datos para el gráfico');
-                    return;
+                  console.log('No hay datos para el gráfico');
+                  return;
                 }
 
                 Highcharts.chart('delta-trend-chart', {
-                    chart: { type: 'line', zoomType: 'xy' },
-                    title: { text: 'Tendencias de Resultados' },
-                    xAxis: {
-                        type: 'datetime',
-                        title: { text: 'Fecha' },
-                        labels: { formatter: function(){ return Highcharts.dateFormat('%d/%m/%y', this.value); } }
-                    },
-                    yAxis: { title: { text: 'Valores' } },
-                    tooltip: {
-                        crosshairs: true,
-                        shared: true,
-                        formatter: function() {
-                            var s = '<b>' + Highcharts.dateFormat('%d/%m/%Y %H:%M', this.x) + '</b>';
-                            this.points.forEach(function(point) {
-                                s += '<br/><span style="color:' + point.color + '">●</span> ' +
-                                     point.series.name + ': <b>' + point.y.toFixed(2) + ' ' +
-                                     (point.series.userOptions.unit || '') + '</b>';
-                            });
-                            return s;
-                        }
-                    },
-                    legend: { layout: 'horizontal', align: 'center', verticalAlign: 'bottom' },
-                    plotOptions: { line: { dataLabels: { enabled: false }, enableMouseTracking: true } },
-                    series: (chartData.series || []).map(function(serie) {
-                        return {
-                            name: serie.name + (serie.unit ? ' (' + serie.unit + ')' : ''),
-                            data: serie.data,
-                            unit: serie.unit || '',
-                            marker: { enabled: true, radius: 4 }
-                        };
-                    }),
-                    credits: { enabled: false }
+                  chart: { type: 'line', zoomType: 'xy' },
+                  title: { text: 'Tendencias de Resultados' },
+                  xAxis: {
+                    type: 'datetime',
+                    title: { text: 'Fecha' },
+                    labels: { formatter: function(){ return Highcharts.dateFormat('%d/%m/%y', this.value); } }
+                  },
+                  yAxis: { title: { text: 'Valores' } },
+                  tooltip: {
+                    crosshairs: true,
+                    shared: true,
+                    formatter: function() {
+                      var s = '<b>' + Highcharts.dateFormat('%d/%m/%Y %H:%M', this.x) + '</b>';
+                      this.points.forEach(function(point) {
+                        s += '<br/><span style="color:' + point.color + '">●</span> ' +
+                             point.series.name + ': <b>' + point.y.toFixed(2) + ' ' +
+                             (point.series.userOptions.unit || '') + '</b>';
+                      });
+                      return s;
+                    }
+                  },
+                  legend: { layout: 'horizontal', align: 'center', verticalAlign: 'bottom' },
+                  plotOptions: { line: { dataLabels: { enabled: false }, enableMouseTracking: true } },
+                  series: (chartData.series || []).map(function(serie) {
+                    var data = (serie.data || []).map(function(p){
+                      // soporta [x,y], {x:..., y:...}, o valores ya numéricos
+                      if (Array.isArray(p)) {
+                        return [ toMs(p[0]), Number(p[1]) ];
+                      } else if (p && typeof p === 'object' && 'x' in p && 'y' in p) {
+                        return [ toMs(p.x), Number(p.y) ];
+                      }
+                      return p;
+                    });
+                    return {
+                      name: serie.name + (serie.unit ? ' (' + serie.unit + ')' : ''),
+                      data: data,
+                      unit: serie.unit || '',
+                      marker: { enabled: true, radius: 4 }
+                    };
+                  }),
+                  credits: { enabled: false }
                 });
+              }
+
+              if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initChart);
+              } else {
+                initChart();
+              }
             })();
             </script>
           </tal:chart>
