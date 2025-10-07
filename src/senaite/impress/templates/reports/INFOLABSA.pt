@@ -5,7 +5,7 @@
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  <!-- Cargar Highcharts -->
+  <!-- Cargar Highcharts (usado solo en navegador, no en WeasyPrint) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
   <!-- Afinado visual: separadores tenues estilo cool -->
@@ -114,7 +114,7 @@
     /* (conservada por si reactivas fechas) */
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
 
-    /* ===== Control de visibilidad del fallback ===== */
+    /* ===== Control de visibilidad del fallback SVG ===== */
     .weasy-fallback { }
     body.has-highcharts .weasy-fallback { display: none !important; }
 
@@ -583,7 +583,7 @@
             </tbody>
           </table>
 
-          <!-- ======= Gráfico multi-analito con Highcharts ======= -->
+          <!-- ======= Gráfico multi-analito con Highcharts (interactivo en navegador) ======= -->
           <tal:chart tal:condition="python:delta.get('has_chart')">
             <h3 class="mt-2" style="color:#000;font-weight:800;margin-bottom:6px;">Tendencias por analito</h3>
             <div class="small" style="color:#6c757d;">
@@ -601,74 +601,89 @@
                  tal:attributes="data-json python:json.dumps(chartdata)">
             </div>
 
-            <!-- ===== Fallback estático (HTML puro) para PDF/preview (sin JS) ===== -->
-            <div class="weasy-fallback"
-                 tal:define="
-                    chartdata python:(delta.get('chart_v2') or delta.get('chart') or {});
-                    series    python:chartdata.get('series', []) or [];
-                    rows_fallback python:[
-                      {
-                        'name': (s.get('name') or u''),
-                        'unit': (s.get('unit') or u''),
-                        'n': len(s.get('data') or []),
-                        'y_now': ( (s.get('data') or []) and ( (s.get('data') or [])[-1][1] if isinstance((s.get('data') or [])[-1], (list,tuple)) else ((s.get('data') or [])[-1].get('y') if isinstance((s.get('data') or [])[-1], dict) else None) ) or None ),
-                        'y_prev': ( (len(s.get('data') or [])>=2) and ( (s.get('data') or [])[-2][1] if isinstance((s.get('data') or [])[-2], (list,tuple)) else ((s.get('data') or [])[-2].get('y') if isinstance((s.get('data') or [])[-2], dict) else None) ) or None ),
-                        'y_min': ( (min([ (p[1] if isinstance(p,(list,tuple)) else (p.get('y') if isinstance(p,dict) else None)) for p in (s.get('data') or []) if ((isinstance(p,(list,tuple)) and len(p)>=2) or (isinstance(p,dict) and ('y' in p))) ]) ) if (s.get('data') or []) else None ),
-                        'y_max': ( (max([ (p[1] if isinstance(p,(list,tuple)) else (p.get('y') if isinstance(p,dict) else None)) for p in (s.get('data') or []) if ((isinstance(p,(list,tuple)) and len(p)>=2) or (isinstance(p,dict) and ('y' in p))) ]) ) if (s.get('data') or []) else None )
-                      }
-                      for s in series
-                    ];
-                    has_fb python:bool(rows_fallback);
-                 "
-                 style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:8px;">
-              <div class="small" style="color:#6c757d; margin-bottom:6px;">
-                Vista estática para PDF/preview (sin JS).
+            <!-- ===== Fallback estático (SVG inline) para PDF/preview (sin JS) ===== -->
+            <div class="weasy-fallback" tal:define="
+                  json modules/json;
+                  chartdata python:(delta.get('chart_v2') or delta.get('chart') or {});
+                  series   python:chartdata.get('series', []) or [];
+                  xs python:[ ( (p[0] if isinstance(p,(list,tuple)) else (p.get('x') if isinstance(p,dict) else None)) )
+                              for s in series for p in (s.get('data') or []) ];
+                  ys python:[ ( (p[1] if isinstance(p,(list,tuple)) else (p.get('y') if isinstance(p,dict) else None)) )
+                              for s in series for p in (s.get('data') or []) ];
+                  xs python:[x for x in xs if x is not None];
+                  ys python:[y for y in ys if y is not None and isinstance(y,(int,float))];
+                  xmin python:(min(xs) if xs else 0);
+                  xmax python:(max(xs) if xs else 1);
+                  ymin python:(min(ys) if ys else 0);
+                  ymax python:(max(ys) if ys else 1);
+                  W python:800; H python:260; PAD python:30;
+                  xr python:((xmax - xmin) or 1.0);
+                  yr python:((ymax - ymin) or 1.0);
+                " style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
+              <svg tal:attributes="viewBox string:0 0 ${W} ${H}; width string:${W}; height string:${H}"
+                   xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tendencias por analito (estático)">
+                <!-- Ejes -->
+                <line tal:attributes="x1 PAD; y1 python:H-PAD; x2 python:W-PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
+                <line tal:attributes="x1 PAD; y1 PAD; x2 PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
+                <!-- Etiquetas mínimas -->
+                <text tal:content="python:u'%s' % (ymin)" tal:attributes="x python:PAD-4; y python:H-PAD; text-anchor string:end; dy string:0.35em"
+                      font-size="10" fill="#6c757d"/>
+                <text tal:content="python:u'%s' % (ymax)" tal:attributes="x python:PAD-4; y PAD; text-anchor string:end; dy string:0.35em"
+                      font-size="10" fill="#6c757d"/>
+                <!-- Líneas por serie -->
+                <g tal:repeat="s series">
+                  <tal:line tal:define="
+                      pts python:[
+                        (
+                          ( ( ( (p[0] if isinstance(p,(list,tuple)) else p.get('x')) - xmin ) * (W-2*PAD) / xr ) + PAD ),
+                          ( H - PAD - ( ( (p[1] if isinstance(p,(list,tuple)) else p.get('y')) - ymin ) * (H-2*PAD) / yr ) )
+                        )
+                        for p in (s.get('data') or [])
+                        if ( (isinstance(p,(list,tuple)) and p and (p[0] is not None) and (p[1] is not None)) or
+                             (isinstance(p,dict) and (p.get('x') is not None) and (p.get('y') is not None)) )
+                      ];
+                      points_attr python:u' '.join([u'%0.1f,%0.1f' % (px,py) for (px,py) in pts]);
+                    ">
+                    <polyline tal:attributes="points points_attr"
+                      fill="none" stroke="#343a40" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+                    <circle tal:condition="python:len(pts)>0"
+                            tal:attributes="cx python:pts[-1][0]; cy python:pts[-1][1]" r="2.5" fill="#343a40"/>
+                    <text tal:content="python:s.get('name') + (s.get('unit') and u' ('+s.get('unit')+u')' or u'')"
+                          tal:attributes="x python:PAD+6; y python:PAD-12 + (repeat['s'].index * 12)" font-size="10" fill="#000"/>
+                  </tal:line>
+                </g>
+              </svg>
+              <div class="small" style="color:#6c757d; margin-top:4px;">
+                Vista estática para PDF/preview (sin JS). En navegador con JS se mostrará el gráfico interactivo.
               </div>
-              <table class="table table-sm table-condensed" tal:condition="has_fb">
-                <thead>
-                  <tr>
-                    <th>Analito</th>
-                    <th class="text-center">Actual</th>
-                    <th class="text-center">Previo</th>
-                    <th class="text-center">Δ</th>
-                    <th class="text-center">Mín–Máx</th>
-                    <th class="text-center">#Pts</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr tal:repeat="r rows_fallback">
-                    <td>
-                      <strong tal:content="r/name">Analito</strong>
-                      <div class="small" tal:condition="r/unit" tal:content="r/unit">U</div>
-                    </td>
-                    <td class="text-center" tal:content="python:(r.get('y_now') is None and u'—' or (u'%.2f' % r.get('y_now')))">—</td>
-                    <td class="text-center" tal:content="python:(r.get('y_prev') is None and u'—' or (u'%.2f' % r.get('y_prev')))">—</td>
-                    <td class="text-center"
-                        tal:define="dy python:( ( (r.get('y_now') is not None) and (r.get('y_prev') is not None) ) and (r.get('y_now')-r.get('y_prev')) or None )"
-                        tal:content="python:(dy is None and u'—' or (u'%+.2f' % dy))">—</td>
-                    <td class="text-center"
-                        tal:content="python:( (r.get('y_min') is None or r.get('y_max') is None) and u'—' or (u'%.2f–%.2f' % (r.get('y_min'), r.get('y_max'))) )">—</td>
-                    <td class="text-center" tal:content="r/n">0</td>
-                  </tr>
-                </tbody>
-              </table>
             </div>
-            <!-- ===== FIN fallback HTML ===== -->
+            <!-- ===== FIN fallback SVG ===== -->
 
-            <!-- Script para Highcharts -->
+            <!-- Script para Highcharts (solo navegador, nunca WeasyPrint) -->
             <script type="text/javascript">
             (function() {
-              function toMs(x){
+              function safeToMs(x){
                 if (x === null || x === undefined) return NaN;
-                if (typeof x === 'number') return x;
+                if (typeof x === 'number') return x;           // ya en ms
                 var s = String(x).trim();
+                // algunos backends devuelven segundos (10 dígitos)
+                if (/^\d{9,13}$/.test(s)) {
+                  var n = parseInt(s,10);
+                  return (s.length <= 10) ? n*1000 : n;
+                }
+                // ISO u otros formatos parseables
                 var t = Date.parse(s);
-                if (!isNaN(t)) return t;
-                var n = Number(s);
-                return isFinite(n) ? n : NaN;
+                return isNaN(t) ? NaN : t;
+              }
+
+              function isBrowser(){
+                return (typeof window !== 'undefined' && typeof document !== 'undefined');
               }
 
               function initChart(){
+                if (!isBrowser()) return; // No correr en WeasyPrint
+                var container = document.getElementById('delta-trend-chart');
+                if (!container) return;
                 if (typeof Highcharts === 'undefined') {
                   console.error('Highcharts no está cargado');
                   return;
@@ -690,6 +705,23 @@
                   return;
                 }
 
+                var series = (chartData.series || []).map(function(serie) {
+                  var data = (serie.data || []).map(function(p){
+                    if (Array.isArray(p)) {
+                      return [ safeToMs(p[0]), Number(p[1]) ];
+                    } else if (p && typeof p === 'object' && 'x' in p && 'y' in p) {
+                      return [ safeToMs(p.x), Number(p.y) ];
+                    }
+                    return p;
+                  });
+                  return {
+                    name: serie.name + (serie.unit ? ' (' + serie.unit + ')' : ''),
+                    data: data,
+                    unit: serie.unit || '',
+                    marker: { enabled: true, radius: 4 }
+                  };
+                });
+
                 Highcharts.chart('delta-trend-chart', {
                   chart: { type: 'line', zoomType: 'xy' },
                   title: { text: 'Tendencias de Resultados' },
@@ -706,7 +738,7 @@
                       var s = '<b>' + Highcharts.dateFormat('%d/%m/%Y %H:%M', this.x) + '</b>';
                       this.points.forEach(function(point) {
                         s += '<br/><span style="color:' + point.color + '">●</span> ' +
-                             point.series.name + ': <b>' + point.y.toFixed(2) + ' ' +
+                             point.series.name + ': <b>' + (isFinite(point.y) ? point.y.toFixed(2) : point.y) + ' ' +
                              (point.series.userOptions.unit || '') + '</b>';
                       });
                       return s;
@@ -714,30 +746,14 @@
                   },
                   legend: { layout: 'horizontal', align: 'center', verticalAlign: 'bottom' },
                   plotOptions: { line: { dataLabels: { enabled: false }, enableMouseTracking: true } },
-                  series: (chartData.series || []).map(function(serie) {
-                    var data = (serie.data || []).map(function(p){
-                      // soporta [x,y], {x:..., y:...}, o valores ya numéricos
-                      if (Array.isArray(p)) {
-                        return [ toMs(p[0]), Number(p[1]) ];
-                      } else if (p && typeof p === 'object' && 'x' in p && 'y' in p) {
-                        return [ toMs(p.x), Number(p.y) ];
-                      }
-                      return p;
-                    });
-                    return {
-                      name: serie.name + (serie.unit ? ' (' + serie.unit + ')' : ''),
-                      data: data,
-                      unit: serie.unit || '',
-                      marker: { enabled: true, radius: 4 }
-                    };
-                  }),
+                  series: series,
                   credits: { enabled: false }
                 });
 
                 try { document.body.classList.add('has-highcharts'); } catch(e){}
               }
 
-              if (document.readyState === 'loading') {
+              if (document && document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', initChart);
               } else {
                 initChart();
