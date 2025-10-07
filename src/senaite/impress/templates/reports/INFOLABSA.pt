@@ -115,8 +115,8 @@
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
 
     /* ===== Control de visibilidad del fallback SVG ===== */
-    .weasy-fallback { /* visible por defecto (WeasyPrint no ejecuta JS) */ }
-    body.has-highcharts .weasy-fallback { display: none !important; } /* si Highcharts se dibuja, ocultar SVG */
+    .weasy-fallback { }
+    body.has-highcharts .weasy-fallback { display: none !important; }
 
     @media print {
       .pagebreak { page-break-before: always; }
@@ -623,12 +623,12 @@
               <svg tal:attributes="viewBox string:0 0 ${W} ${H}; width string:${W}; height string:${H}"
                    xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tendencias por analito (estático)">
                 <!-- Ejes -->
-                <line tal:attributes="x1 PAD; y1 string:${H-PAD}; x2 string:${W-PAD}; y2 string:${H-PAD}" stroke="#adb5bd" stroke-width="1"/>
-                <line tal:attributes="x1 PAD; y1 PAD; x2 PAD; y2 string:${H-PAD}" stroke="#adb5bd" stroke-width="1"/>
+                <line tal:attributes="x1 PAD; y1 python:H-PAD; x2 python:W-PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
+                <line tal:attributes="x1 PAD; y1 PAD; x2 PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
                 <!-- Etiquetas mínimas -->
-                <text tal:content="python:u'%s' % (ymin)" tal:attributes="x string:${PAD-4}; y string:${H-PAD}; text-anchor 'end'; dy '0.35em'"
+                <text tal:content="python:u'%s' % (ymin)" tal:attributes="x python:PAD-4; y python:H-PAD; text-anchor string:end; dy string:0.35em"
                       font-size="10" fill="#6c757d"/>
-                <text tal:content="python:u'%s' % (ymax)" tal:attributes="x string:${PAD-4}; y string:${PAD}; text-anchor 'end'; dy '0.35em'"
+                <text tal:content="python:u'%s' % (ymax)" tal:attributes="x python:PAD-4; y PAD; text-anchor string:end; dy string:0.35em"
                       font-size="10" fill="#6c757d"/>
                 <!-- Líneas por serie -->
                 <g tal:repeat="s series">
@@ -651,7 +651,7 @@
                           tal:define="last python:pts[-1]"
                           tal:attributes="cx python:last[0]; cy python:last[1]" r="2.5" fill="#343a40"/>
                   <text tal:content="python:s.get('name') + (s.get('unit') and u' ('+s.get('unit')+u')' or u'')"
-                        tal:attributes="x string:${PAD+6}; y string:${PAD-12 + (repeat['s'].index * 12)}" font-size="10" fill="#000"/>
+                        tal:attributes="x python:PAD+6; y python:PAD-12 + (repeat['s'].index * 12)" font-size="10" fill="#000"/>
                 </g>
               </svg>
               <div class="small" style="color:#6c757d; margin-top:4px;">
@@ -739,7 +739,6 @@
                   credits: { enabled: false }
                 });
 
-                // Si se dibuja Highcharts, ocultamos el fallback SVG
                 try { document.body.classList.add('has-highcharts'); } catch(e){}
               }
 
