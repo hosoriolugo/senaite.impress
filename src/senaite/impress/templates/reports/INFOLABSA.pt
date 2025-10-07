@@ -114,7 +114,7 @@
     /* (conservada por si reactivas fechas) */
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
 
-    /* ===== Control de visibilidad del fallback SVG ===== */
+    /* ===== Control de visibilidad del fallback ===== */
     .weasy-fallback { }
     body.has-highcharts .weasy-fallback { display: none !important; }
 
@@ -601,71 +601,59 @@
                  tal:attributes="data-json python:json.dumps(chartdata)">
             </div>
 
-            <!-- ===== Fallback estático (SVG) para PDF/preview (sin JS) ===== -->
-            <div class="weasy-fallback" tal:define="
-                  json modules/json;
-                  chartdata python:(delta.get('chart_v2') or delta.get('chart') or {});
-                  series   python:chartdata.get('series', []) or [];
-                  xs python:[ ( (p[0] if isinstance(p,(list,tuple)) else (p.get('x') if isinstance(p,dict) else None)) )
-                              for s in series for p in (s.get('data') or []) ];
-                  ys python:[ ( (p[1] if isinstance(p,(list,tuple)) else (p.get('y') if isinstance(p,dict) else None)) )
-                              for s in series for p in (s.get('data') or []) ];
-                  xs python:[x for x in xs if x is not None];
-                  ys python:[y for y in ys if y is not None and isinstance(y,(int,float))];
-                  xmin python:(min(xs) if xs else 0);
-                  xmax python:(max(xs) if xs else 1);
-                  ymin python:(min(ys) if ys else 0);
-                  ymax python:(max(ys) if ys else 1);
-                  W python:800; H python:260; PAD python:30;
-                  xr python:((xmax - xmin) or 1.0);
-                  yr python:((ymax - ymin) or 1.0);
-                " style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
-              <!-- IMPORTANTE: Solo SVG dentro de este contenedor para evitar ParseError de WeasyPrint -->
-              <svg tal:attributes="viewBox string:0 0 ${W} ${H}; width string:${W}; height string:${H}"
-                   xmlns="http://www.w3.org/2000/svg">
-                <!-- Ejes -->
-                <line tal:attributes="x1 PAD; y1 python:H-PAD; x2 python:W-PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
-                <line tal:attributes="x1 PAD; y1 PAD; x2 PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
-                <!-- Etiquetas mínimas -->
-                <text tal:content="python:u'%s' % (ymin)" tal:attributes="x python:PAD-4; y python:H-PAD; text-anchor string:end; dy string:0.35em"
-                      font-size="10" fill="#6c757d"/>
-                <text tal:content="python:u'%s' % (ymax)" tal:attributes="x python:PAD-4; y PAD; text-anchor string:end; dy string:0.35em"
-                      font-size="10" fill="#6c757d"/>
-                <!-- Líneas por serie -->
-                <g tal:repeat="s series">
-                  <tal:svars define="
-                      data python:(s.get('data') or []);
-                      pts python:[
-                        (
-                          ( ( ( (p[0] if isinstance(p,(list,tuple)) else p.get('x')) - xmin ) * (W-2*PAD) / xr ) + PAD ),
-                          ( H - PAD - ( ( (p[1] if isinstance(p,(list,tuple)) else p.get('y')) - ymin ) * (H-2*PAD) / yr ) )
-                        )
-                        for p in data
-                        if ( (isinstance(p,(list,tuple)) and p and (p[0] is not None) and (p[1] is not None)) or
-                             (isinstance(p,dict) and (p.get('x') is not None) and (p.get('y') is not None)) )
-                      ];
-                      points_attr python:u' '.join([u'%0.1f,%0.1f' % (px,py) for (px,py) in pts]);
-                      haspts python:bool(pts);
-                      last python:(haspts and pts[-1] or None);
-                      sname python:s.get('name');
-                      sunit python:(s.get('unit') or u'');
-                  ">
-                    <polyline tal:condition="haspts"
-                              tal:attributes="points points_attr"
-                              fill="none" stroke="#343a40" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-                    <circle tal:condition="haspts"
-                            tal:attributes="cx python:last[0]; cy python:last[1]" r="2.5" fill="#343a40"/>
-                    <text tal:content="python:sname + (sunit and u' ('+sunit+u')' or u'')"
-                          tal:attributes="x python:PAD+6; y python:PAD-12 + (repeat['s'].index * 12)" font-size="10" fill="#000"/>
-                  </tal:svars>
-                </g>
-              </svg>
+            <!-- ===== Fallback estático (HTML puro) para PDF/preview (sin JS) ===== -->
+            <div class="weasy-fallback"
+                 tal:define="
+                    chartdata python:(delta.get('chart_v2') or delta.get('chart') or {});
+                    series    python:chartdata.get('series', []) or [];
+                    rows_fallback python:[
+                      {
+                        'name': (s.get('name') or u''),
+                        'unit': (s.get('unit') or u''),
+                        'n': len(s.get('data') or []),
+                        'y_now': ( (s.get('data') or []) and ( (s.get('data') or [])[-1][1] if isinstance((s.get('data') or [])[-1], (list,tuple)) else ((s.get('data') or [])[-1].get('y') if isinstance((s.get('data') or [])[-1], dict) else None) ) or None ),
+                        'y_prev': ( (len(s.get('data') or [])>=2) and ( (s.get('data') or [])[-2][1] if isinstance((s.get('data') or [])[-2], (list,tuple)) else ((s.get('data') or [])[-2].get('y') if isinstance((s.get('data') or [])[-2], dict) else None) ) or None ),
+                        'y_min': ( (min([ (p[1] if isinstance(p,(list,tuple)) else (p.get('y') if isinstance(p,dict) else None)) for p in (s.get('data') or []) if ((isinstance(p,(list,tuple)) and len(p)>=2) or (isinstance(p,dict) and ('y' in p))) ]) ) if (s.get('data') or []) else None ),
+                        'y_max': ( (max([ (p[1] if isinstance(p,(list,tuple)) else (p.get('y') if isinstance(p,dict) else None)) for p in (s.get('data') or []) if ((isinstance(p,(list,tuple)) and len(p)>=2) or (isinstance(p,dict) and ('y' in p))) ]) ) if (s.get('data') or []) else None )
+                      }
+                      for s in series
+                    ];
+                    has_fb python:bool(rows_fallback);
+                 "
+                 style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:8px;">
+              <div class="small" style="color:#6c757d; margin-bottom:6px;">
+                Vista estática para PDF/preview (sin JS).
+              </div>
+              <table class="table table-sm table-condensed" tal:condition="has_fb">
+                <thead>
+                  <tr>
+                    <th>Analito</th>
+                    <th class="text-center">Actual</th>
+                    <th class="text-center">Previo</th>
+                    <th class="text-center">Δ</th>
+                    <th class="text-center">Mín–Máx</th>
+                    <th class="text-center">#Pts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr tal:repeat="r rows_fallback">
+                    <td>
+                      <strong tal:content="r/name">Analito</strong>
+                      <div class="small" tal:condition="r/unit" tal:content="r/unit">U</div>
+                    </td>
+                    <td class="text-center" tal:content="python:(r.get('y_now') is None and u'—' or (u'%.2f' % r.get('y_now')))">—</td>
+                    <td class="text-center" tal:content="python:(r.get('y_prev') is None and u'—' or (u'%.2f' % r.get('y_prev')))">—</td>
+                    <td class="text-center"
+                        tal:define="dy python:( ( (r.get('y_now') is not None) and (r.get('y_prev') is not None) ) and (r.get('y_now')-r.get('y_prev')) or None )"
+                        tal:content="python:(dy is None and u'—' or (u'%+.2f' % dy))">—</td>
+                    <td class="text-center"
+                        tal:content="python:( (r.get('y_min') is None or r.get('y_max') is None) and u'—' or (u'%.2f–%.2f' % (r.get('y_min'), r.get('y_max'))) )">—</td>
+                    <td class="text-center" tal:content="r/n">0</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <!-- Nota fuera del contenedor SVG para evitar errores de parseo -->
-            <div class="small" style="color:#6c757d; margin-top:4px;">
-              Vista estática para PDF/preview (sin JS). En navegador con JS se mostrará el gráfico interactivo.
-            </div>
-            <!-- ===== FIN fallback SVG ===== -->
+            <!-- ===== FIN fallback HTML ===== -->
 
             <!-- Script para Highcharts -->
             <script type="text/javascript">
