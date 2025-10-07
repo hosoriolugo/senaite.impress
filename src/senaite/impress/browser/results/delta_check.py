@@ -197,8 +197,8 @@ class InfolabsaDeltaCheck(BrowserView):
     def _to_epoch_ms(self, iso):
         """Convierte ISO-8601 a epoch en milisegundos (para charts)."""
         try:
-            # Limpiar el string ISO - método simple y robusto
-            clean_iso = _u(iso).replace("Z", "").split('+')[0].split('-')[0]
+            # CORRECCIÓN: Limpiar correctamente el string ISO
+            clean_iso = _u(iso).replace("Z", "").split('+')[0]  # Solo quitar timezone, no dividir por guiones
             
             if 'T' in clean_iso:
                 # Formato con tiempo: "2025-10-04T04:04:47"
@@ -304,7 +304,8 @@ class InfolabsaDeltaCheck(BrowserView):
     # ------------------ Analito keys ------------------
     def _service_of(self, a):
         try:
-            return getattr(a, "getService", lambda: None)()
+            # CORRECCIÓN: Usar getAnalysisService en lugar de getService (deprecated)
+            return getattr(a, "getAnalysisService", lambda: None)()
         except Exception:
             return None
 
