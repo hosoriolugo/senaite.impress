@@ -643,7 +643,7 @@
                  tal:attributes="data-json python:json.dumps(chartdata)">
             </div>
 
-            <!-- ===== Fallback estático (PNG servido por @@infolabsa-trend-chart.png) ===== -->
+            <!-- ===== Fallback estático (PNG) ===== -->
             <div class="weasy-fallback"
                  tal:define="
                    get python:getattr;
@@ -663,7 +663,7 @@
                  style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
               <img alt="Tendencias por analito (PNG)"
                    tal:attributes="
-                     src string:${ar/absolute_url}/@@infolabsa-trend-chart.png?uid=${ar_uid}&rid=${rid}&w=800&h=260&dpi=150;
+                     src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(**{'uid': ar_uid, 'rid': rid, 'w': 800, 'h': 260, 'dpi': 150});
                      width string:800;
                      height string:260" />
             </div>
@@ -895,7 +895,7 @@
            ">
         <img alt="Gráfico de tendencias (PNG)"
              tal:attributes="
-               src string:${ar/absolute_url}/@@infolabsa-trend-chart.png?uid=${ar_uid}&rid=${rid}&w=1000&h=360&dpi=150;
+               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(**{'uid': ar_uid, 'rid': rid, 'w': 1000, 'h': 360, 'dpi': 150});
                width string:1000;
                height string:360" />
         <p style="margin-top:8px;">Vista estática para PDF; en el visor web verás el gráfico interactivo.</p>
