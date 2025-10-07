@@ -620,7 +620,7 @@
                   xr python:((xmax - xmin) or 1.0);
                   yr python:((ymax - ymin) or 1.0);
                 " style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
-              <!-- IMPORTANTE: SOLO un nodo raíz SVG adentro -->
+              <!-- IMPORTANTE: este DIV debe contener únicamente el elemento <svg> -->
               <svg xmlns="http://www.w3.org/2000/svg"
                    xmlns:xlink="http://www.w3.org/1999/xlink"
                    tal:attributes="viewBox string:0 0 ${W} ${H}; width string:${W}; height string:${H}"
