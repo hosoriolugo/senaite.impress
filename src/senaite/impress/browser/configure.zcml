@@ -27,4 +27,12 @@
       class="senaite.impress.browser.results.delta_check.InfolabsaDeltaCheck"
       permission="zope2.View" />
 
+  <!-- ========================================================= -->
+  <!-- NUEVO: PNG estático del gráfico de tendencias -->
+  <browser:page
+      name="infolabsa-trend-chart.png"
+      for="*"
+      class=".trend_chart_png.TrendChartPNG"
+      permission="zope2.View" />
+
 </configure>
