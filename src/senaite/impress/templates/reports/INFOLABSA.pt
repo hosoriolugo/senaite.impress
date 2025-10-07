@@ -620,12 +620,15 @@
                   xr python:((xmax - xmin) or 1.0);
                   yr python:((ymax - ymin) or 1.0);
                 " style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
-              <svg tal:attributes="viewBox string:0 0 ${W} ${H}; width string:${W}; height string:${H}"
-                   xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tendencias por analito (estático)">
+              <!-- IMPORTANTE: SOLO un nodo raíz SVG adentro -->
+              <svg xmlns="http://www.w3.org/2000/svg"
+                   xmlns:xlink="http://www.w3.org/1999/xlink"
+                   tal:attributes="viewBox string:0 0 ${W} ${H}; width string:${W}; height string:${H}"
+                   role="img" aria-label="Tendencias por analito (estático)">
                 <!-- Ejes -->
                 <line tal:attributes="x1 PAD; y1 python:H-PAD; x2 python:W-PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
                 <line tal:attributes="x1 PAD; y1 PAD; x2 PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
-                <!-- Etiquetas mínimas -->
+                <!-- Etiquetas mín/max -->
                 <text tal:content="python:u'%s' % (ymin)" tal:attributes="x python:PAD-4; y python:H-PAD; text-anchor string:end; dy string:0.35em"
                       font-size="10" fill="#6c757d"/>
                 <text tal:content="python:u'%s' % (ymax)" tal:attributes="x python:PAD-4; y PAD; text-anchor string:end; dy string:0.35em"
@@ -653,9 +656,10 @@
                   </tal:line>
                 </g>
               </svg>
-              <div class="small" style="color:#6c757d; margin-top:4px;">
-                Vista estática para PDF/preview (sin JS). En navegador con JS se mostrará el gráfico interactivo.
-              </div>
+            </div>
+            <!-- Nota VISUAL fuera del contenedor SVG para no contaminar un posible data:image/svg+xml -->
+            <div class="small" style="color:#6c757d; margin-top:4px;">
+              Vista estática para PDF/preview (sin JS). En navegador con JS se mostrará el gráfico interactivo.
             </div>
             <!-- ===== FIN fallback SVG ===== -->
 
@@ -666,12 +670,10 @@
                 if (x === null || x === undefined) return NaN;
                 if (typeof x === 'number') return x;           // ya en ms
                 var s = String(x).trim();
-                // algunos backends devuelven segundos (10 dígitos)
                 if (/^\d{9,13}$/.test(s)) {
                   var n = parseInt(s,10);
                   return (s.length <= 10) ? n*1000 : n;
                 }
-                // ISO u otros formatos parseables
                 var t = Date.parse(s);
                 return isNaN(t) ? NaN : t;
               }
@@ -689,7 +691,6 @@
                   return;
                 }
 
-                // Leer datos desde el atributo data-json
                 var chartData = {};
                 try {
                   var jsonEl = document.getElementById('delta-chart-data');
