@@ -620,8 +620,9 @@
                   xr python:((xmax - xmin) or 1.0);
                   yr python:((ymax - ymin) or 1.0);
                 " style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
+              <!-- IMPORTANTE: Solo SVG dentro de este contenedor para evitar ParseError de WeasyPrint -->
               <svg tal:attributes="viewBox string:0 0 ${W} ${H}; width string:${W}; height string:${H}"
-                   xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tendencias por analito (estático)">
+                   xmlns="http://www.w3.org/2000/svg">
                 <!-- Ejes -->
                 <line tal:attributes="x1 PAD; y1 python:H-PAD; x2 python:W-PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
                 <line tal:attributes="x1 PAD; y1 PAD; x2 PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
@@ -659,9 +660,10 @@
                   </tal:svars>
                 </g>
               </svg>
-              <div class="small" style="color:#6c757d; margin-top:4px;">
-                Vista estática para PDF/preview (sin JS). En navegador con JS se mostrará el gráfico interactivo.
-              </div>
+            </div>
+            <!-- Nota fuera del contenedor SVG para evitar errores de parseo -->
+            <div class="small" style="color:#6c757d; margin-top:4px;">
+              Vista estática para PDF/preview (sin JS). En navegador con JS se mostrará el gráfico interactivo.
             </div>
             <!-- ===== FIN fallback SVG ===== -->
 
