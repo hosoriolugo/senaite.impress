@@ -12,6 +12,8 @@ except Exception:
 import json
 import re
 import unicodedata
+import datetime
+import time
 
 
 def _u(v):
@@ -185,7 +187,6 @@ class InfolabsaDeltaCheck(BrowserView):
     def _fmt_ddmmyy(self, iso):
         """Devuelve DDMMYY sin hora, a partir de ISO-8601."""
         try:
-            import datetime
             s = _u(iso).replace("Z", "")
             fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
             dt = datetime.datetime.strptime(s, fmt)
@@ -196,12 +197,24 @@ class InfolabsaDeltaCheck(BrowserView):
     def _to_epoch_ms(self, iso):
         """Convierte ISO-8601 a epoch en milisegundos (para charts)."""
         try:
-            import datetime
-            s = _u(iso).replace("Z", "")
-            fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
-            dt = datetime.datetime.strptime(s, fmt)
-            return int((dt - datetime.datetime(1970, 1, 1)).total_seconds() * 1000.0)
-        except Exception:
+            # Limpiar el string ISO - método simple y robusto
+            clean_iso = _u(iso).replace("Z", "").split('+')[0].split('-')[0]
+            
+            if 'T' in clean_iso:
+                # Formato con tiempo: "2025-10-04T04:04:47"
+                fmt = "%Y-%m-%dT%H:%M:%S"
+                dt = datetime.datetime.strptime(clean_iso, fmt)
+            else:
+                # Solo fecha: "2025-10-04"
+                fmt = "%Y-%m-%d"
+                dt = datetime.datetime.strptime(clean_iso, fmt)
+            
+            # Convertir a timestamp en milisegundos
+            timestamp = time.mktime(dt.timetuple()) * 1000
+            return int(timestamp)
+            
+        except Exception as e:
+            logger.error("Error convirtiendo fecha %s a epoch: %s" % (iso, str(e)))
             return None
 
     def _date_of_ar(self, ar):
