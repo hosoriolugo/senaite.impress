@@ -135,6 +135,12 @@
       padding: 10px;
       background: #fff;
     }
+    /* Asegurar que el PNG se encuadre y no se deforme */
+    .section-trends .chart-container img {
+      width: 100% !important;
+      height: auto !important;
+      display: block;
+    }
     .section-trends .fallback-message {
       text-align: center; 
       padding: 40px; 
@@ -625,152 +631,8 @@
             </tbody>
           </table>
 
-          <!-- ======= Gráfico multi-analito con Highcharts (interactivo en navegador) ======= -->
-          <tal:chart tal:condition="python:delta.get('has_chart')">
-            <h3 class="mt-2" style="color:#000;font-weight:800;margin-bottom:6px;">Tendencias por analito</h3>
-            <div class="small" style="color:#6c757d;">
-              Vista temporal de hasta <strong tal:content="python:delta.get('chart_v2',{}).get('max_points') or 8">8</strong> puntos recientes por analito.
-            </div>
+          <!-- (ELIMINADO: Bloque 'Tendencias por analito' y su PNG redundante) -->
 
-            <!-- Contenedor para Highcharts -->
-            <div id="delta-trend-chart" class="hc-live" style="width: 100%; height: 400px; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; margin-top: 10px;"></div>
-
-            <!-- ===== JSON embebido sin ejecutar JS ===== -->
-            <div id="delta-chart-data"
-                 style="display:none"
-                 tal:define="json modules/json;
-                             chartdata python:(delta.get('chart_v2') or delta.get('chart') or {});"
-                 tal:attributes="data-json python:json.dumps(chartdata)">
-            </div>
-
-            <!-- ===== Fallback estático (PNG) ===== -->
-            <div class="weasy-fallback"
-                 tal:define="
-                   get python:getattr;
-                   ar_uid python:(
-                     (get(ar,'UID',None) and ar.UID()) or
-                     (get(ar,'getUID',None) and ar.getUID()) or
-                     (get(model,'UID',None) and model.UID()) or
-                     options.get('uid','')
-                   );
-                   rid python:(
-                     (get(ar,'getId',None) and ar.getId()) or
-                     (hasattr(ar,'id') and ar.id) or
-                     (get(ar,'getRequestID',None) and ar.getRequestID()) or
-                     options.get('rid','')
-                   );
-                 "
-                 style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
-              <img alt="Tendencias por analito (PNG)"
-                   tal:attributes="
-                     src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(**{'uid': ar_uid, 'rid': rid, 'w': 800, 'h': 260, 'dpi': 150});
-                     width string:800;
-                     height string:260" />
-            </div>
-            <div class="small" style="color:#6c757d; margin-top:4px;">
-              Vista estática para PDF/preview (sin JS). En navegador con JS se mostrará el gráfico interactivo.
-            </div>
-            <!-- ===== FIN fallback PNG ===== -->
-
-            <!-- Script para Highcharts (solo navegador, nunca WeasyPrint) -->
-            <script type="text/javascript">
-            (function() {
-              function safeToMs(x){
-                if (x === null || x === undefined) return NaN;
-                if (typeof x === 'number') return x;           // ya en ms
-                var s = String(x).trim();
-                if (/^\d{9,13}$/.test(s)) {
-                  var n = parseInt(s,10);
-                  return (s.length <= 10) ? n*1000 : n;
-                }
-                var t = Date.parse(s);
-                return isNaN(t) ? NaN : t;
-              }
-
-              function isBrowser(){
-                return (typeof window !== 'undefined' && typeof document !== 'undefined');
-              }
-
-              function initChart(){
-                if (!isBrowser()) return; // No correr en WeasyPrint
-                var container = document.getElementById('delta-trend-chart');
-                if (!container) return;
-                if (typeof Highcharts === 'undefined') {
-                  console.error('Highcharts no está cargado');
-                  return;
-                }
-
-                var chartData = {};
-                try {
-                  var jsonEl = document.getElementById('delta-chart-data');
-                  var raw = jsonEl ? jsonEl.getAttribute('data-json') : null;
-                  chartData = raw ? JSON.parse(raw) : {};
-                } catch (e) {
-                  console.error('JSON inválido para chart', e);
-                  return;
-                }
-
-                if (!chartData.series || !chartData.series.length) {
-                  console.log('No hay datos para el gráfico');
-                  return;
-                }
-
-                var series = (chartData.series || []).map(function(serie) {
-                  var data = (serie.data || []).map(function(p){
-                    if (Array.isArray(p)) {
-                      return [ safeToMs(p[0]), Number(p[1]) ];
-                    } else if (p && typeof p === 'object' && 'x' in p && 'y' in p) {
-                      return [ safeToMs(p.x), Number(p.y) ];
-                    }
-                    return p;
-                  });
-                  return {
-                    name: serie.name + (serie.unit ? ' (' + serie.unit + ')' : ''),
-                    data: data,
-                    unit: serie.unit || '',
-                    marker: { enabled: true, radius: 4 }
-                  };
-                });
-
-                Highcharts.chart('delta-trend-chart', {
-                  chart: { type: 'line', zoomType: 'xy' },
-                  title: { text: 'Tendencias de Resultados' },
-                  xAxis: {
-                    type: 'datetime',
-                    title: { text: 'Fecha' },
-                    labels: { formatter: function(){ return Highcharts.dateFormat('%d/%m/%y', this.value); } }
-                  },
-                  yAxis: { title: { text: 'Valores' } },
-                  tooltip: {
-                    crosshairs: true,
-                    shared: true,
-                    formatter: function() {
-                      var s = '<b>' + Highcharts.dateFormat('%d/%m/%Y %H:%M', this.x) + '</b>';
-                      this.points.forEach(function(point) {
-                        s += '<br/><span style="color:' + point.color + '">●</span> ' +
-                             point.series.name + ': <b>' + (isFinite(point.y) ? point.y.toFixed(2) : point.y) + ' ' +
-                             (point.series.userOptions.unit || '') + '</b>';
-                      });
-                      return s;
-                    }
-                  },
-                  legend: { layout: 'horizontal', align: 'center', verticalAlign: 'bottom' },
-                  plotOptions: { line: { dataLabels: { enabled: false }, enableMouseTracking: true } },
-                  series: series,
-                  credits: { enabled: false }
-                });
-
-                try { document.body.classList.add('has-highcharts'); } catch(e){}
-              }
-
-              if (document && document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initChart);
-              } else {
-                initChart();
-              }
-            })();
-            </script>
-          </tal:chart>
         </div>
       </div>
 
@@ -876,8 +738,8 @@
       <!-- Contenedor para Highcharts (solo en navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PNG) -->
-      <div class="weasy-fallback fallback-message"
+      <!-- Fallback para WeasyPrint (PNG responsivo y nítido) -->
+      <div class="chart-container weasy-fallback"
            tal:define="
              get python:getattr;
              ar_uid python:(
@@ -895,10 +757,9 @@
            ">
         <img alt="Gráfico de tendencias (PNG)"
              tal:attributes="
-               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(**{'uid': ar_uid, 'rid': rid, 'w': 1000, 'h': 360, 'dpi': 150});
-               width string:1000;
-               height string:360" />
-        <p style="margin-top:8px;">Vista estática para PDF; en el visor web verás el gráfico interactivo.</p>
+               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(**{'uid': ar_uid, 'rid': rid, 'w': 1000, 'h': 360, 'dpi': 192});
+             " />
+        <p class="small" style="margin-top:8px; color:#6c757d;">Vista estática para PDF; en el visor web verás el gráfico interactivo.</p>
       </div>
 
       <!-- Script para inicializar Highcharts con datos reales -->
