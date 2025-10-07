@@ -35,4 +35,12 @@
       class=".trend_chart_png.TrendChartPNG"
       permission="zope2.View" />
 
+  <!-- ========================================================= -->
+  <!-- NUEVO: Data-URI del gráfico (para WeasyPrint, sin peticiones HTTP) -->
+  <browser:page
+      name="infolabsa-trend-chart-datauri"
+      for="*"
+      class=".trend_chart_png.InfolabsaTrendChartDataURI"
+      permission="zope2.View" />
+
 </configure>
