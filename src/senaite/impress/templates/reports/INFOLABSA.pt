@@ -643,67 +643,28 @@
                  tal:attributes="data-json python:json.dumps(chartdata)">
             </div>
 
-            <!-- ===== Fallback estático (SVG inline) para PDF/preview (sin JS) ===== -->
-            <div class="weasy-fallback" tal:define="
-                  json modules/json;
-                  chartdata python:(delta.get('chart_v2') or delta.get('chart') or {});
-                  series   python:chartdata.get('series', []) or [];
-                  xs python:[ ( (p[0] if isinstance(p,(list,tuple)) else (p.get('x') if isinstance(p,dict) else None)) )
-                              for s in series for p in (s.get('data') or []) ];
-                  ys python:[ ( (p[1] if isinstance(p,(list,tuple)) else (p.get('y') if isinstance(p,dict) else None)) )
-                              for s in series for p in (s.get('data') or []) ];
-                  xs python:[x for x in xs if x is not None];
-                  ys python:[y for y in ys if y is not None and isinstance(y,(int,float))];
-                  xmin python:(min(xs) if xs else 0);
-                  xmax python:(max(xs) if xs else 1);
-                  ymin python:(min(ys) if ys else 0);
-                  ymax python:(max(ys) if ys else 1);
-                  W python:800; H python:260; PAD python:30;
-                  xr python:((xmax - xmin) or 1.0);
-                  yr python:((ymax - ymin) or 1.0);
-                " style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
-              <!-- IMPORTANTE: este DIV debe contener únicamente el elemento <svg> -->
-              <svg xmlns="http://www.w3.org/2000/svg"
-                   xmlns:xlink="http://www.w3.org/1999/xlink"
-                   tal:attributes="viewBox string:0 0 ${W} ${H}; width string:${W}; height string:${H}"
-                   role="img" aria-label="Tendencias por analito (estático)">
-                <!-- Ejes -->
-                <line tal:attributes="x1 PAD; y1 python:H-PAD; x2 python:W-PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
-                <line tal:attributes="x1 PAD; y1 PAD; x2 PAD; y2 python:H-PAD" stroke="#adb5bd" stroke-width="1"/>
-                <!-- Etiquetas mín/max -->
-                <text tal:content="python:u'%s' % (ymin)" tal:attributes="x python:PAD-4; y python:H-PAD; text-anchor string:end; dy string:0.35em"
-                      font-size="10" fill="#6c757d"/>
-                <text tal:content="python:u'%s' % (ymax)" tal:attributes="x python:PAD-4; y PAD; text-anchor string:end; dy string:0.35em"
-                      font-size="10" fill="#6c757d"/>
-                <!-- Líneas por serie -->
-                <g tal:repeat="s series">
-                  <tal:line tal:define="
-                      pts python:[
-                        (
-                          ( ( ( (p[0] if isinstance(p,(list,tuple)) else p.get('x')) - xmin ) * (W-2*PAD) / xr ) + PAD ),
-                          ( H - PAD - ( ( (p[1] if isinstance(p,(list,tuple)) else p.get('y')) - ymin ) * (H-2*PAD) / yr ) )
-                        )
-                        for p in (s.get('data') or [])
-                        if ( (isinstance(p,(list,tuple)) and p and (p[0] is not None) and (p[1] is not None)) or
-                             (isinstance(p,dict) and (p.get('x') is not None) and (p.get('y') is not None)) )
-                      ];
-                      points_attr python:u' '.join([u'%0.1f,%0.1f' % (px,py) for (px,py) in pts]);
-                    ">
-                    <polyline tal:attributes="points points_attr"
-                      fill="none" stroke="#343a40" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-                    <circle tal:condition="python:len(pts)>0"
-                            tal:attributes="cx python:pts[-1][0]; cy python:pts[-1][1]" r="2.5" fill="#343a40"/>
-                    <text tal:content="python:s.get('name') + (s.get('unit') and u' ('+s.get('unit')+u')' or u'')"
-                          tal:attributes="x python:PAD+6; y python:PAD-12 + (repeat['s'].index * 12)" font-size="10" fill="#000"/>
-                  </tal:line>
-                </g>
-              </svg>
+            <!-- ===== Fallback estático (PNG servido por @@infolabsa-trend-chart.png) ===== -->
+            <div class="weasy-fallback"
+                 tal:define="
+                   get python:getattr;
+                   ar_uid python:(
+                     (get(ar,'UID',None) and ar.UID()) or
+                     (get(ar,'getUID',None) and ar.getUID()) or
+                     (get(model,'UID',None) and model.UID()) or
+                     options.get('uid','')
+                   );
+                 "
+                 style="margin-top:10px; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
+              <img alt="Tendencias por analito (PNG)"
+                   tal:attributes="
+                     src string:${context/portal_url}/@@infolabsa-trend-chart.png?uid=${ar_uid}&w=800&h=260&dpi=150;
+                     width string:800;
+                     height string:260" />
             </div>
-            <!-- Nota VISUAL fuera del contenedor SVG para no contaminar un posible data:image/svg+xml -->
             <div class="small" style="color:#6c757d; margin-top:4px;">
               Vista estática para PDF/preview (sin JS). En navegador con JS se mostrará el gráfico interactivo.
             </div>
-            <!-- ===== FIN fallback SVG ===== -->
+            <!-- ===== FIN fallback PNG ===== -->
 
             <!-- Script para Highcharts (solo navegador, nunca WeasyPrint) -->
             <script type="text/javascript">
@@ -909,12 +870,23 @@
       <!-- Contenedor para Highcharts (solo en navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PDF) -->
-      <div class="weasy-fallback fallback-message">
-        <p>
-          <strong>Gráfico de Tendencias Disponible</strong><br/>
-          El gráfico interactivo de tendencias se muestra en la versión digital del informe.
-        </p>
+      <!-- Fallback para WeasyPrint (PNG) -->
+      <div class="weasy-fallback fallback-message"
+           tal:define="
+             get python:getattr;
+             ar_uid python:(
+               (get(ar,'UID',None) and ar.UID()) or
+               (get(ar,'getUID',None) and ar.getUID()) or
+               (get(model,'UID',None) and model.UID()) or
+               options.get('uid','')
+             );
+           ">
+        <img alt="Gráfico de tendencias (PNG)"
+             tal:attributes="
+               src string:${context/portal_url}/@@infolabsa-trend-chart.png?uid=${ar_uid}&w=1000&h=360&dpi=150;
+               width string:1000;
+               height string:360" />
+        <p style="margin-top:8px;">Vista estática para PDF; en el visor web verás el gráfico interactivo.</p>
       </div>
 
       <!-- Script para inicializar Highcharts con datos reales -->
@@ -957,6 +929,7 @@
             if (typeof Highcharts !== 'undefined') {
               Highcharts.chart('trends-chart-container', options);
               var fb = document.querySelector('.section-trends .weasy-fallback'); if (fb) fb.style.display = 'none';
+              try { document.body.classList.add('has-highcharts'); } catch(e){}
             } else {
               console.error('Highcharts no está cargado');
             }
