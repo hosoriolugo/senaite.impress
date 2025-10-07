@@ -889,17 +889,24 @@
     <!-- =========== FIN: Delta Check =========== -->
 
     <!-- =========== GRÁFICO DE TENDENCIAS (DESPUÉS DEL DELTA CHECK) =========== -->
-    <div class="section-trends" 
-         tal:define="trends_data view/get_trends_data"
-         tal:condition="trends_data">
-      
+    <div class="section-trends"
+         tal:define="
+           get python:getattr;
+           json modules/json;
+           _get_trends python:get(view,'get_trends_data', None);
+           trends_data python:(
+             (_get_trends and (callable(_get_trends) and _get_trends() or _get_trends))
+             or (delta and (delta.get('chart_v2') or delta.get('chart')))
+             or {}
+           )
+         "
+         tal:condition="python:bool(trends_data)">
+
       <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
-      
+
       <!-- Contenedor para Highcharts (solo en navegador) -->
-      <div id="trends-chart-container" class="chart-container no-weasyprint">
-        <!-- Highcharts se renderizará aquí -->
-      </div>
-      
+      <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
+
       <!-- Fallback para WeasyPrint (PDF) -->
       <div class="weasy-fallback fallback-message">
         <p>
@@ -909,96 +916,47 @@
       </div>
 
       <!-- Script para inicializar Highcharts con datos reales -->
-      <script>
+      <script type="text/javascript">
         (function() {
-          // Solo ejecutar en navegador (no en WeasyPrint)
           if (typeof window.WeasyPrint === 'undefined') {
-            console.log("Inicializando gráfico de tendencias...");
-            
-            // Usar datos reales desde Python
-            var trendsData = <tal:span tal:replace="trends_data/json" />;
-            
-            // Configuración del gráfico
+            var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
+            if (!trendsData || !trendsData.series || !trendsData.series.length) return;
+
             var options = {
-              chart: {
-                type: 'line',
-                height: 400,
-                backgroundColor: 'transparent'
-              },
+              chart: { type: 'line', height: 400, backgroundColor: 'transparent' },
               title: {
                 text: trendsData.title || 'Tendencias de Resultados',
-                style: { 
-                  color: '#000', 
-                  fontWeight: 'bold', 
-                  fontSize: '16px',
-                  fontFamily: 'Arial, sans-serif'
-                }
+                style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               xAxis: {
                 categories: trendsData.categories,
-                title: { 
-                  text: 'Fecha de Análisis', 
-                  style: { color: '#000', fontWeight: 'bold' } 
-                },
-                labels: { 
-                  style: { color: '#333' },
-                  rotation: -45
-                },
+                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                labels: { style: { color: '#333' }, rotation: -45 },
                 crosshair: true
               },
               yAxis: {
-                title: { 
-                  text: 'Valores (' + (trendsData.unit || '') + ')', 
-                  style: { color: '#000', fontWeight: 'bold' }
-                },
+                title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
                 labels: { style: { color: '#333' } },
                 min: trendsData.yMin,
                 max: trendsData.yMax,
                 gridLineColor: '#f0f0f0'
               },
-              legend: {
-                layout: 'horizontal',
-                align: 'center',
-                verticalAlign: 'bottom',
-                itemStyle: { 
-                  color: '#333', 
-                  fontWeight: 'normal',
-                  fontFamily: 'Arial, sans-serif'
-                }
-              },
+              legend: { layout: 'horizontal', align: 'center', verticalAlign: 'bottom',
+                        itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
               plotOptions: {
-                line: {
-                  dataLabels: { 
-                    enabled: false 
-                  },
-                  enableMouseTracking: true,
-                  marker: {
-                    enabled: true,
-                    radius: 4
-                  }
-                }
+                line: { dataLabels: { enabled: false }, enableMouseTracking: true, marker: { enabled: true, radius: 4 } }
               },
-              tooltip: {
-                shared: true,
-                crosshairs: true,
-                valueSuffix: ' ' + (trendsData.unit || '')
-              },
+              tooltip: { shared: true, crosshairs: true, valueSuffix: (trendsData.unit ? ' ' + trendsData.unit : '') },
               series: trendsData.series,
-              credits: { 
-                enabled: false 
-              },
-              exporting: {
-                enabled: false
-              }
+              credits: { enabled: false },
+              exporting: { enabled: false }
             };
-            
-            // Crear el gráfico
-            Highcharts.chart('trends-chart-container', options);
-            
-            // Ocultar el fallback en navegador
-            var fallbackElement = document.querySelector('.section-trends .weasy-fallback');
-            if (fallbackElement) {
-              fallbackElement.style.display = 'none';
+
+            if (typeof Highcharts !== 'undefined') {
+              Highcharts.chart('trends-chart-container', options);
+              var fb = document.querySelector('.section-trends .weasy-fallback'); if (fb) fb.style.display = 'none';
+            } else {
+              console.error('Highcharts no está cargado');
             }
           }
         })();
