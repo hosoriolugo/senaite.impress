@@ -83,6 +83,8 @@ class TrendChartPNG(BrowserView):
 
     def _get_chartdata(self, ar):
         # Usa el flow ya existente
+        if not ar:
+            return {}
         trv = getattr(ar, 'restrictedTraverse', None)
         if not trv:
             return {}
@@ -223,13 +225,11 @@ class TrendChartPNG(BrowserView):
         dr.line([(pad_l, H - pad_b), (W - pad_r, H - pad_b)], fill=(173, 181, 189))
 
         # Etiquetas X (máx 6)
-        # Seleccionamos algunos puntos equiespaciados por ms
         slots = 6
         if slots > len(xs):
             slots = len(xs)
         if slots > 0:
             step_ms = (xmax - xmin) / float(slots)
-            labels = []
             for i in range(slots + 1):
                 ms = xmin + int(i * step_ms)
                 xpix = sx(ms)
@@ -287,3 +287,69 @@ class TrendChartPNG(BrowserView):
         im.save(out, format='PNG', dpi=(dpi, dpi))
         self.request.response.setHeader('Content-Type', 'image/png')
         return out.getvalue()
+
+
+# ===== NUEVO: view que devuelve Data-URI para incrustar en WeasyPrint =====
+class InfolabsaTrendChartDataURI(BrowserView):
+    """Devuelve data:image/png;base64,... invocando el view PNG internamente (sin HTTP)."""
+
+    def __call__(self, uid=None, rid=None, w=None, h=None, dpi=None):
+        request = self.request
+        # Recuperar parámetros (permite querystring o argumentos posicionales)
+        uid = uid or request.get('uid') or request.form.get('uid')
+        # rid no es estrictamente necesario para el PNG actual, pero lo pasamos si llega
+        rid = rid or request.get('rid') or request.form.get('rid')
+        w = w or request.get('w') or request.form.get('w')
+        h = h or request.get('h') or request.form.get('h')
+        dpi = dpi or request.get('dpi') or request.form.get('dpi')
+
+        # Guardar cabeceras previas para restaurar luego
+        resp = request.response
+        prev_ct = resp.getHeader('Content-Type')
+        prev_cd = resp.getHeader('Content-Disposition')
+
+        # Inyectar parámetros al request.form para el sub-view
+        if uid is not None:
+            request.form['uid'] = uid
+        if rid is not None:
+            request.form['rid'] = rid
+        if w is not None:
+            request.form['w'] = str(w)
+        if h is not None:
+            request.form['h'] = str(h)
+        if dpi is not None:
+            request.form['dpi'] = str(dpi)
+
+        try:
+            # Llamar al view PNG de forma interna (sin HTTP/redirects)
+            png_view = self.context.restrictedTraverse('@@infolabsa-trend-chart.png')
+            data = png_view()  # bytes del PNG
+        finally:
+            # Restaurar cabeceras que el sub-view pudo haber tocado
+            if prev_ct:
+                resp.setHeader('Content-Type', prev_ct)
+            else:
+                resp.setHeader('Content-Type', None)
+            if prev_cd:
+                resp.setHeader('Content-Disposition', prev_cd)
+            else:
+                resp.setHeader('Content-Disposition', None)
+
+        if not data:
+            resp.setHeader('Content-Type', 'text/plain; charset=utf-8')
+            return u''
+
+        # Asegurar bytes y construir Data-URI
+        try:
+            from base64 import b64encode
+            if isinstance(data, unicode):
+                data = data.encode('utf-8', 'ignore')
+            b64 = b64encode(data)
+            datauri = 'data:image/png;base64,' + b64
+        except Exception:
+            resp.setHeader('Content-Type', 'text/plain; charset=utf-8')
+            return u''
+
+        # Entregamos como texto para que el <img src="..."> lo pueda usar directamente
+        resp.setHeader('Content-Type', 'text/plain; charset=utf-8')
+        return datauri
