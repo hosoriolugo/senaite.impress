@@ -115,43 +115,43 @@
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
 
     /* ===== SECCIÓN TENDENCIAS ===== */
-    .section-trends { 
-      margin: 30px 0; 
+    .section-trends {
+      margin: 30px 0;
       page-break-inside: avoid;
     }
-    .section-trends .section-title { 
-      color: #000; 
-      font-weight: 800; 
+    .section-trends .section-title {
+      color: #000;
+      font-weight: 800;
       margin-bottom: 15px !important;
       border-bottom: 2px solid #2c3e50;
       padding-bottom: 5px;
     }
     .section-trends .chart-container {
-      width: 100%; 
-      height: 400px; 
+      width: 100%;
+      height: 400px;
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
       padding: 10px;
       background: #fff;
     }
-    /* Asegurar que el PNG se encuadre y no se deforme */
-    .section-trends .chart-container img {
-      width: 100% !important;
-      height: auto !important;
-      display: block;
-    }
     .section-trends .fallback-message {
-      text-align: center; 
-      padding: 40px; 
-      background: #f8f9fa; 
+      text-align: center;
+      padding: 20px;
+      background: #f8f9fa;
       border-radius: 5px;
       border: 1px dashed #dee2e6;
     }
+    .section-trends .fallback-message img {
+      display: block;
+      max-width: 100%;
+      height: auto;           /* evita pixelación por estirado */
+      margin: 0 auto;
+    }
     .section-trends .fallback-message p {
-      color: #666; 
-      font-size: 14px; 
-      margin: 0;
+      color: #666;
+      font-size: 14px;
+      margin: 8px 0 0 0;
       font-style: italic;
     }
 
@@ -159,6 +159,14 @@
     .weasy-fallback { }
     .no-weasyprint { }
     body.has-highcharts .weasy-fallback { display: none !important; }
+
+    /* --- Paginación "inteligente" --- */
+    /* 1ª página: hasta resultados */
+    /* 2ª página: interpretación */
+    .section-interp { page-break-before: always; }
+    /* 3ª página: delta + gráfico */
+    .section-delta { page-break-before: always; }
+    .section-trends { page-break-inside: avoid; }
 
     @media print {
       .pagebreak { page-break-before: always; }
@@ -168,7 +176,7 @@
       .section-delta { page-break-before: always; }
       .no-weasyprint { display: none !important; }
       .weasy-fallback { display: block !important; }
-      .section-trends { 
+      .section-trends {
         page-break-inside: avoid;
         break-inside: avoid;
       }
@@ -451,7 +459,7 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretacion de resultados (sin cambios) -->
+    <!-- Interpretacion de resultados -->
     <tal:interp define="
       get python:getattr;
 
@@ -631,15 +639,13 @@
             </tbody>
           </table>
 
-          <!-- (ELIMINADO: Bloque 'Tendencias por analito' y su PNG redundante) -->
-
+          <!-- (ELIMINADO el bloque "Tendencias por analito" que dejaba hueco) -->
         </div>
       </div>
 
       <!-- Dibujo de mini-sparklines -->
       <script type="text/javascript" tal:condition="hasrows">
       (function(){
-        /* ==== Utils comunes ==== */
         function parseTime(s){
           if (!s) return 0;
           var st = String(s).trim();
@@ -651,7 +657,6 @@
           var t = Date.parse(st);
           return isNaN(t) ? 0 : t;
         }
-
         function drawSpark(canvas, points){
           if (!canvas || !points || points.length<2) return;
           var ctx = canvas.getContext('2d');
@@ -678,7 +683,6 @@
           ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true);
           ctx.fill();
         }
-
         function parseHiddenSpark(id){
           var el = document.getElementById(id);
           if (!el) return null;
@@ -692,7 +696,6 @@
           }).filter(function(p){ return p[0] && isFinite(p[1]); });
           return pts.length ? pts : null;
         }
-
         function initSparks(){
           var rows = document.querySelectorAll('#delta-check-panel canvas.spark');
           for (var i=0;i<rows.length;i++){
@@ -704,9 +707,7 @@
             if (pts) drawSpark(c, pts);
           }
         }
-
         function init(){ initSparks(); }
-
         if (document.readyState === 'loading'){
           document.addEventListener('DOMContentLoaded', init);
         } else {
@@ -738,8 +739,8 @@
       <!-- Contenedor para Highcharts (solo en navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PNG responsivo y nítido) -->
-      <div class="chart-container weasy-fallback"
+      <!-- Fallback para WeasyPrint (PNG con data-URI, sin forzar w/h/dpi) -->
+      <div class="weasy-fallback fallback-message"
            tal:define="
              get python:getattr;
              ar_uid python:(
@@ -757,9 +758,8 @@
            ">
         <img alt="Gráfico de tendencias (PNG)"
              tal:attributes="
-               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(**{'uid': ar_uid, 'rid': rid, 'w': 1000, 'h': 360, 'dpi': 192});
-             " />
-        <p class="small" style="margin-top:8px; color:#6c757d;">Vista estática para PDF; en el visor web verás el gráfico interactivo.</p>
+               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(uid=ar_uid, rid=rid)" />
+        <p>Vista estática para PDF; en el visor web verás el gráfico interactivo.</p>
       </div>
 
       <!-- Script para inicializar Highcharts con datos reales -->
