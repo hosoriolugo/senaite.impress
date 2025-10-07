@@ -5,6 +5,7 @@ from ZODB.POSException import POSKeyError
 from StringIO import StringIO
 import math
 import datetime
+import colorsys  # NUEVO
 
 try:
     # Pillow (normalmente ya viene en la build de Plone/SENAITE)
@@ -53,6 +54,17 @@ def _safe_text(val):
         return unicode(val)
     except Exception:
         return u''
+
+
+def _hsv_palette(n):
+    """Genera n colores distinguibles en RGB (0..255) usando HSV."""
+    out = []
+    for i in range(max(1, n)):
+        h = float(i) / float(max(1, n))
+        s, v = 0.70, 0.85
+        r, g, b = colorsys.hsv_to_rgb(h, s, v)
+        out.append((int(r * 255), int(g * 255), int(b * 255)))
+    return out
 
 
 class TrendChartPNG(BrowserView):
@@ -149,18 +161,20 @@ class TrendChartPNG(BrowserView):
         # --- Parámetros ---
         request = self.request
         uid = request.get('uid') or request.form.get('uid')
-        W = max(600, _to_int(request.get('w', 1000), 1000))
-        H = max(240, _to_int(request.get('h', 360), 360))
-        # DPI más alto por defecto para nitidez en PDF (sobrescribible por querystring)
-        dpi = max(96, _to_int(request.get('dpi', 192), 192))
 
-        # Márgenes base
-        pad_l = 60
-        pad_r = 20
-        pad_t = 30   # se recalculará tras medir título/leyenda
-        pad_b = 48   # un poco más para que no se corten etiquetas/fechas
+        # Lee params pero NO fija aún w/h si no vienen
+        W_param = request.get('w')
+        H_param = request.get('h')
+        dpi = max(96, _to_int(request.get('dpi', 300), 300))  # 300 por defecto
+
+        # Paddings base (se podrán ajustar más abajo)
+        pad_l = 68
+        pad_r = 24
+        pad_t = 34
+        pad_b = 56  # más espacio para etiquetas X
         bg = (255, 255, 255)
         grid = (230, 236, 240)
+        axis = (173, 181, 189)
 
         if not PIL_OK:
             # Respuesta de texto clara si Pillow no está
@@ -172,12 +186,37 @@ class TrendChartPNG(BrowserView):
         chart = self._get_chartdata(ar)
         series = chart.get('series') or []
 
+        # Canvas: W/H adaptativos si no llegan
+        pts_per_series = [len(s['data']) for s in series] or [0]
+        pts_max = max(pts_per_series)
+        n_series = len(series)
+
+        if W_param is None or H_param is None:
+            # ancho por punto (más puntos => menos px por punto)
+            if pts_max <= 10:
+                px_per_point = 70
+            elif pts_max <= 16:
+                px_per_point = 56
+            elif pts_max <= 24:
+                px_per_point = 48
+            else:
+                px_per_point = 40
+            W = max(1200, min(2400, max(1000, pts_max * px_per_point)))
+            # Alto base + filas extra de leyenda si muchos analitos (6 por fila aprox.)
+            legend_rows = int(math.ceil(max(1, n_series) / 6.0))
+            extra_h = max(0, (legend_rows - 1) * 26)
+            H = max(360, min(800, 380 + extra_h))
+        else:
+            W = max(600, _to_int(W_param, 1000))
+            H = max(240, _to_int(H_param, 360))
+
         # Canvas
         im = Image.new('RGB', (W, H), bg)
         dr = ImageDraw.Draw(im)
 
         # Fuentes (usa la por defecto para compatibilidad)
         font = ImageFont.load_default()
+        font_small = ImageFont.load_default()
 
         # Mensaje si no hay datos
         if not series:
@@ -189,50 +228,16 @@ class TrendChartPNG(BrowserView):
             self.request.response.setHeader('Content-Type', 'image/png')
             return out.getvalue()
 
-        # ====== TÍTULO y LEYENDA (medición previa para ajustar pad_t) ======
-        title = u'Tendencias de Resultados'
-        t_tw, t_th = dr.textsize(title, font=font)
-
-        # Calcula alto de leyenda en 1 o más líneas
-        leg_items = []
-        for idx, s in enumerate(series):
-            color = self.PALETTE[idx % len(self.PALETTE)]
-            name = s['name']
-            unit = s.get('unit') or u''
-            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
-            leg_items.append((color, label))
-
-        # Estimar salto de línea de leyenda
-        leg_x = pad_l
-        leg_y_top = 6 + t_th + 6     # debajo del título
-        leg_line_h = max(12, t_th) + 6
-        leg_y = leg_y_top
-        for color, label in leg_items:
-            lw, lh = dr.textsize(label, font=font)
-            block_w = 18 + lw + 24
-            if leg_x + block_w > (W - pad_r - 120):
-                leg_x = pad_l
-                leg_y += leg_line_h
-            leg_x += block_w
-        legend_bottom = leg_y + leg_line_h - 6
-
-        # Ajusta margen superior para que no se pise con el área de ploteo
-        pad_t = max(pad_t, legend_bottom + 6)
-
-        # ====== Extremos globales ======
+        # Extremos globales
         xs, ys = [], []
         for s in series:
             for ms, y in s['data']:
-                xs.append(ms)
-                ys.append(y)
-        xmin = min(xs)
-        xmax = max(xs)
-        ymin = min(ys)
-        ymax = max(ys)
+                xs.append(ms); ys.append(y)
+        xmin = min(xs); xmax = max(xs)
+        ymin = min(ys); ymax = max(ys)
         ymin, ymax, yticks = self._nice_range(ymin, ymax)
         if xmin == xmax:
-            xmin -= 1000
-            xmax += 1000
+            xmin -= 1000; xmax += 1000
 
         # Funciones de escala
         plot_w = W - pad_l - pad_r
@@ -244,36 +249,18 @@ class TrendChartPNG(BrowserView):
         def sy(y):
             return pad_t + int((ymax - y) * 1.0 * plot_h / (ymax - ymin))
 
-        # ====== Dibuja título y leyenda (ya medidos) ======
-        # Título fijo arriba (no pegado al plot)
-        dr.text((pad_l, 6), title, fill=(0, 0, 0), font=font)
-
-        # Leyenda inmediatamente debajo del título
-        leg_x = pad_l
-        leg_y = leg_y_top
-        for color, label in leg_items:
-            # caja color
-            dr.rectangle([leg_x, leg_y + 3, leg_x + 14, leg_y + 9], fill=color, outline=color)
-            dr.text((leg_x + 18, leg_y), label, fill=(0, 0, 0), font=font)
-            lw, lh = dr.textsize(label, font=font)
-            block_w = 18 + lw + 24
-            if leg_x + block_w > (W - pad_r - 120):
-                leg_x = pad_l
-                leg_y += leg_line_h
-            else:
-                leg_x += block_w
-
-        # ====== Grid Y + ejes ======
+        # Grid Y + eje Y/X + marco del área de trazado
         for t in yticks:
             ypix = sy(t)
             dr.line([(pad_l, ypix), (W - pad_r, ypix)], fill=grid)
             lab = (u'%0.2f' % t).rstrip('0').rstrip('.')
             tw, th = dr.textsize(lab, font=font)
             dr.text((pad_l - 8 - tw, ypix - th / 2), lab, fill=(108, 117, 125), font=font)
-
         # Ejes
-        dr.line([(pad_l, pad_t), (pad_l, H - pad_b)], fill=(173, 181, 189))
-        dr.line([(pad_l, H - pad_b), (W - pad_r, H - pad_b)], fill=(173, 181, 189))
+        dr.line([(pad_l, pad_t), (pad_l, H - pad_b)], fill=axis)
+        dr.line([(pad_l, H - pad_b), (W - pad_r, H - pad_b)], fill=axis)
+        # Marco
+        dr.rectangle([(pad_l, pad_t), (W - pad_r, H - pad_b)], outline=(222, 226, 230))
 
         # Etiquetas X (máx 6)
         slots = 6
@@ -284,7 +271,6 @@ class TrendChartPNG(BrowserView):
             for i in range(slots + 1):
                 ms = xmin + int(i * step_ms)
                 xpix = sx(ms)
-                # formatea fecha corta
                 try:
                     dt = datetime.datetime.utcfromtimestamp(ms / 1000.0)
                     lab = dt.strftime('%d/%m %H:%M')
@@ -293,11 +279,18 @@ class TrendChartPNG(BrowserView):
                 tw, th = dr.textsize(lab, font=font)
                 dr.text((xpix - tw / 2, H - pad_b + 4), lab, fill=(108, 117, 125), font=font)
 
-        # ====== Dibuja series + etiquetas por punto ======
+        # Paleta de colores
+        if n_series <= len(self.PALETTE):
+            palette = list(self.PALETTE)
+        else:
+            palette = _hsv_palette(n_series)
+
+        # Dibuja series + etiquetas de valor
         for idx, s in enumerate(series):
-            color = self.PALETTE[idx % len(self.PALETTE)]
+            color = palette[idx % len(palette)]
             pts = s['data']
-            # línea
+
+            # Línea
             last = None
             for (ms, y) in pts:
                 xpix = sx(ms)
@@ -305,20 +298,53 @@ class TrendChartPNG(BrowserView):
                 if last is not None:
                     dr.line([last, (xpix, ypix)], fill=color, width=2)
                 last = (xpix, ypix)
-            # puntos + etiquetas
-            for (ms, y) in pts:
-                xpix = sx(ms)
-                ypix = sy(y)
+
+            # último punto
+            if last:
                 r = 3
-                dr.ellipse([xpix - r, ypix - r, xpix + r, ypix + r], fill=color, outline=color)
-                # etiqueta numérica encima del punto
-                label = (u'%0.2f' % y).rstrip('0').rstrip('.')
-                tw, th = dr.textsize(label, font=font)
-                tx = xpix - tw / 2
-                ty = max(pad_t + 2, ypix - th - 6)  # no subir por encima del área de ploteo
-                # “halo” blanco para legibilidad
-                dr.text((tx+1, ty+1), label, fill=(255, 255, 255), font=font)
-                dr.text((tx, ty), label, fill=(0, 0, 0), font=font)
+                dr.ellipse([last[0] - r, last[1] - r, last[0] + r, last[1] + r], fill=color, outline=color)
+
+            # Etiquetas de valor (muestradas si hay muchos puntos)
+            if pts:
+                if len(pts) <= 12:
+                    label_every = 1
+                elif len(pts) <= 24:
+                    label_every = 2
+                else:
+                    label_every = 3
+                for i, (ms, y) in enumerate(pts):
+                    if (i % label_every != 0) and (i != len(pts) - 1):
+                        continue
+                    xpix = sx(ms)
+                    ypix = sy(y)
+                    txt = (u'%0.2f' % y).rstrip('0').rstrip('.')
+                    # halo blanco para legibilidad
+                    for dx, dy in ((-1,0),(1,0),(0,-1),(0,1)):
+                        dr.text((xpix + dx + 4, ypix - 12 + dy), txt, fill=(255,255,255), font=font_small)
+                    dr.text((xpix + 4, ypix - 12), txt, fill=(0,0,0), font=font_small)
+
+        # Leyenda (varias filas si hace falta)
+        leg_x = pad_l
+        leg_y = 6
+        space_x = 24
+        for idx, s in enumerate(series):
+            color = palette[idx % len(palette)]
+            name = s['name']
+            unit = s.get('unit') or u''
+            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
+            dr.rectangle([leg_x, leg_y + 3, leg_x + 14, leg_y + 9], fill=color, outline=color)
+            dr.text((leg_x + 18, leg_y), label, fill=(0, 0, 0), font=font)
+            tw, th = dr.textsize(label, font=font)
+            leg_x += 18 + tw + space_x
+            if leg_x > W - pad_r - 120:
+                leg_x = pad_l
+                leg_y += th + 6
+
+        # Título con margen suficiente bajo la leyenda
+        title = u'Tendencias de Resultados'
+        tw, th = dr.textsize(title, font=font)
+        title_y = max(0, leg_y + th + 4)
+        dr.text((pad_l, title_y), title, fill=(0, 0, 0), font=font)
 
         # Output
         out = StringIO()
@@ -335,7 +361,6 @@ class InfolabsaTrendChartDataURI(BrowserView):
         request = self.request
         # Recuperar parámetros (permite querystring o argumentos posicionales)
         uid = uid or request.get('uid') or request.form.get('uid')
-        # rid no es estrictamente necesario para el PNG actual, pero lo pasamos si llega
         rid = rid or request.get('rid') or request.form.get('rid')
         w = w or request.get('w') or request.form.get('w')
         h = h or request.get('h') or request.form.get('h')
