@@ -631,7 +631,8 @@
                 <text tal:content="python:u'%s' % (ymax)" tal:attributes="x python:PAD-4; y PAD; text-anchor string:end; dy string:0.35em"
                       font-size="10" fill="#6c757d"/>
                 <!-- Líneas por serie -->
-                <g tal:repeat="s series" tal:define="
+                <g tal:repeat="s series">
+                  <tal:svars define="
                       data python:(s.get('data') or []);
                       pts python:[
                         (
@@ -645,14 +646,17 @@
                       points_attr python:u' '.join([u'%0.1f,%0.1f' % (px,py) for (px,py) in pts]);
                       haspts python:bool(pts);
                       last python:(haspts and pts[-1] or None);
-                    ">
-                  <polyline tal:condition="haspts"
-                            tal:attributes="points points_attr"
-                            fill="none" stroke="#343a40" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-                  <circle tal:condition="haspts"
-                          tal:attributes="cx python:last[0]; cy python:last[1]" r="2.5" fill="#343a40"/>
-                  <text tal:content="python:s.get('name') + (s.get('unit') and u' ('+s.get('unit')+u')' or u'')"
-                        tal:attributes="x python:PAD+6; y python:PAD-12 + (repeat['s'].index * 12)" font-size="10" fill="#000"/>
+                      sname python:s.get('name');
+                      sunit python:(s.get('unit') or u'');
+                  ">
+                    <polyline tal:condition="haspts"
+                              tal:attributes="points points_attr"
+                              fill="none" stroke="#343a40" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+                    <circle tal:condition="haspts"
+                            tal:attributes="cx python:last[0]; cy python:last[1]" r="2.5" fill="#343a40"/>
+                    <text tal:content="python:sname + (sunit and u' ('+sunit+u')' or u'')"
+                          tal:attributes="x python:PAD+6; y python:PAD-12 + (repeat['s'].index * 12)" font-size="10" fill="#000"/>
+                  </tal:svars>
                 </g>
               </svg>
               <div class="small" style="color:#6c757d; margin-top:4px;">
