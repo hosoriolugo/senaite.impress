@@ -945,7 +945,7 @@ class InfolabsaDeltaCheck(BrowserView):
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
         has_chart = bool([s for s in multi_series if len(s.get("series") or []) >= 2])
 
-        # --- SIEMPRE JSON crudo ---
+        # --- RETORNAR DICCIONARIO, NO JSON ---
         payload = {
             'period_label': label,
             'rows': rows,
@@ -969,8 +969,5 @@ class InfolabsaDeltaCheck(BrowserView):
             pf = self._best_patient_query_for_catalog(cat, pkeys)
             payload["_debug"] = self._debug_summary(ar, patient, pkeys, prev_ars, now_analyses, multi_series, pf)
 
-        self.request.response.setHeader("Content-Type", "application/json; charset=utf-8")
-        try:
-            return json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        except Exception:
-            return json.dumps(payload, ensure_ascii=False)
+        # RETORNAR DICCIONARIO DIRECTAMENTE - NO CONVERTIR A JSON
+        return payload
