@@ -894,9 +894,11 @@
            get python:getattr;
            json modules/json;
            _get_trends python:get(view,'get_trends_data', None);
+           _trv python:getattr(ar, 'restrictedTraverse', None);
+           _delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
            trends_data python:(
              (_get_trends and (callable(_get_trends) and _get_trends() or _get_trends))
-             or (delta and (delta.get('chart_v2') or delta.get('chart')))
+             or (_delta and (_delta.get('chart_v2') or _delta.get('chart')))
              or {}
            )
          "
