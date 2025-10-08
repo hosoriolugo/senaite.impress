@@ -157,10 +157,46 @@ class TrendChartPNG(BrowserView):
             i += 1
         return ymin, ymax, ticks
 
+    # === NUEVO: timestamp del AR actual (ms) para recorte por "hasta este análisis"
+    def _ar_cutoff_ms(self, ar):
+        get = getattr
+        dt = (
+            (get(ar, 'getDateVerified', None) and ar.getDateVerified()) or
+            (get(ar, 'getDatePublished', None) and ar.getDatePublished()) or
+            (get(ar, 'getDateReceived', None) and ar.getDateReceived()) or
+            getattr(ar, 'created', None)
+        )
+        if not dt:
+            return None
+        try:
+            # DateTime de Zope → epoch s
+            from DateTime import DateTime as ZDT
+            if isinstance(dt, ZDT):
+                return long(dt.timeTime() * 1000.0)
+        except Exception:
+            pass
+        try:
+            # datetime.datetime
+            if hasattr(dt, 'timetuple'):
+                # asumir tz-naive → UTC
+                return long((dt - datetime.datetime(1970, 1, 1)).total_seconds() * 1000.0)
+        except Exception:
+            pass
+        try:
+            # tuple (DateWidget)
+            if isinstance(dt, tuple) and len(dt) >= 6:
+                return long(datetime.datetime(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]).strftime('%s')) * 1000
+        except Exception:
+            pass
+        return None
+
     def __call__(self):
         # --- Parámetros ---
         request = self.request
         uid = request.get('uid') or request.form.get('uid')
+        rid = request.get('rid') or request.form.get('rid')  # no imprescindible, pero aceptado
+        max_points = max(1, _to_int(request.get('max_points', request.form.get('max_points', 6)), 6))
+        days = max(1, _to_int(request.get('days', request.form.get('days', 365)), 365))
 
         # Lee params (w/h pueden venir o ser adaptativos)
         W_param = request.get('w')
@@ -186,6 +222,31 @@ class TrendChartPNG(BrowserView):
         ar = self._get_ar(uid)
         chart = self._get_chartdata(ar)
         series = chart.get('series') or []
+
+        # === NUEVO: Recorte por cutoff (hasta el AR actual) + ventana "days" + límite "max_points"
+        cutoff_ms = self._ar_cutoff_ms(ar)
+        if cutoff_ms is None:
+            # si no tenemos fecha del AR, usamos el último punto disponible
+            try:
+                cutoff_ms = max([pt[0] for s in series for pt in (s.get('data') or [])])
+            except Exception:
+                cutoff_ms = None
+
+        if series:
+            millis_window = days * 24 * 60 * 60 * 1000L
+            new_series = []
+            for s in series:
+                pts = list(s.get('data') or [])
+                if cutoff_ms is not None:
+                    pts = [p for p in pts if p[0] <= cutoff_ms and p[0] >= (cutoff_ms - millis_window)]
+                # nos quedamos con los últimos max_points
+                if len(pts) > max_points:
+                    pts = pts[-max_points:]
+                if pts:
+                    s2 = dict(s)
+                    s2['data'] = pts
+                    new_series.append(s2)
+            series = new_series
 
         # Canvas: W/H adaptativos si no llegan
         pts_per_series = [len(s['data']) for s in series] or [0]
@@ -234,7 +295,7 @@ class TrendChartPNG(BrowserView):
         font_title = _load_font(int(12 * scale))
 
         # Mensaje si no hay datos
-        if not series:
+        if not series or not any(s.get('data') for s in series):
             msg = u'Sin datos para gráfico'
             tw, th = dr.textsize(msg, font=font)
             dr.text(((W2 - tw) / 2, (H2 - th) / 2), msg, fill=(100, 100, 100), font=font)
@@ -248,7 +309,7 @@ class TrendChartPNG(BrowserView):
             self.request.response.setHeader('Content-Type', 'image/png')
             return out.getvalue()
 
-        # Extremos globales
+        # Extremos globales (después del recorte)
         xs, ys = [], []
         for s in series:
             for ms, y in s['data']:
@@ -283,22 +344,23 @@ class TrendChartPNG(BrowserView):
         # Marco
         dr.rectangle([(pad_l2, pad_t2), (W2 - pad_r2, H2 - pad_b2)], outline=(222, 226, 230))
 
-        # Etiquetas X (máx 6)
-        slots = 6
-        if slots > len(xs):
-            slots = len(xs)
-        if slots > 0:
-            step_ms = (xmax - xmin) / float(slots)
-            for i in range(slots + 1):
-                ms = xmin + int(i * step_ms)
-                xpix = sx(ms)
-                try:
-                    dt = datetime.datetime.utcfromtimestamp(ms / 1000.0)
-                    lab = dt.strftime('%d/%m %H:%M')
-                except Exception:
-                    lab = unicode(ms)
-                tw, th = dr.textsize(lab, font=font_small)
-                dr.text((xpix - tw / 2, H2 - pad_b2 + int(4*scale)), lab, fill=(108, 117, 125), font=font_small)
+        # === Etiquetas X: bajo cada punto real si hay ≤6; si hay más, muestrear hasta 6
+        # Tomamos los ms únicos de TODAS las series (unión) ordenados
+        xs_unique = sorted(set(xs))
+        if len(xs_unique) <= 6:
+            xticks = xs_unique
+        else:
+            step = float(len(xs_unique) - 1) / 5.0  # 6 marcas
+            xticks = [xs_unique[int(round(i * step))] for i in range(6)]
+        for ms in xticks:
+            xpix = sx(ms)
+            try:
+                dt = datetime.datetime.utcfromtimestamp(ms / 1000.0)
+                lab = dt.strftime('%d/%m %H:%M')
+            except Exception:
+                lab = unicode(ms)
+            tw, th = dr.textsize(lab, font=font_small)
+            dr.text((xpix - tw / 2, H2 - pad_b2 + int(4*scale)), lab, fill=(108, 117, 125), font=font_small)
 
         # Paleta de colores
         if n_series <= len(self.PALETTE):
@@ -310,6 +372,7 @@ class TrendChartPNG(BrowserView):
         for idx, s in enumerate(series):
             color = palette[idx % len(palette)]
             pts = s['data']
+            unit = s.get('unit') or u''
 
             # Línea
             last = None
@@ -325,7 +388,7 @@ class TrendChartPNG(BrowserView):
                 r = max(2, int(3 * scale))
                 dr.ellipse([last[0] - r, last[1] - r, last[0] + r, last[1] + r], fill=color, outline=color)
 
-            # Etiquetas de valor
+            # Etiquetas de valor (con unidad)
             if pts:
                 if len(pts) <= 12:
                     label_every = 1
@@ -339,7 +402,8 @@ class TrendChartPNG(BrowserView):
                         continue
                     xpix = sx(ms)
                     ypix = sy(y)
-                    txt = (u'%0.2f' % y).rstrip('0').rstrip('.')
+                    val_txt = (u'%0.2f' % y).rstrip('0').rstrip('.')
+                    txt = val_txt + (unit and (u' ' + unit) or u'')
                     # halo blanco para legibilidad
                     for dx, dy in ((-1,0),(1,0),(0,-1),(0,1)):
                         dr.text((xpix + dx + int(4*scale), ypix - int(12*scale) + dy), txt, fill=(255,255,255), font=font_small)
@@ -385,7 +449,7 @@ class TrendChartPNG(BrowserView):
 class InfolabsaTrendChartDataURI(BrowserView):
     """Devuelve data:image/png;base64,... invocando el view PNG internamente (sin HTTP)."""
 
-    def __call__(self, uid=None, rid=None, w=None, h=None, dpi=None, scale=None):
+    def __call__(self, uid=None, rid=None, w=None, h=None, dpi=None, scale=None, max_points=None, days=None):
         request = self.request
         # Recuperar parámetros (permite querystring o argumentos posicionales)
         uid = uid or request.get('uid') or request.form.get('uid')
@@ -394,6 +458,8 @@ class InfolabsaTrendChartDataURI(BrowserView):
         h = h or request.get('h') or request.form.get('h')
         dpi = dpi or request.get('dpi') or request.form.get('dpi')
         scale = scale or request.get('scale') or request.form.get('scale')
+        max_points = max_points or request.get('max_points') or request.form.get('max_points')
+        days = days or request.get('days') or request.form.get('days')
 
         # Guardar cabeceras previas para restaurar luego
         resp = request.response
@@ -413,6 +479,10 @@ class InfolabsaTrendChartDataURI(BrowserView):
             request.form['dpi'] = str(dpi)
         if scale is not None:
             request.form['scale'] = str(scale)
+        if max_points is not None:
+            request.form['max_points'] = str(max_points)
+        if days is not None:
+            request.form['days'] = str(days)
 
         try:
             # Llamar al view PNG de forma interna (sin HTTP/redirects)
