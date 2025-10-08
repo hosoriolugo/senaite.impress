@@ -197,7 +197,7 @@ class TrendChartPNG(BrowserView):
         days = max(1, _to_int(request.get('days', request.form.get('days', 365)), 365))
         show_note = request.get('note', request.form.get('note', '1'))
         show_note = False if str(show_note) in ('0', 'false', 'False') else True
-        even = request.get('even', request.form.get('even', '0'))
+        even = request.get('even', request.form.get('even', '1'))  # <== por defecto ON
         even = True if str(even) in ('1', 'true', 'True') else False
         sharpen = request.get('sharpen', request.form.get('sharpen', '1'))
         sharpen = False if str(sharpen) in ('0', 'false', 'False') else True
@@ -206,13 +206,14 @@ class TrendChartPNG(BrowserView):
         W_param = request.get('w')
         H_param = request.get('h')
         dpi = max(96, _to_int(request.get('dpi', 300), 300))  # 300 por defecto
-        scale = max(1, min(4, _to_int(request.get('scale', 4), 4)))  # supermuestreo x4 por defecto
+        # Permitimos hasta 6x por si quieres subirlo desde la plantilla
+        scale = max(1, min(6, _to_int(request.get('scale', 4), 4)))  # supermuestreo x4 por defecto
 
         # Paddings base (se ajustarán dinámicamente)
         base_pad_l = 72
-        base_pad_r = 68   # más generoso para que no se corten etiquetas a la derecha
+        base_pad_r = 72   # generoso para no cortar etiquetas a la derecha
         base_pad_t = 14   # padding real se recalcula con leyenda/título/nota
-        base_pad_b = 66   # más espacio para etiquetas X
+        base_pad_b = 68   # más espacio para etiquetas X
         bg = (255, 255, 255)
         grid = (230, 236, 240)
         axis = (173, 181, 189)
@@ -254,7 +255,7 @@ class TrendChartPNG(BrowserView):
 
         if W_param is None or H_param is None:
             if even:
-                # equidistante: dejamos más px por punto
+                # equidistante: deja más px por punto para etiquetas cómodas
                 px_per_point = 280
             else:
                 if pts_max <= 10:
@@ -312,16 +313,26 @@ class TrendChartPNG(BrowserView):
             self.request.response.setHeader('Content-Type', 'image/png')
             return out.getvalue()
 
-        # Extremos globales (tras recorte)
-        xs, ys = [], []
-        for s in series:
-            for ms, y in s['data']:
-                xs.append(ms); ys.append(y)
-        xmin = min(xs); xmax = max(xs)
+        # ==== Preparación de X y Y ====
+        # Y-range “bonito”
+        ys = [y for s in series for (_, y) in s['data']]
         ymin = min(ys); ymax = max(ys)
         ymin, ymax, yticks = self._nice_range(ymin, ymax)
+
+        # Timestamps (para modo tiempo y para construir referencia global)
+        all_ms = [ms for s in series for (ms, _) in s['data']]
+        if not all_ms:
+            all_ms = [0]
+        xmin = min(all_ms); xmax = max(all_ms)
         if xmin == xmax:
             xmin -= 1000; xmax += 1000
+
+        # === Referencia global de X (últimos max_points tras el recorte) ===
+        ref_xs = sorted(set(all_ms))
+        if len(ref_xs) > max_points:
+            ref_xs = ref_xs[-max_points:]
+        n_ref = len(ref_xs)
+        ix_by_ms = dict((ms, i) for i, ms in enumerate(ref_xs))
 
         # --- CALCULO DE LAYOUT SUPERIOR (leyenda + título + nota) PARA EVITAR SOLAPES ---
         # Paleta
@@ -388,10 +399,10 @@ class TrendChartPNG(BrowserView):
         def sx_time(ms):
             return pad_l2 + int((ms - xmin) * 1.0 * plot_w2 / (xmax - xmin))
 
-        def sx_even(i, n):
-            if n <= 1:
+        def sx_index(i):
+            if n_ref <= 1:
                 return pad_l2 + plot_w2 // 2
-            return pad_l2 + int(i * (plot_w2) / float(n - 1))
+            return pad_l2 + int(i * (plot_w2) / float(n_ref - 1))
 
         def sy(y):
             return pad_t2 + int((ymax - y) * 1.0 * plot_h2 / (ymax - ymin))
@@ -418,19 +429,16 @@ class TrendChartPNG(BrowserView):
                 return unicode(ms)
 
         if even:
-            # Usamos los ms de la PRIMERA serie para etiquetas (asumimos truncado homogéneo)
-            base = series[0]['data']
-            n = len(base)
-            for i in range(n):
-                xpix = sx_even(i, n)
-                lab = _format_dt(base[i][0])
+            # Usamos la referencia global ref_xs para X y para labels (equidistante)
+            for i, ms in enumerate(ref_xs):
+                xpix = sx_index(i)
+                lab = _format_dt(ms)
                 tw, th = dr.textsize(lab, font=font_small)
-                # clamp dentro del área de trazado
                 xtext = max(pad_l2, min(xpix - tw / 2, W2 - pad_r2 - tw))
                 dr.text((xtext, H2 - pad_b2 + int(4*scale)), lab, fill=(108, 117, 125), font=font_small)
         else:
             # por tiempo: si ≤6 puntos únicos, todos; si no, muestrear a 6
-            xs_unique = sorted(set(xs))
+            xs_unique = sorted(set(all_ms))
             if len(xs_unique) <= 6:
                 xticks = xs_unique
             else:
@@ -443,16 +451,25 @@ class TrendChartPNG(BrowserView):
                 xtext = max(pad_l2, min(xpix - tw / 2, W2 - pad_r2 - tw))
                 dr.text((xtext, H2 - pad_b2 + int(4*scale)), lab, fill=(108, 117, 125), font=font_small)
 
-        # Dibujo de series + etiquetas de valor (con unidad en último)
+        # Dibujo de series + etiquetas de valor (con unidad en el último punto de cada serie)
         for idx, s in enumerate(series):
             color = palette[idx % len(palette)]
             pts = s['data']
             unit = s.get('unit') or u''
-            n = len(pts)
+
+            # Orden por fecha por si acaso
+            pts_sorted = sorted(pts, key=lambda r: r[0])
 
             last = None
-            for i, (ms, y) in enumerate(pts):
-                xpix = sx_even(i, n) if even else sx_time(ms)
+            for (ms, y) in pts_sorted:
+                if even:
+                    i = ix_by_ms.get(ms, None)
+                    if i is None:
+                        # si el punto no está en ref_xs (no debería pasar), lo saltamos
+                        continue
+                    xpix = sx_index(i)
+                else:
+                    xpix = sx_time(ms)
                 ypix = sy(y)
                 if last is not None:
                     dr.line([last, (xpix, ypix)], fill=color, width=lw)
@@ -462,23 +479,29 @@ class TrendChartPNG(BrowserView):
                 r = max(2, int(3 * scale))
                 dr.ellipse([last[0] - r, last[1] - r, last[0] + r, last[1] + r], fill=color, outline=color)
 
-            if pts:
+            # Etiquetas de valor (muestra el último siempre con unidad)
+            n = len(pts_sorted)
+            if n:
                 if n <= 12:
                     label_every = 1
                 elif n <= 24:
                     label_every = 2
                 else:
                     label_every = 3
-                for i, (ms, y) in enumerate(pts):
-                    # siempre el último punto; el resto muestreado
-                    if (i % label_every != 0) and (i != n - 1):
+                for j, (ms, y) in enumerate(pts_sorted):
+                    if (j % label_every != 0) and (j != n - 1):
                         continue
-                    xpix = sx_even(i, n) if even else sx_time(ms)
+                    if even:
+                        i = ix_by_ms.get(ms, None)
+                        if i is None:
+                            continue
+                        xpix = sx_index(i)
+                    else:
+                        xpix = sx_time(ms)
                     ypix = sy(y)
                     val_txt = (u'%0.2f' % y).rstrip('0').rstrip('.')
-                    txt = val_txt + (u' ' + unit if (unit and i == n - 1) else u'')
+                    txt = val_txt + (u' ' + unit if (unit and j == n - 1) else u'')
                     tw, th = dr.textsize(txt, font=font_small)
-                    # clamp a la derecha
                     xtext = max(pad_l2, min(xpix + int(4 * scale), W2 - pad_r2 - tw))
                     ytext = ypix - int(12 * scale)
                     # halo para legibilidad
@@ -490,8 +513,6 @@ class TrendChartPNG(BrowserView):
         out = StringIO()
         if scale > 1:
             im = im.resize((W, H), Image.LANCZOS)
-        else:
-            im = im
         if sharpen:
             try:
                 im = im.filter(ImageFilter.UnsharpMask(radius=1.2, percent=140, threshold=2))
