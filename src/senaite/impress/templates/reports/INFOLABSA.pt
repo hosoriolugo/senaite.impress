@@ -148,12 +148,6 @@
       height: auto;           /* evita pixelación por estirado */
       margin: 0 auto;
     }
-    .section-trends .fallback-message p {
-      color: #666;
-      font-size: 14px;
-      margin: 8px 0 0 0;
-      font-style: italic;
-    }
 
     /* Control de visibilidad */
     .weasy-fallback { }
@@ -739,7 +733,7 @@
       <!-- Contenedor para Highcharts (solo en navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PNG con data-URI, sin forzar w/h/dpi) -->
+      <!-- Fallback para WeasyPrint (PNG con data-URI, pasando dpi/scale) -->
       <div class="weasy-fallback fallback-message"
            tal:define="
              get python:getattr;
@@ -758,8 +752,7 @@
            ">
         <img alt="Gráfico de tendencias (PNG)"
              tal:attributes="
-               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(uid=ar_uid, rid=rid)" />
-        <p>Vista estática para PDF; en el visor web verás el gráfico interactivo.</p>
+               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(uid=ar_uid, rid=rid, dpi=300, scale=3)" />
       </div>
 
       <!-- Script para inicializar Highcharts con datos reales -->
