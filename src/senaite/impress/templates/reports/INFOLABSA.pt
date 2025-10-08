@@ -128,13 +128,27 @@
     }
     .section-trends .chart-container {
       width: 100%;
-      height: 520px; /* hdplus: antes 400/480 */
+      height: 560px; /* FIX: un poco más grande (antes 520) */
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
       padding: 10px;
       background: #fff;
+      /* FIX: asegurar visibilidad de títulos en SVG */
+      overflow: visible;
     }
+    /* FIX: fuerza la visibilidad del título/subtítulo de Highcharts por si alguna regla global los oculta */
+    .section-trends .chart-container .highcharts-title,
+    .section-trends .chart-container .highcharts-subtitle {
+      display: block !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+    }
+    /* FIX: si algún estilo recorta el SVG */
+    .section-trends .chart-container svg {
+      overflow: visible !important;
+    }
+
     .section-trends .fallback-message {
       text-align: center;
       padding: 20px;
@@ -747,14 +761,13 @@
                options.get('rid','')
              );
            ">
-        <!-- 160mm ≈ 6.299in; 6.299 * 96 = 605px.
-             Generamos ahora el PNG a 605×300 px, scale=3, dpi=96 para suavizado LANCZOS -->
+        <!-- 180mm ≈ 7.087in; 7.087 * 96 = ~680px -->
         <img alt="Gráfico de tendencias (PNG)"
-             style="width:160mm; height:auto;"
+             style="width:180mm; height:auto;"  <!-- FIX: HDPLUS recomendado -->
              tal:attributes="
                src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                  uid=ar_uid, rid=rid,
-                 w=605, h=300, dpi=96,      # hdplus: más alto
+                 w=680, h=340, dpi=96,      # FIX: ancho coherente con 180mm
                  scale=3,                   # supermuestreo 3× para líneas suaves
                  max_points=6, days=365,    # tope 6/365
                  note=1,                    # nota aclaratoria en el PNG
@@ -773,7 +786,6 @@
             // === Normalización para equidistancia en navegador ===
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
-            // Remapear cada serie a [index, y] ignorando X real
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
               var mapped = d.map(function(p, i){
@@ -793,17 +805,19 @@
             var options = {
               chart: {
                 type: 'line',
-                height: 520,
+                height: 560,            /* FIX: ligeramente más alto */
                 backgroundColor: 'transparent',
-                spacingTop: 36,      /* AJUSTE 1: reserva espacio para título/subtítulo */
+                spacingTop: 64,         /* FIX: reserva extra para título/subtítulo */
                 spacingBottom: 16
-              }, /* hdplus */
+              },
               title: {
-                text: trendsData.title || 'Tendencias de Resultados',
+                text: (trendsData.title || 'Tendencias de Resultados'),
+                y: 14,                  /* FIX: asegura que se vea dentro del canvas */
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
+                y: 38,                  /* FIX: posición bajo el título */
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
@@ -821,11 +835,11 @@
                 gridLineColor: '#f0f0f0'
               },
               legend: {
-                enabled: true,       /* AJUSTE 2: forzar leyenda visible */
+                enabled: true,
                 layout: 'horizontal',
                 align: 'center',
                 verticalAlign: 'bottom',
-                y: 0,                /* leve ajuste vertical para evitar recorte */
+                y: 0,
                 itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' }
               },
               plotOptions: {
@@ -865,14 +879,13 @@
 
             if (typeof Highcharts !== 'undefined') {
               Highcharts.chart('trends-chart-container', options);
-              /* AJUSTE 3: asegurar alto del contenedor y reflow del chart */
+              /* Asegurar alto del contenedor y reflow del chart */
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '520px'; }
+              if (el) { el.style.height = '560px'; } /* FIX: coherente con chart.height */
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
               }
-
               var fb = document.querySelector('.section-trends .weasy-fallback'); if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
             } else {
