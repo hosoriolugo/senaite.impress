@@ -128,7 +128,7 @@
     }
     .section-trends .chart-container {
       width: 100%;
-      height: 400px;
+      height: 480px; /* antes 400px */
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
@@ -748,13 +748,13 @@
              );
            ">
         <!-- 160mm ≈ 6.299in; 6.299 * 96 = 605px.
-             Generamos ahora el PNG a 605×220 px, scale=3, dpi=96 para suavizado LANCZOS -->
+             Generamos ahora el PNG a 605×260 px, scale=3, dpi=96 para suavizado LANCZOS -->
         <img alt="Gráfico de tendencias (PNG)"
              style="width:160mm; height:auto;"
              tal:attributes="
                src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                  uid=ar_uid, rid=rid,
-                 w=605, h=220, dpi=96,      # tamaño 1:1 con CSS (más alto)
+                 w=605, h=260, dpi=96,      # antes h=220 -> más alto
                  scale=3,                   # supermuestreo 3× para líneas suaves
                  max_points=6, days=365,    # tope 6/365
                  note=1,                    # nota aclaratoria en el PNG
@@ -791,7 +791,7 @@
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
             var options = {
-              chart: { type: 'line', height: 400, backgroundColor: 'transparent' },
+              chart: { type: 'line', height: 480, backgroundColor: 'transparent' }, /* antes 400 */
               title: {
                 text: trendsData.title || 'Tendencias de Resultados',
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
