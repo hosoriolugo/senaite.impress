@@ -730,7 +730,7 @@
       <!-- Contenedor para Highcharts (solo en navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PNG con data-URI más nítido) -->
+      <!-- Fallback para WeasyPrint (PNG con data-URI más nítido y 1:1 px) -->
       <div class="weasy-fallback fallback-message"
            tal:define="
              get python:getattr;
@@ -747,17 +747,16 @@
                options.get('rid','')
              );
            ">
+        <!-- 160mm ≈ 6.299in; 6.299 * 96 = 605px. Generamos el PNG a 605×180 px, scale=1, dpi=96 -->
         <img alt="Gráfico de tendencias (PNG)"
              style="width:160mm; height:auto;"
              tal:attributes="
                src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                  uid=ar_uid, rid=rid,
-                 w=1890, h=560, dpi=300,      # ~160mm a 300dpi
-                 scale=4,                     # supermuestreo 4x para nitidez
-                 max_points=6, days=365,      # tope de 6 puntos / 365 días
-                 note=1,                      # nota aclaratoria en el PNG
-                 even=1,                      # espaciado equidistante
-                 sharpen=1                    # enfoque suave
+                 w=605, h=180, dpi=96,      # tamaño 1:1 con CSS
+                 scale=1,                   # sin supermuestreo para evitar doble reescalado
+                 max_points=6, days=365,    # tope 6/365
+                 note=1                     # nota aclaratoria en el PNG
                )" />
       </div>
 
@@ -768,10 +767,26 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
+            // === Normalización para equidistancia en navegador ===
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
+            // Remapear cada serie a [index, y] ignorando X real
+            var series = (trendsData.series || []).map(function(s){
+              var d = s.data || [];
+              var mapped = d.map(function(p, i){
+                // p puede ser [x,y] o {x:.., y:..} o y suelto
+                var y = (p && typeof p === 'object')
+                          ? (Array.isArray(p) ? p[1] : p.y)
+                          : p;
+                return [i, y];
+              });
+              var copy = Object.assign({}, s);
+              copy.data = mapped;
+              return copy;
+            });
+
             var step = (n <= 6) ? 1 : Math.ceil(n / 6);
-            var tickPositions = (n && n <= 6) ? cats.map(function(_, i){ return i; }) : undefined;
+            var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
             var options = {
               chart: { type: 'line', height: 400, backgroundColor: 'transparent' },
@@ -784,11 +799,10 @@
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
-                categories: cats,
-                tickPositions: tickPositions,
+                categories: cats,                 // mostramos fechas en el eje
+                tickPositions: tickPositions,     // ticks en cada índice 0..n-1
                 labels: { style: { color: '#333' }, rotation: -45, step: step },
                 title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
-                crosshair: true,
                 tickmarkPlacement: 'on'
               },
               yAxis: {
@@ -830,7 +844,7 @@
                   return s;
                 }
               },
-              series: trendsData.series,
+              series: series,
               credits: { enabled: false },
               exporting: { enabled: false }
             };
