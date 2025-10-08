@@ -145,7 +145,7 @@
     .section-trends .fallback-message img {
       display: block;
       max-width: 100%;
-      height: auto;           /* evita pixelación por estirado */
+      height: auto;
       margin: 0 auto;
     }
 
@@ -155,10 +155,7 @@
     body.has-highcharts .weasy-fallback { display: none !important; }
 
     /* --- Paginación "inteligente" --- */
-    /* 1ª página: hasta resultados */
-    /* 2ª página: interpretación */
     .section-interp { page-break-before: always; }
-    /* 3ª página: delta + gráfico */
     .section-delta { page-break-before: always; }
     .section-trends { page-break-inside: avoid; }
 
@@ -733,7 +730,7 @@
       <!-- Contenedor para Highcharts (solo en navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PNG con data-URI, pasando dpi/scale) -->
+      <!-- Fallback para WeasyPrint (PNG con data-URI más nítido) -->
       <div class="weasy-fallback fallback-message"
            tal:define="
              get python:getattr;
@@ -752,7 +749,7 @@
            ">
         <img alt="Gráfico de tendencias (PNG)"
              tal:attributes="
-               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(uid=ar_uid, rid=rid, dpi=300, scale=3)" />
+               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(uid=ar_uid, rid=rid, w=1800, h=540, dpi=300)" />
       </div>
 
       <!-- Script para inicializar Highcharts con datos reales -->
@@ -762,6 +759,11 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
+            var cats = trendsData.categories || [];
+            var n = cats.length || 0;
+            var step = (n <= 6) ? 1 : Math.ceil(n / 6);
+            var tickPositions = (n && n <= 6) ? cats.map(function(_, i){ return i; }) : undefined;
+
             var options = {
               chart: { type: 'line', height: 400, backgroundColor: 'transparent' },
               title: {
@@ -769,10 +771,12 @@
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               xAxis: {
-                categories: trendsData.categories,
+                categories: cats,
+                tickPositions: tickPositions,
+                labels: { style: { color: '#333' }, rotation: -45, step: step },
                 title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
-                labels: { style: { color: '#333' }, rotation: -45 },
-                crosshair: true
+                crosshair: true,
+                tickmarkPlacement: 'on'
               },
               yAxis: {
                 title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
@@ -784,9 +788,35 @@
               legend: { layout: 'horizontal', align: 'center', verticalAlign: 'bottom',
                         itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
               plotOptions: {
-                line: { dataLabels: { enabled: false }, enableMouseTracking: true, marker: { enabled: true, radius: 4 } }
+                line: {
+                  marker: { enabled: true, radius: 4 },
+                  dataLabels: {
+                    enabled: true,
+                    formatter: function(){
+                      var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
+                      return (this.y != null)
+                             ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u
+                             : '';
+                    },
+                    style: { textOutline: '1px contrast' }
+                  },
+                  enableMouseTracking: true
+                }
               },
-              tooltip: { shared: true, crosshairs: true, valueSuffix: (trendsData.unit ? ' ' + trendsData.unit : '') },
+              tooltip: {
+                shared: true, crosshairs: true,
+                formatter: function() {
+                  var idx = this.points && this.points.length ? this.points[0].point.x : this.point && this.point.x;
+                  var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
+                  var s = '<b>' + fecha + '</b>';
+                  this.points.forEach(function(p) {
+                    var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
+                    s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
+                         ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
+                  });
+                  return s;
+                }
+              },
               series: trendsData.series,
               credits: { enabled: false },
               exporting: { enabled: false }
