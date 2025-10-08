@@ -370,31 +370,6 @@ class TrendChartPNG(BrowserView):
         plot_w2 = W2 - pad_l2 - pad_r2
         plot_h2 = H2 - pad_t2 - pad_b2
 
-        # --- DIBUJO DEL HEADER DEL GRÁFICO (leyenda + título + nota) ---
-        # Leyenda
-        leg_x = pad_l2
-        leg_y = int(6 * scale)
-        for idx, s in enumerate(series):
-            color = palette[idx % len(palette)]
-            name = s['name']; unit = s.get('unit') or u''
-            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
-            dr.rectangle([leg_x, leg_y + int(3*scale), leg_x + box_w, leg_y + int(3*scale) + box_h],
-                         fill=color, outline=color)
-            dr.text((leg_x + box_w + gap, leg_y), label, fill=(0, 0, 0), font=font)
-            ltw, lth = dr.textsize(label, font=font)
-            leg_x += box_w + gap + ltw + space_x
-            if leg_x > W2 - pad_r2 - int(120*scale):
-                leg_x = pad_l2
-                leg_y += lth + int(6 * scale)
-
-        # Título
-        title_y = leg_y + int(6 * scale) + last_lth
-        dr.text((pad_l2, title_y), title, fill=(0, 0, 0), font=font_title)
-
-        # Nota
-        if show_note:
-            dr.text((pad_l2, title_y + tth + int(2 * scale)), note_txt, fill=(108, 117, 125), font=font_note)
-
         # --- Ejes y grilla ---
         def sx_time(ms):
             return pad_l2 + int((ms - xmin) * 1.0 * plot_w2 / (xmax - xmin))
@@ -407,7 +382,7 @@ class TrendChartPNG(BrowserView):
         def sy(y):
             return pad_t2 + int((ymax - y) * 1.0 * plot_h2 / (ymax - ymin))
 
-        lw = max(1, int(2 * scale))
+        lw = max(1, int(1.6 * scale))  # AJUSTE: línea un poco más fina que 2*scale para suavizar
         # Grid Y + etiquetas Y
         for t in yticks:
             ypix = sy(t)
@@ -451,7 +426,7 @@ class TrendChartPNG(BrowserView):
                 xtext = max(pad_l2, min(xpix - tw / 2, W2 - pad_r2 - tw))
                 dr.text((xtext, H2 - pad_b2 + int(4*scale)), lab, fill=(108, 117, 125), font=font_small)
 
-        # Dibujo de series + etiquetas de valor (con unidad en el último punto de cada serie)
+        # Dibujo de series + etiquetas de valor
         for idx, s in enumerate(series):
             color = palette[idx % len(palette)]
             pts = s['data']
@@ -479,7 +454,7 @@ class TrendChartPNG(BrowserView):
                 r = max(2, int(3 * scale))
                 dr.ellipse([last[0] - r, last[1] - r, last[0] + r, last[1] + r], fill=color, outline=color)
 
-            # Etiquetas de valor (muestra el último siempre con unidad)
+            # Etiquetas de valor (AJUSTE: siempre con unidad si existe)
             n = len(pts_sorted)
             if n:
                 if n <= 12:
@@ -489,6 +464,7 @@ class TrendChartPNG(BrowserView):
                 else:
                     label_every = 3
                 for j, (ms, y) in enumerate(pts_sorted):
+                    # seguimos muestreando para no saturar (pero con unidad en cada etiqueta dibujada)
                     if (j % label_every != 0) and (j != n - 1):
                         continue
                     if even:
@@ -500,7 +476,7 @@ class TrendChartPNG(BrowserView):
                         xpix = sx_time(ms)
                     ypix = sy(y)
                     val_txt = (u'%0.2f' % y).rstrip('0').rstrip('.')
-                    txt = val_txt + (u' ' + unit if (unit and j == n - 1) else u'')
+                    txt = val_txt + (u' ' + unit if unit else u'')  # AJUSTE: unidad SIEMPRE
                     tw, th = dr.textsize(txt, font=font_small)
                     xtext = max(pad_l2, min(xpix + int(4 * scale), W2 - pad_r2 - tw))
                     ytext = ypix - int(12 * scale)
@@ -515,7 +491,10 @@ class TrendChartPNG(BrowserView):
             im = im.resize((W, H), Image.LANCZOS)
         if sharpen:
             try:
-                im = im.filter(ImageFilter.UnsharpMask(radius=1.2, percent=140, threshold=2))
+                # AJUSTE: enfoque según escala para evitar sobremarcado en escalas altas
+                radius = 0.9 + 0.4 * max(1, (scale - 1))   # e.g., 1.3 @scale=2, 1.7 @scale=3
+                percent = 120 + 20 * max(0, (scale - 1))  # e.g., 140 @scale=2, 160 @scale=3
+                im = im.filter(ImageFilter.UnsharpMask(radius=radius, percent=percent, threshold=2))
             except Exception:
                 pass
         im.save(out, format='PNG', dpi=(dpi, dpi))
