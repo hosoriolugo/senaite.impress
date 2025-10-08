@@ -128,13 +128,27 @@
     }
     .section-trends .chart-container {
       width: 100%;
-      height: 480px; /* antes 400px; versión pre-HDPLUS */
+      height: 520px; /* AJUSTE: Reducido de 560px a 520px para mejor visibilidad */
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
-      padding: 10px;
+      padding: 15px;
       background: #fff;
+      /* FIX: asegurar visibilidad de títulos en SVG */
+      overflow: visible;
     }
+    /* FIX: fuerza la visibilidad del título/subtítulo de Highcharts */
+    .section-trends .chart-container .highcharts-title,
+    .section-trends .chart-container .highcharts-subtitle {
+      display: block !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+    }
+    /* FIX: asegurar que el SVG no se recorte */
+    .section-trends .chart-container svg {
+      overflow: visible !important;
+    }
+
     .section-trends .fallback-message {
       text-align: center;
       padding: 20px;
@@ -730,7 +744,7 @@
       <!-- Contenedor para Highcharts (solo en navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PNG con data-URI a 1:1 px) -->
+      <!-- Fallback para WeasyPrint (PNG con data-URI más nítido y 1:1 px) -->
       <div class="weasy-fallback fallback-message"
            tal:define="
              get python:getattr;
@@ -747,14 +761,13 @@
                options.get('rid','')
              );
            ">
-        <!-- 160mm ≈ 6.299in; 6.299 * 96 = 605px.
-             Generamos el PNG a 605×260 px, scale=3, dpi=96 para suavizado LANCZOS -->
+        <!-- 180mm ≈ 7.087in; 7.087 * 96 ≈ 680px -->
         <img alt="Gráfico de tendencias (PNG)"
-             style="width:160mm; height:auto;"
+             style="width:180mm; height:auto;"
              tal:attributes="
                src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                  uid=ar_uid, rid=rid,
-                 w=605, h=260, dpi=96,
+                 w=680, h=340, dpi=96,
                  scale=3,
                  max_points=6, days=365,
                  note=1,
@@ -763,7 +776,7 @@
                )" />
       </div>
 
-      <!-- Script para inicializar Highcharts con datos reales -->
+      <!-- Script para inicializar Highcharts con datos reales - CORREGIDO -->
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
@@ -773,7 +786,6 @@
             // === Normalización para equidistancia en navegador ===
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
-            // Remapear cada serie a [index, y] ignorando X real
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
               var mapped = d.map(function(p, i){
@@ -791,31 +803,63 @@
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
             var options = {
-              chart: { type: 'line', height: 480, backgroundColor: 'transparent' },
+              chart: {
+                type: 'line',
+                height: 520,            /* AJUSTE: Reducido de 560px a 520px */
+                backgroundColor: 'transparent',
+                spacingTop: 60,         /* FIX: Más espacio para el título */
+                spacingBottom: 80,      /* FIX: Espacio para leyenda */
+                spacingLeft: 60,
+                spacingRight: 40
+              },
               title: {
-                text: trendsData.title || 'Tendencias de Resultados',
-                style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
+                text: (trendsData.title || 'Tendencias de Resultados'),
+                align: 'center',
+                margin: 25,             /* FIX: Margen para título */
+                style: { 
+                  color: '#000', 
+                  fontWeight: 'bold', 
+                  fontSize: '18px', 
+                  fontFamily: 'Arial, sans-serif'
+                }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
+                align: 'center',
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
                 categories: cats,
                 tickPositions: tickPositions,
-                labels: { style: { color: '#333' }, rotation: -45, step: step },
-                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                labels: { 
+                  style: { color: '#333' }, 
+                  rotation: -45, 
+                  step: step,
+                  y: 20  /* FIX: Espacio para etiquetas rotadas */
+                },
+                title: { 
+                  text: 'Fecha de Análisis', 
+                  style: { color: '#000', fontWeight: 'bold' },
+                  margin: 25
+                },
                 tickmarkPlacement: 'on'
               },
               yAxis: {
-                title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
+                title: { 
+                  text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), 
+                  style: { color: '#000', fontWeight: 'bold' },
+                  margin: 20
+                },
                 labels: { style: { color: '#333' } },
                 min: trendsData.yMin,
                 max: trendsData.yMax,
                 gridLineColor: '#f0f0f0'
               },
               legend: {
-                layout: 'horizontal', align: 'center', verticalAlign: 'bottom',
+                enabled: true,
+                layout: 'horizontal',
+                align: 'center',
+                verticalAlign: 'bottom',
                 itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' }
               },
               plotOptions: {
@@ -835,7 +879,8 @@
                 }
               },
               tooltip: {
-                shared: true, crosshairs: true,
+                shared: true, 
+                crosshairs: true,
                 formatter: function() {
                   var idx = this.points && this.points.length ? this.points[0].point.x : this.point && this.point.x;
                   var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
@@ -854,9 +899,24 @@
             };
 
             if (typeof Highcharts !== 'undefined') {
+              // Crear el gráfico
               Highcharts.chart('trends-chart-container', options);
-              var fb = document.querySelector('.section-trends .weasy-fallback'); if (fb) fb.style.display = 'none';
-              try { document.body.classList.add('has-highcharts'); } catch(e){}
+              
+              // Ocultar fallback y forzar reflow
+              var fb = document.querySelector('.section-trends .weasy-fallback'); 
+              if (fb) fb.style.display = 'none';
+              
+              try { 
+                document.body.classList.add('has-highcharts'); 
+                
+                // Forzar reflow del gráfico después de un breve delay
+                setTimeout(function() {
+                  var chart = Highcharts.charts[Highcharts.charts.length - 1];
+                  if (chart && chart.reflow) {
+                    chart.reflow();
+                  }
+                }, 100);
+              } catch(e){}
             } else {
               console.error('Highcharts no está cargado');
             }
