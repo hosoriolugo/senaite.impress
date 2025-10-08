@@ -747,17 +747,18 @@
                options.get('rid','')
              );
            ">
-        <!-- 160mm ≈ 6.299in; 6.299 * 96 = 605px. Generamos el PNG a 605×180 px, scale=1, dpi=96 -->
+        <!-- 160mm ≈ 6.299in; 6.299 * 96 = 605px.
+             Generamos ahora el PNG a 605×220 px, scale=3, dpi=96 para suavizado LANCZOS -->
         <img alt="Gráfico de tendencias (PNG)"
              style="width:160mm; height:auto;"
              tal:attributes="
                src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                  uid=ar_uid, rid=rid,
-                 w=605, h=180, dpi=96,      # tamaño 1:1 con CSS
-                 scale=1,                   # sin supermuestreo para evitar doble reescalado
+                 w=605, h=220, dpi=96,      # tamaño 1:1 con CSS (más alto)
+                 scale=3,                   # supermuestreo 3× para líneas suaves
                  max_points=6, days=365,    # tope 6/365
                  note=1,                    # nota aclaratoria en el PNG
-                 even=1,                    # <-- equidistancia también en PNG
+                 even=1,                    # equidistancia también en PNG
                  sharpen=1                  # nitidez extra en líneas/texto
                )" />
       </div>
