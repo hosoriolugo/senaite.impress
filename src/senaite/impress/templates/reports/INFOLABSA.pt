@@ -128,23 +128,21 @@
     }
     .section-trends .chart-container {
       width: 100%;
-      height: 560px; /* FIX: un poco más grande (antes 520) */
+      height: 560px; /* altura del contenedor = altura del chart */
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
-      padding: 10px;
+      padding: 0;          /* FIX: sin padding para no recortar el SVG/título */
       background: #fff;
-      /* FIX: asegurar visibilidad de títulos en SVG */
-      overflow: visible;
+      overflow: visible;   /* asegurar visibilidad de textos fuera del plot area */
     }
-    /* FIX: fuerza la visibilidad del título/subtítulo de Highcharts por si alguna regla global los oculta */
+    /* Forzar visibilidad del título/subtítulo por si alguna regla global los oculta */
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle {
       display: block !important;
       opacity: 1 !important;
       visibility: visible !important;
     }
-    /* FIX: si algún estilo recorta el SVG */
     .section-trends .chart-container svg {
       overflow: visible !important;
     }
@@ -805,19 +803,19 @@
             var options = {
               chart: {
                 type: 'line',
-                height: 560,            /* FIX: ligeramente más alto */
+                height: 560,            /* igual que el contenedor */
                 backgroundColor: 'transparent',
-                spacingTop: 64,         /* FIX: reserva extra para título/subtítulo */
+                spacingTop: 16,         /* FIX: menos espacio + sin offsets manuales */
                 spacingBottom: 16
               },
               title: {
                 text: (trendsData.title || 'Tendencias de Resultados'),
-                y: 14,                  /* FIX: asegura que se vea dentro del canvas */
+                /* sin y: ... */
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                y: 38,                  /* FIX: posición bajo el título */
+                /* sin y: ... */
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
@@ -881,7 +879,7 @@
               Highcharts.chart('trends-chart-container', options);
               /* Asegurar alto del contenedor y reflow del chart */
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; } /* FIX: coherente con chart.height */
+              if (el) { el.style.height = '560px'; } /* coherente con chart.height */
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
