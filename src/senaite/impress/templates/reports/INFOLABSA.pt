@@ -128,23 +128,21 @@
     }
     .section-trends .chart-container {
       width: 100%;
-      height: 520px; /* AJUSTE: Reducido de 560px a 520px para mejor visibilidad */
+      height: 600px; /* Aumentamos la altura del contenedor */
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
       padding: 15px;
       background: #fff;
-      /* FIX: asegurar visibilidad de títulos en SVG */
-      overflow: visible;
     }
-    /* FIX: fuerza la visibilidad del título/subtítulo de Highcharts */
+    /* FIX: asegurar visibilidad de títulos en SVG */
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle {
       display: block !important;
       opacity: 1 !important;
       visibility: visible !important;
     }
-    /* FIX: asegurar que el SVG no se recorte */
+    /* FIX: si algún estilo recorta el SVG */
     .section-trends .chart-container svg {
       overflow: visible !important;
     }
@@ -761,164 +759,145 @@
                options.get('rid','')
              );
            ">
-        <!-- 180mm ≈ 7.087in; 7.087 * 96 ≈ 680px -->
         <img alt="Gráfico de tendencias (PNG)"
-             style="width:180mm; height:auto;"
+             style="width:100%; height:auto; max-width:680px;"
              tal:attributes="
                src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                  uid=ar_uid, rid=rid,
-                 w=680, h=340, dpi=96,
-                 scale=3,
-                 max_points=6, days=365,
-                 note=1,
-                 even=1,
-                 sharpen=1
+                 w=680, h=400, dpi=96,
+                 scale=2,
+                 max_points=6, days=365
                )" />
       </div>
 
-      <!-- Script para inicializar Highcharts con datos reales - CORREGIDO -->
+      <!-- Script para inicializar Highcharts - CONFIGURACIÓN CORREGIDA -->
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            // === Normalización para equidistancia en navegador ===
-            var cats = trendsData.categories || [];
-            var n = cats.length || 0;
-            var series = (trendsData.series || []).map(function(s){
-              var d = s.data || [];
-              var mapped = d.map(function(p, i){
-                var y = (p && typeof p === 'object')
-                          ? (Array.isArray(p) ? p[1] : p.y)
-                          : p;
-                return [i, y];
-              });
-              var copy = Object.assign({}, s);
-              copy.data = mapped;
-              return copy;
-            });
+            console.log("Inicializando gráfico de tendencias con datos:", trendsData);
 
-            var step = (n <= 6) ? 1 : Math.ceil(n / 6);
-            var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
-
+            // Configuración optimizada para mostrar el título
             var options = {
               chart: {
                 type: 'line',
-                height: 520,            /* AJUSTE: Reducido de 560px a 520px */
+                height: 550,  // Altura del gráfico dentro del contenedor de 600px
                 backgroundColor: 'transparent',
-                spacingTop: 60,         /* FIX: Más espacio para el título */
-                spacingBottom: 80,      /* FIX: Espacio para leyenda */
+                // Usamos spacing para controlar los márgenes internos del gráfico
+                spacingTop: 60,    // Espacio superior para el título
+                spacingBottom: 80, // Espacio inferior para la leyenda
                 spacingLeft: 60,
                 spacingRight: 40
               },
               title: {
-                text: (trendsData.title || 'Tendencias de Resultados'),
+                text: trendsData.title || 'Tendencias de Resultados en el Tiempo',
                 align: 'center',
-                margin: 25,             /* FIX: Margen para título */
                 style: { 
                   color: '#000', 
                   fontWeight: 'bold', 
-                  fontSize: '18px', 
+                  fontSize: '18px',
                   fontFamily: 'Arial, sans-serif'
                 }
               },
               subtitle: {
-                text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
+                text: 'Evolución histórica de los parámetros analizados',
                 align: 'center',
-                style: { color: '#6c757d', fontSize: '12px' }
+                style: { 
+                  color: '#666', 
+                  fontSize: '12px',
+                  fontFamily: 'Arial, sans-serif'
+                }
               },
               xAxis: {
-                categories: cats,
-                tickPositions: tickPositions,
-                labels: { 
-                  style: { color: '#333' }, 
-                  rotation: -45, 
-                  step: step,
-                  y: 20  /* FIX: Espacio para etiquetas rotadas */
+                categories: trendsData.categories || [],
+                title: {
+                  text: 'Fecha de Análisis',
+                  style: { color: '#000', fontWeight: 'bold' }
                 },
-                title: { 
-                  text: 'Fecha de Análisis', 
-                  style: { color: '#000', fontWeight: 'bold' },
-                  margin: 25
+                labels: {
+                  style: { color: '#333' },
+                  rotation: -45,
+                  y: 20
                 },
-                tickmarkPlacement: 'on'
+                crosshair: true
               },
               yAxis: {
-                title: { 
-                  text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), 
-                  style: { color: '#000', fontWeight: 'bold' },
-                  margin: 20
+                title: {
+                  text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''),
+                  style: { color: '#000', fontWeight: 'bold' }
                 },
-                labels: { style: { color: '#333' } },
+                labels: {
+                  style: { color: '#333' }
+                },
                 min: trendsData.yMin,
                 max: trendsData.yMax,
                 gridLineColor: '#f0f0f0'
               },
               legend: {
-                enabled: true,
                 layout: 'horizontal',
                 align: 'center',
                 verticalAlign: 'bottom',
-                itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' }
+                borderWidth: 0,
+                itemStyle: {
+                  color: '#333',
+                  fontWeight: 'normal',
+                  fontFamily: 'Arial, sans-serif'
+                }
               },
               plotOptions: {
                 line: {
-                  marker: { enabled: true, radius: 4 },
                   dataLabels: {
+                    enabled: false
+                  },
+                  marker: {
                     enabled: true,
-                    formatter: function(){
-                      var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
-                      return (this.y != null)
-                             ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u
-                             : '';
-                    },
-                    style: { textOutline: '1px contrast' }
+                    radius: 4
                   },
                   enableMouseTracking: true
                 }
               },
               tooltip: {
-                shared: true, 
+                shared: true,
                 crosshairs: true,
                 formatter: function() {
-                  var idx = this.points && this.points.length ? this.points[0].point.x : this.point && this.point.x;
-                  var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
-                  var s = '<b>' + fecha + '</b>';
-                  this.points.forEach(function(p) {
-                    var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
-                    s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
-                         ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
+                  var s = '<b>' + this.x + '</b>';
+                  this.points.forEach(function(point) {
+                    s += '<br/><span style="color:' + point.color + '">●</span> ' + 
+                         point.series.name + ': <b>' + point.y + '</b>';
                   });
                   return s;
                 }
               },
-              series: series,
-              credits: { enabled: false },
-              exporting: { enabled: false }
+              series: trendsData.series || [],
+              credits: {
+                enabled: false
+              }
             };
 
+            // Crear el gráfico
             if (typeof Highcharts !== 'undefined') {
-              // Crear el gráfico
-              Highcharts.chart('trends-chart-container', options);
+              var chart = Highcharts.chart('trends-chart-container', options);
               
-              // Ocultar fallback y forzar reflow
-              var fb = document.querySelector('.section-trends .weasy-fallback'); 
-              if (fb) fb.style.display = 'none';
+              // Forzar reflow después de un breve delay
+              setTimeout(function() {
+                if (chart && chart.reflow) {
+                  chart.reflow();
+                }
+              }, 100);
+
+              // Ocultar el fallback
+              var fallback = document.querySelector('.section-trends .weasy-fallback');
+              if (fallback) {
+                fallback.style.display = 'none';
+              }
               
-              try { 
-                document.body.classList.add('has-highcharts'); 
-                
-                // Forzar reflow del gráfico después de un breve delay
-                setTimeout(function() {
-                  var chart = Highcharts.charts[Highcharts.charts.length - 1];
-                  if (chart && chart.reflow) {
-                    chart.reflow();
-                  }
-                }, 100);
-              } catch(e){}
+              document.body.classList.add('has-highcharts');
+              
+              console.log("Gráfico de tendencias inicializado correctamente");
             } else {
-              console.error('Highcharts no está cargado');
+              console.error('Highcharts no está disponible');
             }
           }
         })();
