@@ -749,7 +749,13 @@
            ">
         <img alt="Gráfico de tendencias (PNG)"
              tal:attributes="
-               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(uid=ar_uid, rid=rid, w=1800, h=540, dpi=300)" />
+               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
+                 uid=ar_uid, rid=rid,
+                 w=1800, h=540, dpi=300,      # ancla tamaño del lienzo
+                 scale=4,                     # supermuestreo 4x para nitidez
+                 max_points=6, days=365,      # tope de 6 puntos / 365 días
+                 note=1                       # muestra nota aclaratoria en el PNG
+               )" />
       </div>
 
       <!-- Script para inicializar Highcharts con datos reales -->
