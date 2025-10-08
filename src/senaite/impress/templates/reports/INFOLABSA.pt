@@ -770,7 +770,7 @@
                )" />
       </div>
 
-      <!-- Script para inicializar Highcharts - CONFIGURACIÓN CORREGIDA -->
+      <!-- Script para inicializar Highcharts - SOLUCIÓN DEFINITIVA PARA EL ENCABEZADO -->
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
@@ -779,21 +779,21 @@
 
             console.log("Inicializando gráfico de tendencias con datos:", trendsData);
 
-            // Configuración optimizada para mostrar el título
+            // CONFIGURACIÓN CORREGIDA - ELIMINAMOS 'y: 14' QUE CAUSABA EL PROBLEMA
             var options = {
               chart: {
                 type: 'line',
-                height: 550,  // Altura del gráfico dentro del contenedor de 600px
+                height: 550,
                 backgroundColor: 'transparent',
-                // Usamos spacing para controlar los márgenes internos del gráfico
-                spacingTop: 60,    // Espacio superior para el título
-                spacingBottom: 80, // Espacio inferior para la leyenda
+                spacingTop: 60,
+                spacingBottom: 80,
                 spacingLeft: 60,
                 spacingRight: 40
               },
               title: {
                 text: trendsData.title || 'Tendencias de Resultados en el Tiempo',
                 align: 'center',
+                // SOLUCIÓN: ELIMINAMOS 'y: 14' - Highcharts posicionará automáticamente el título
                 style: { 
                   color: '#000', 
                   fontWeight: 'bold', 
@@ -880,12 +880,22 @@
             if (typeof Highcharts !== 'undefined') {
               var chart = Highcharts.chart('trends-chart-container', options);
               
+              // Verificar que el título se esté mostrando
+              setTimeout(function() {
+                var titleElement = document.querySelector('.highcharts-title');
+                if (titleElement) {
+                  console.log("✅ Título del gráfico encontrado:", titleElement.textContent);
+                } else {
+                  console.error("❌ Título del gráfico NO encontrado");
+                }
+              }, 100);
+
               // Forzar reflow después de un breve delay
               setTimeout(function() {
                 if (chart && chart.reflow) {
                   chart.reflow();
                 }
-              }, 100);
+              }, 200);
 
               // Ocultar el fallback
               var fallback = document.querySelector('.section-trends .weasy-fallback');
