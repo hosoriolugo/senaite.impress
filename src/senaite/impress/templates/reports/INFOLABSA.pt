@@ -791,7 +791,13 @@
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
             var options = {
-              chart: { type: 'line', height: 520, backgroundColor: 'transparent' }, /* hdplus */
+              chart: {
+                type: 'line',
+                height: 520,
+                backgroundColor: 'transparent',
+                spacingTop: 36,      /* AJUSTE 1: reserva espacio para título/subtítulo */
+                spacingBottom: 16
+              }, /* hdplus */
               title: {
                 text: trendsData.title || 'Tendencias de Resultados',
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
@@ -814,8 +820,14 @@
                 max: trendsData.yMax,
                 gridLineColor: '#f0f0f0'
               },
-              legend: { layout: 'horizontal', align: 'center', verticalAlign: 'bottom',
-                        itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
+              legend: {
+                enabled: true,       /* AJUSTE 2: forzar leyenda visible */
+                layout: 'horizontal',
+                align: 'center',
+                verticalAlign: 'bottom',
+                y: 0,                /* leve ajuste vertical para evitar recorte */
+                itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' }
+              },
               plotOptions: {
                 line: {
                   marker: { enabled: true, radius: 4 },
@@ -853,6 +865,14 @@
 
             if (typeof Highcharts !== 'undefined') {
               Highcharts.chart('trends-chart-container', options);
+              /* AJUSTE 3: asegurar alto del contenedor y reflow del chart */
+              var el = document.getElementById('trends-chart-container');
+              if (el) { el.style.height = '520px'; }
+              if (Highcharts.charts && Highcharts.charts.length) {
+                var c = Highcharts.charts[Highcharts.charts.length - 1];
+                if (c && c.reflow) c.reflow();
+              }
+
               var fb = document.querySelector('.section-trends .weasy-fallback'); if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
             } else {
