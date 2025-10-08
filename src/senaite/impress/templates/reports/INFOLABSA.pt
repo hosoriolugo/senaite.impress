@@ -304,7 +304,8 @@
       );
       gender_norm python:(
         (gender_raw in ('m','M','male','Male')) and u'Masculino' or
-        (gender_raw in ('f','F','female','Female')) and u'Femenino' or
+        (gender_raw in ('f','F','female','Female')) and u'Femenino' o
+        r
         gender_raw
       );
 
@@ -482,7 +483,8 @@
 
       gen_raw python:(
         (get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation()) or
-        (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()) or
+        (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()) o
+        r
         (get(ar,'getGeneralInterpretation',None) and ar.getGeneralInterpretation()) or
         (get(ar,'getInterpretation',None) and ar.getInterpretation()) or
         u''
@@ -511,7 +513,9 @@
           }
           for d in depts
           if _bydept and (_rich((_bydept(d) or {}).get('richtext')) or u'')
-             and (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'qu\u00edmica', u'qu\u00edmica cl\u00ednica'))))
+             and (not qc_shown o
+             r
+             not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'qu\u00edmica', u'qu\u00edmica cl\u00ednica'))))
         ]
       );
       has_dept python:any([i.get('text') for i in dept_items]);
@@ -534,7 +538,9 @@
 
           <tal:dept tal:condition="has_dept">
             <tal:loop tal:repeat="item dept_items">
-              <h3 class="mb-0" tal:content="python:item.get('title') or u'Departamento'">Departamento</h3>
+              <h3 class="mb-0" tal:content="python:item.get('title') o
+              r
+              u'Departamento'">Departamento</h3>
               <div tal:content="structure python:item.get('text')">-</div>
             </tal:loop>
           </tal:dept>
@@ -588,7 +594,9 @@
                   delta_abs_val python:( (n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None );
                   delta_abs_str python:( (delta_abs_val is not None) and (u'%+.2f' % delta_abs_val) or u'—' );
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
-                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
+                  _pct_clean python:((delta_pct_str o
+                  r
+                  u'').replace(u'%', u'').strip());
                   delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
@@ -663,7 +671,9 @@
           return isNaN(t) ? 0 : t;
         }
         function drawSpark(canvas, points){
-          if (!canvas || !points || points.length<2) return;
+          if (!canvas o
+          r
+          !points || points.length<2) return;
           var ctx = canvas.getContext('2d');
           var W = canvas.width, H = canvas.height;
           var xs = points.map(function(p){return p[0];});
@@ -761,13 +771,13 @@
                options.get('rid','')
              );
            ">
-        <!-- 180mm ≈ 7.087in; 7.087 * 96 ≈ 680px -->
+        <!-- 180mm ≈ 7.087in; 7.087 * 96 ≈ 680px; render interno 900×450 para mayor nitidez -->
         <img alt="Gráfico de tendencias (PNG)"
              style="width:180mm; height:auto;"
              tal:attributes="
                src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                  uid=ar_uid, rid=rid,
-                 w=680, h=340, dpi=96,
+                 w=900, h=450, dpi=96,
                  scale=3,
                  max_points=6, days=365,
                  note=1,
@@ -807,17 +817,19 @@
                 type: 'line',
                 height: 560,            /* FIX: ligeramente más alto */
                 backgroundColor: 'transparent',
-                spacingTop: 64,         /* FIX: reserva extra para título/subtítulo */
+                spacingTop: 80,         /* ↑ más espacio para título/subtítulo */
                 spacingBottom: 16
               },
               title: {
                 text: (trendsData.title || 'Tendencias de Resultados'),
-                y: 14,                  /* FIX: asegura que se vea dentro del canvas */
+                useHTML: true,          /* fuerza render HTML: evita clipping/ocultamientos */
+                y: 14,
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                y: 38,                  /* FIX: posición bajo el título */
+                useHTML: true,          /* idem subtítulo */
+                y: 38,
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
@@ -881,7 +893,7 @@
               Highcharts.chart('trends-chart-container', options);
               /* Asegurar alto del contenedor y reflow del chart */
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; } /* FIX: coherente con chart.height */
+              if (el) { el.style.height = '560px'; } /* coherente con chart.height */
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
