@@ -157,7 +157,7 @@ class TrendChartPNG(BrowserView):
             i += 1
         return ymin, ymax, ticks
 
-    # === NUEVO: timestamp del AR actual (ms) para recorte por "hasta este análisis"
+    # === Timestamp del AR actual (ms) para recorte por "hasta este análisis"
     def _ar_cutoff_ms(self, ar):
         get = getattr
         dt = (
@@ -169,21 +169,17 @@ class TrendChartPNG(BrowserView):
         if not dt:
             return None
         try:
-            # DateTime de Zope → epoch s
             from DateTime import DateTime as ZDT
             if isinstance(dt, ZDT):
                 return long(dt.timeTime() * 1000.0)
         except Exception:
             pass
         try:
-            # datetime.datetime
             if hasattr(dt, 'timetuple'):
-                # asumir tz-naive → UTC
                 return long((dt - datetime.datetime(1970, 1, 1)).total_seconds() * 1000.0)
         except Exception:
             pass
         try:
-            # tuple (DateWidget)
             if isinstance(dt, tuple) and len(dt) >= 6:
                 return long(datetime.datetime(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]).strftime('%s')) * 1000
         except Exception:
@@ -194,9 +190,11 @@ class TrendChartPNG(BrowserView):
         # --- Parámetros ---
         request = self.request
         uid = request.get('uid') or request.form.get('uid')
-        rid = request.get('rid') or request.form.get('rid')  # no imprescindible, pero aceptado
+        rid = request.get('rid') or request.form.get('rid')  # aceptado, opcional
         max_points = max(1, _to_int(request.get('max_points', request.form.get('max_points', 6)), 6))
         days = max(1, _to_int(request.get('days', request.form.get('days', 365)), 365))
+        show_note = request.get('note', request.form.get('note', '1'))
+        show_note = False if str(show_note) in ('0', 'false', 'False') else True
 
         # Lee params (w/h pueden venir o ser adaptativos)
         W_param = request.get('w')
@@ -204,17 +202,16 @@ class TrendChartPNG(BrowserView):
         dpi = max(96, _to_int(request.get('dpi', 300), 300))  # 300 por defecto
         scale = max(1, min(4, _to_int(request.get('scale', 3), 3)))  # supermuestreo x3 por defecto
 
-        # Paddings base (se escalarán si hay supermuestreo)
-        pad_l = 68
-        pad_r = 24
-        pad_t = 34
-        pad_b = 56  # más espacio para etiquetas X
+        # Paddings base (se ajustarán dinámicamente)
+        base_pad_l = 68
+        base_pad_r = 24
+        base_pad_t = 12   # más chico: el padding real se recalcula con leyenda/título/nota
+        base_pad_b = 56   # más espacio para etiquetas X
         bg = (255, 255, 255)
         grid = (230, 236, 240)
         axis = (173, 181, 189)
 
         if not PIL_OK:
-            # Respuesta de texto clara si Pillow no está
             self.request.response.setHeader('Content-Type', 'text/plain; charset=utf-8')
             return u'Pillow no disponible: no se puede generar el PNG en el servidor.'
 
@@ -223,15 +220,13 @@ class TrendChartPNG(BrowserView):
         chart = self._get_chartdata(ar)
         series = chart.get('series') or []
 
-        # === NUEVO: Recorte por cutoff (hasta el AR actual) + ventana "days" + límite "max_points"
+        # Recorte por cutoff (hasta AR actual) + ventana + límite de puntos
         cutoff_ms = self._ar_cutoff_ms(ar)
         if cutoff_ms is None:
-            # si no tenemos fecha del AR, usamos el último punto disponible
             try:
                 cutoff_ms = max([pt[0] for s in series for pt in (s.get('data') or [])])
             except Exception:
                 cutoff_ms = None
-
         if series:
             millis_window = days * 24 * 60 * 60 * 1000L
             new_series = []
@@ -239,12 +234,10 @@ class TrendChartPNG(BrowserView):
                 pts = list(s.get('data') or [])
                 if cutoff_ms is not None:
                     pts = [p for p in pts if p[0] <= cutoff_ms and p[0] >= (cutoff_ms - millis_window)]
-                # nos quedamos con los últimos max_points
                 if len(pts) > max_points:
                     pts = pts[-max_points:]
                 if pts:
-                    s2 = dict(s)
-                    s2['data'] = pts
+                    s2 = dict(s); s2['data'] = pts
                     new_series.append(s2)
             series = new_series
 
@@ -254,7 +247,6 @@ class TrendChartPNG(BrowserView):
         n_series = len(series)
 
         if W_param is None or H_param is None:
-            # ancho por punto (más puntos => menos px por punto)
             if pts_max <= 10:
                 px_per_point = 70
             elif pts_max <= 16:
@@ -264,23 +256,22 @@ class TrendChartPNG(BrowserView):
             else:
                 px_per_point = 40
             W = max(1200, min(2400, max(1000, pts_max * px_per_point)))
-            # Alto base + filas extra de leyenda si muchos analitos (6 por fila aprox.)
-            legend_rows = int(math.ceil(max(1, n_series) / 6.0))
-            extra_h = max(0, (legend_rows - 1) * 26)
-            H = max(360, min(800, 380 + extra_h))
+            legend_rows_est = int(math.ceil(max(1, n_series) / 6.0))
+            extra_h = max(0, (legend_rows_est - 1) * 26)
+            H = max(360, min(820, 380 + extra_h))
         else:
             W = max(600, _to_int(W_param, 1000))
             H = max(240, _to_int(H_param, 360))
 
-        # === Supermuestreo: renderizamos a mayor resolución y luego reducimos con LANCZOS
+        # === Supermuestreo
         W2, H2 = W * scale, H * scale
-        pad_l2, pad_r2 = pad_l * scale, pad_r * scale
-        pad_t2, pad_b2 = pad_t * scale, pad_b * scale
+        pad_l2, pad_r2 = base_pad_l * scale, base_pad_r * scale
+        pad_b2 = base_pad_b * scale  # top dinámico
 
         im = Image.new('RGB', (W2, H2), bg)
         dr = ImageDraw.Draw(im)
 
-        # Fuentes: TrueType si está disponible; si no, default
+        # Fuentes
         def _load_font(sz):
             try:
                 return ImageFont.truetype('DejaVuSans.ttf', sz)
@@ -300,16 +291,11 @@ class TrendChartPNG(BrowserView):
             tw, th = dr.textsize(msg, font=font)
             dr.text(((W2 - tw) / 2, (H2 - th) / 2), msg, fill=(100, 100, 100), font=font)
             out = StringIO()
-            # Reducimos (por si scale>1) y guardamos
-            if scale > 1:
-                im_small = im.resize((W, H), Image.LANCZOS)
-            else:
-                im_small = im
-            im_small.save(out, format='PNG', dpi=(dpi, dpi))
+            (im.resize((W, H), Image.LANCZOS) if scale > 1 else im).save(out, format='PNG', dpi=(dpi, dpi))
             self.request.response.setHeader('Content-Type', 'image/png')
             return out.getvalue()
 
-        # Extremos globales (después del recorte)
+        # Extremos globales (tras recorte)
         xs, ys = [], []
         for s in series:
             for ms, y in s['data']:
@@ -320,37 +306,93 @@ class TrendChartPNG(BrowserView):
         if xmin == xmax:
             xmin -= 1000; xmax += 1000
 
-        # Funciones de escala
+        # --- CALCULO DE LAYOUT SUPERIOR (leyenda + título + nota) PARA EVITAR SOLAPES ---
+        # Paleta
+        palette = list(self.PALETTE) if n_series <= len(self.PALETTE) else _hsv_palette(n_series)
+
+        # Simulación de leyenda para obtener alto total
+        leg_x = pad_l2
+        leg_y = int(6 * scale)
+        space_x = int(24 * scale)
+        box_w = int(14 * scale)
+        box_h = int(6 * scale)
+        gap   = int(6  * scale)
+
+        # Medimos sin dibujar
+        sim_leg_x, sim_leg_y, last_lth = leg_x, leg_y, int(12*scale)
+        for idx, s in enumerate(series):
+            name = s['name']; unit = s.get('unit') or u''
+            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
+            ltw, lth = dr.textsize(label, font=font); last_lth = lth
+            sim_leg_x += box_w + gap + ltw + space_x
+            if sim_leg_x > W2 - pad_r2 - int(120*scale):
+                sim_leg_x = pad_l2
+                sim_leg_y += lth + int(6 * scale)
+        legend_total_h = (sim_leg_y - leg_y) + last_lth + int(6 * scale)
+
+        # Título y nota
+        title = u'Tendencias de Resultados'
+        ttw, tth = dr.textsize(title, font=font_title)
+        note_txt = u'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).'
+        ntw, nth = dr.textsize(note_txt, font=font_small) if show_note else (0, 0)
+
+        # Padding superior real
+        pad_t2 = (base_pad_t * scale) + legend_total_h + tth + (nth if show_note else 0) + int(14 * scale)
+
+        # Ahora sí: área de trazado
         plot_w2 = W2 - pad_l2 - pad_r2
         plot_h2 = H2 - pad_t2 - pad_b2
 
+        # --- DIBUJO DEL HEADER DEL GRÁFICO (leyenda + título + nota) ---
+        # Leyenda (pintamos)
+        leg_x = pad_l2
+        leg_y = int(6 * scale)
+        for idx, s in enumerate(series):
+            color = palette[idx % len(palette)]
+            name = s['name']; unit = s.get('unit') or u''
+            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
+            dr.rectangle([leg_x, leg_y + int(3*scale), leg_x + box_w, leg_y + int(3*scale) + box_h], fill=color, outline=color)
+            dr.text((leg_x + box_w + gap, leg_y), label, fill=(0, 0, 0), font=font)
+            ltw, lth = dr.textsize(label, font=font)
+            leg_x += box_w + gap + ltw + space_x
+            if leg_x > W2 - pad_r2 - int(120*scale):
+                leg_x = pad_l2
+                leg_y += lth + int(6 * scale)
+
+        # Título
+        title_y = leg_y + int(6 * scale) + last_lth
+        dr.text((pad_l2, title_y), title, fill=(0, 0, 0), font=font_title)
+
+        # Nota
+        if show_note:
+            dr.text((pad_l2, title_y + tth + int(2 * scale)), note_txt, fill=(108, 117, 125), font=font_small)
+
+        # --- Ejes y grilla (ahora debajo del header calculado) ---
         def sx(ms):
             return pad_l2 + int((ms - xmin) * 1.0 * plot_w2 / (xmax - xmin))
 
         def sy(y):
             return pad_t2 + int((ymax - y) * 1.0 * plot_h2 / (ymax - ymin))
 
-        # Grid Y + eje Y/X + marco del área de trazado
+        lw = max(1, int(2 * scale))
+        # Grid Y + etiquetas Y
         for t in yticks:
             ypix = sy(t)
             dr.line([(pad_l2, ypix), (W2 - pad_r2, ypix)], fill=grid)
             lab = (u'%0.2f' % t).rstrip('0').rstrip('.')
             tw, th = dr.textsize(lab, font=font_small)
             dr.text((pad_l2 - int(8*scale) - tw, ypix - th / 2), lab, fill=(108, 117, 125), font=font_small)
-        # Ejes
-        lw = max(1, int(2 * scale))
+        # Ejes y marco
         dr.line([(pad_l2, pad_t2), (pad_l2, H2 - pad_b2)], fill=axis, width=lw)
         dr.line([(pad_l2, H2 - pad_b2), (W2 - pad_r2, H2 - pad_b2)], fill=axis, width=lw)
-        # Marco
         dr.rectangle([(pad_l2, pad_t2), (W2 - pad_r2, H2 - pad_b2)], outline=(222, 226, 230))
 
-        # === Etiquetas X: bajo cada punto real si hay ≤6; si hay más, muestrear hasta 6
-        # Tomamos los ms únicos de TODAS las series (unión) ordenados
+        # Etiquetas X: bajo cada punto real si ≤6, si no, muestrear a 6
         xs_unique = sorted(set(xs))
         if len(xs_unique) <= 6:
             xticks = xs_unique
         else:
-            step = float(len(xs_unique) - 1) / 5.0  # 6 marcas
+            step = float(len(xs_unique) - 1) / 5.0
             xticks = [xs_unique[int(round(i * step))] for i in range(6)]
         for ms in xticks:
             xpix = sx(ms)
@@ -362,33 +404,23 @@ class TrendChartPNG(BrowserView):
             tw, th = dr.textsize(lab, font=font_small)
             dr.text((xpix - tw / 2, H2 - pad_b2 + int(4*scale)), lab, fill=(108, 117, 125), font=font_small)
 
-        # Paleta de colores
-        if n_series <= len(self.PALETTE):
-            palette = list(self.PALETTE)
-        else:
-            palette = _hsv_palette(n_series)
-
-        # Dibuja series + etiquetas de valor (muestreadas si hay muchos puntos)
+        # Dibujo de series + etiquetas de valor (con unidad)
         for idx, s in enumerate(series):
             color = palette[idx % len(palette)]
             pts = s['data']
             unit = s.get('unit') or u''
 
-            # Línea
             last = None
             for (ms, y) in pts:
-                xpix = sx(ms)
-                ypix = sy(y)
+                xpix = sx(ms); ypix = sy(y)
                 if last is not None:
                     dr.line([last, (xpix, ypix)], fill=color, width=lw)
                 last = (xpix, ypix)
 
-            # último punto (marcador)
             if last:
                 r = max(2, int(3 * scale))
                 dr.ellipse([last[0] - r, last[1] - r, last[0] + r, last[1] + r], fill=color, outline=color)
 
-            # Etiquetas de valor (con unidad)
             if pts:
                 if len(pts) <= 12:
                     label_every = 1
@@ -397,61 +429,29 @@ class TrendChartPNG(BrowserView):
                 else:
                     label_every = 3
                 for i, (ms, y) in enumerate(pts):
-                    # siempre el último punto, y según muestreo los demás
                     if (i % label_every != 0) and (i != len(pts) - 1):
                         continue
-                    xpix = sx(ms)
-                    ypix = sy(y)
+                    xpix = sx(ms); ypix = sy(y)
                     val_txt = (u'%0.2f' % y).rstrip('0').rstrip('.')
                     txt = val_txt + (unit and (u' ' + unit) or u'')
-                    # halo blanco para legibilidad
                     for dx, dy in ((-1,0),(1,0),(0,-1),(0,1)):
                         dr.text((xpix + dx + int(4*scale), ypix - int(12*scale) + dy), txt, fill=(255,255,255), font=font_small)
                     dr.text((xpix + int(4*scale), ypix - int(12*scale)), txt, fill=(0,0,0), font=font_small)
 
-        # Leyenda (varias filas si hace falta)
-        leg_x = pad_l2
-        leg_y = int(6 * scale)
-        space_x = int(24 * scale)
-        box_w = int(14 * scale)
-        box_h = int(6 * scale)
-        gap = int(6 * scale)
-
-        for idx, s in enumerate(series):
-            color = palette[idx % len(palette)]
-            name = s['name']
-            unit = s.get('unit') or u''
-            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
-            dr.rectangle([leg_x, leg_y + int(3*scale), leg_x + box_w, leg_y + int(3*scale) + box_h], fill=color, outline=color)
-            dr.text((leg_x + box_w + gap, leg_y), label, fill=(0, 0, 0), font=font)
-            ltw, lth = dr.textsize(label, font=font)
-            leg_x += box_w + gap + ltw + space_x
-            if leg_x > W2 - pad_r2 - int(120*scale):
-                leg_x = pad_l2
-                leg_y += lth + int(6 * scale)
-
-        # Título con margen suficiente bajo la leyenda (manteniendo tu diseño)
-        title = u'Tendencias de Resultados'
-        ttw, tth = dr.textsize(title, font=font_title)
-        title_y = max(0, leg_y + tth + int(4 * scale))
-        dr.text((pad_l2, title_y), title, fill=(0, 0, 0), font=font_title)
-
         # Salida con reducción LANCZOS para máxima nitidez
         out = StringIO()
-        if scale > 1:
-            im = im.resize((W, H), Image.LANCZOS)
-        im.save(out, format='PNG', dpi=(dpi, dpi))
+        (im.resize((W, H), Image.LANCZOS) if scale > 1 else im).save(out, format='PNG', dpi=(dpi, dpi))
         self.request.response.setHeader('Content-Type', 'image/png')
         return out.getvalue()
 
 
-# ===== NUEVO: view que devuelve Data-URI para incrustar en WeasyPrint =====
+# ===== View que devuelve Data-URI para WeasyPrint =====
 class InfolabsaTrendChartDataURI(BrowserView):
     """Devuelve data:image/png;base64,... invocando el view PNG internamente (sin HTTP)."""
 
-    def __call__(self, uid=None, rid=None, w=None, h=None, dpi=None, scale=None, max_points=None, days=None):
+    def __call__(self, uid=None, rid=None, w=None, h=None, dpi=None, scale=None, max_points=None, days=None, note=None):
         request = self.request
-        # Recuperar parámetros (permite querystring o argumentos posicionales)
+        # Recuperar parámetros
         uid = uid or request.get('uid') or request.form.get('uid')
         rid = rid or request.get('rid') or request.form.get('rid')
         w = w or request.get('w') or request.form.get('w')
@@ -460,6 +460,7 @@ class InfolabsaTrendChartDataURI(BrowserView):
         scale = scale or request.get('scale') or request.form.get('scale')
         max_points = max_points or request.get('max_points') or request.form.get('max_points')
         days = days or request.get('days') or request.form.get('days')
+        note = note or request.get('note') or request.form.get('note')
 
         # Guardar cabeceras previas para restaurar luego
         resp = request.response
@@ -467,37 +468,24 @@ class InfolabsaTrendChartDataURI(BrowserView):
         prev_cd = resp.getHeader('Content-Disposition')
 
         # Inyectar parámetros al request.form para el sub-view
-        if uid is not None:
-            request.form['uid'] = uid
-        if rid is not None:
-            request.form['rid'] = rid
-        if w is not None:
-            request.form['w'] = str(w)
-        if h is not None:
-            request.form['h'] = str(h)
-        if dpi is not None:
-            request.form['dpi'] = str(dpi)
-        if scale is not None:
-            request.form['scale'] = str(scale)
-        if max_points is not None:
-            request.form['max_points'] = str(max_points)
-        if days is not None:
-            request.form['days'] = str(days)
+        if uid is not None:   request.form['uid'] = uid
+        if rid is not None:   request.form['rid'] = rid
+        if w is not None:     request.form['w'] = str(w)
+        if h is not None:     request.form['h'] = str(h)
+        if dpi is not None:   request.form['dpi'] = str(dpi)
+        if scale is not None: request.form['scale'] = str(scale)
+        if max_points is not None: request.form['max_points'] = str(max_points)
+        if days is not None:       request.form['days'] = str(days)
+        if note is not None:       request.form['note'] = str(note)
 
         try:
-            # Llamar al view PNG de forma interna (sin HTTP/redirects)
             png_view = self.context.restrictedTraverse('@@infolabsa-trend-chart.png')
-            data = png_view()  # bytes del PNG
+            data = png_view()
         finally:
-            # Restaurar cabeceras que el sub-view pudo haber tocado
-            if prev_ct:
-                resp.setHeader('Content-Type', prev_ct)
-            else:
-                resp.setHeader('Content-Type', None)
-            if prev_cd:
-                resp.setHeader('Content-Disposition', prev_cd)
-            else:
-                resp.setHeader('Content-Disposition', None)
+            if prev_ct: resp.setHeader('Content-Type', prev_ct)
+            else:       resp.setHeader('Content-Type', None)
+            if prev_cd: resp.setHeader('Content-Disposition', prev_cd)
+            else:       resp.setHeader('Content-Disposition', None)
 
         if not data:
             resp.setHeader('Content-Type', 'text/plain; charset=utf-8')
@@ -514,6 +502,5 @@ class InfolabsaTrendChartDataURI(BrowserView):
             resp.setHeader('Content-Type', 'text/plain; charset=utf-8')
             return u''
 
-        # Entregamos como texto para que el <img src="..."> lo pueda usar directamente
         resp.setHeader('Content-Type', 'text/plain; charset=utf-8')
         return datauri
