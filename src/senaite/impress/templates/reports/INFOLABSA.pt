@@ -756,7 +756,9 @@
                  w=605, h=180, dpi=96,      # tamaño 1:1 con CSS
                  scale=1,                   # sin supermuestreo para evitar doble reescalado
                  max_points=6, days=365,    # tope 6/365
-                 note=1                     # nota aclaratoria en el PNG
+                 note=1,                    # nota aclaratoria en el PNG
+                 even=1,                    # <-- equidistancia también en PNG
+                 sharpen=1                  # nitidez extra en líneas/texto
                )" />
       </div>
 
@@ -774,7 +776,6 @@
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
               var mapped = d.map(function(p, i){
-                // p puede ser [x,y] o {x:.., y:..} o y suelto
                 var y = (p && typeof p === 'object')
                           ? (Array.isArray(p) ? p[1] : p.y)
                           : p;
@@ -799,8 +800,8 @@
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
-                categories: cats,                 // mostramos fechas en el eje
-                tickPositions: tickPositions,     // ticks en cada índice 0..n-1
+                categories: cats,
+                tickPositions: tickPositions,
                 labels: { style: { color: '#333' }, rotation: -45, step: step },
                 title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
                 tickmarkPlacement: 'on'
