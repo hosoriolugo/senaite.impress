@@ -128,27 +128,13 @@
     }
     .section-trends .chart-container {
       width: 100%;
-      height: 560px; /* FIX: un poco más grande (antes 520) */
+      height: 480px; /* antes 400px; versión pre-HDPLUS */
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
       padding: 10px;
       background: #fff;
-      /* FIX: asegurar visibilidad de títulos en SVG */
-      overflow: visible;
     }
-    /* FIX: fuerza la visibilidad del título/subtítulo de Highcharts por si alguna regla global los oculta */
-    .section-trends .chart-container .highcharts-title,
-    .section-trends .chart-container .highcharts-subtitle {
-      display: block !important;
-      opacity: 1 !important;
-      visibility: visible !important;
-    }
-    /* FIX: si algún estilo recorta el SVG */
-    .section-trends .chart-container svg {
-      overflow: visible !important;
-    }
-
     .section-trends .fallback-message {
       text-align: center;
       padding: 20px;
@@ -304,8 +290,7 @@
       );
       gender_norm python:(
         (gender_raw in ('m','M','male','Male')) and u'Masculino' or
-        (gender_raw in ('f','F','female','Female')) and u'Femenino' o
-        r
+        (gender_raw in ('f','F','female','Female')) and u'Femenino' or
         gender_raw
       );
 
@@ -483,8 +468,7 @@
 
       gen_raw python:(
         (get(ar,'getResultsInterpretation',None) and ar.getResultsInterpretation()) or
-        (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()) o
-        r
+        (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()) or
         (get(ar,'getGeneralInterpretation',None) and ar.getGeneralInterpretation()) or
         (get(ar,'getInterpretation',None) and ar.getInterpretation()) or
         u''
@@ -513,9 +497,7 @@
           }
           for d in depts
           if _bydept and (_rich((_bydept(d) or {}).get('richtext')) or u'')
-             and (not qc_shown o
-             r
-             not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'qu\u00edmica', u'qu\u00edmica cl\u00ednica'))))
+             and (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'qu\u00edmica', u'qu\u00edmica cl\u00ednica'))))
         ]
       );
       has_dept python:any([i.get('text') for i in dept_items]);
@@ -538,9 +520,7 @@
 
           <tal:dept tal:condition="has_dept">
             <tal:loop tal:repeat="item dept_items">
-              <h3 class="mb-0" tal:content="python:item.get('title') o
-              r
-              u'Departamento'">Departamento</h3>
+              <h3 class="mb-0" tal:content="python:item.get('title') or u'Departamento'">Departamento</h3>
               <div tal:content="structure python:item.get('text')">-</div>
             </tal:loop>
           </tal:dept>
@@ -594,9 +574,7 @@
                   delta_abs_val python:( (n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None );
                   delta_abs_str python:( (delta_abs_val is not None) and (u'%+.2f' % delta_abs_val) or u'—' );
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
-                  _pct_clean python:((delta_pct_str o
-                  r
-                  u'').replace(u'%', u'').strip());
+                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
                   delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
@@ -671,9 +649,7 @@
           return isNaN(t) ? 0 : t;
         }
         function drawSpark(canvas, points){
-          if (!canvas o
-          r
-          !points || points.length<2) return;
+          if (!canvas || !points || points.length<2) return;
           var ctx = canvas.getContext('2d');
           var W = canvas.width, H = canvas.height;
           var xs = points.map(function(p){return p[0];});
@@ -754,7 +730,7 @@
       <!-- Contenedor para Highcharts (solo en navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PNG con data-URI más nítido y 1:1 px) -->
+      <!-- Fallback para WeasyPrint (PNG con data-URI a 1:1 px) -->
       <div class="weasy-fallback fallback-message"
            tal:define="
              get python:getattr;
@@ -771,13 +747,14 @@
                options.get('rid','')
              );
            ">
-        <!-- 180mm ≈ 7.087in; 7.087 * 96 ≈ 680px; render interno 900×450 para mayor nitidez -->
+        <!-- 160mm ≈ 6.299in; 6.299 * 96 = 605px.
+             Generamos el PNG a 605×260 px, scale=3, dpi=96 para suavizado LANCZOS -->
         <img alt="Gráfico de tendencias (PNG)"
-             style="width:180mm; height:auto;"
+             style="width:160mm; height:auto;"
              tal:attributes="
                src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                  uid=ar_uid, rid=rid,
-                 w=900, h=450, dpi=96,
+                 w=605, h=260, dpi=96,
                  scale=3,
                  max_points=6, days=365,
                  note=1,
@@ -796,6 +773,7 @@
             // === Normalización para equidistancia en navegador ===
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
+            // Remapear cada serie a [index, y] ignorando X real
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
               var mapped = d.map(function(p, i){
@@ -813,23 +791,13 @@
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
             var options = {
-              chart: {
-                type: 'line',
-                height: 560,            /* FIX: ligeramente más alto */
-                backgroundColor: 'transparent',
-                spacingTop: 80,         /* ↑ más espacio para título/subtítulo */
-                spacingBottom: 16
-              },
+              chart: { type: 'line', height: 480, backgroundColor: 'transparent' },
               title: {
-                text: (trendsData.title || 'Tendencias de Resultados'),
-                useHTML: true,          /* fuerza render HTML: evita clipping/ocultamientos */
-                y: 14,
+                text: trendsData.title || 'Tendencias de Resultados',
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                useHTML: true,          /* idem subtítulo */
-                y: 38,
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
@@ -847,11 +815,7 @@
                 gridLineColor: '#f0f0f0'
               },
               legend: {
-                enabled: true,
-                layout: 'horizontal',
-                align: 'center',
-                verticalAlign: 'bottom',
-                y: 0,
+                layout: 'horizontal', align: 'center', verticalAlign: 'bottom',
                 itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' }
               },
               plotOptions: {
@@ -891,13 +855,6 @@
 
             if (typeof Highcharts !== 'undefined') {
               Highcharts.chart('trends-chart-container', options);
-              /* Asegurar alto del contenedor y reflow del chart */
-              var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; } /* coherente con chart.height */
-              if (Highcharts.charts && Highcharts.charts.length) {
-                var c = Highcharts.charts[Highcharts.charts.length - 1];
-                if (c && c.reflow) c.reflow();
-              }
               var fb = document.querySelector('.section-trends .weasy-fallback'); if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
             } else {
