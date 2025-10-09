@@ -604,17 +604,15 @@
                   # % que viene del backend (se conserva el formato y signo)
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
 
-                  # ===== B) TENDENCIA DINÁMICA: misma serie que el sparkline/gráfico =====
+                  # ===== B) TENDENCIA DINÁMICA (flecha y sparkline usan misma serie) =====
                   _first_y python:((n>=1) and (ser[0].get('value')) or None);
-                  # comparamos lo que “se ve”: redondeo a 2 decimales como en las etiquetas del gráfico
                   _first_2d python:(_first_y is not None and float(('%.2f' % float(_first_y))) or None);
                   _last_2d  python:(_last_y  is not None and float(('%.2f' % float(_last_y)))  or None);
-
-                  trend_symbol python:(
-                    (_first_2d is None or _last_2d is None) and u'—'
-                    or (_last_2d > _first_2d) and u'▲'
-                    or (_last_2d < _first_2d) and u'▼'
-                    or u'►'
+                  trend_symbol_code python:(
+                    (_first_2d is None or _last_2d is None) and u'&rarr;'
+                    or (_last_2d > _first_2d) and u'&uarr;'
+                    or (_last_2d < _first_2d) and u'&darr;'
+                    or u'&rarr;'
                   );
                 ">
                   <tr>
@@ -655,15 +653,37 @@
 
                     <!-- Tendencia (flecha + sparkline) -->
                     <td>
+                      <!-- Flecha como ENTIDAD HTML (evita problemas de encoding) -->
                       <div>
-                        <span tal:attributes="class python:(trend_symbol==u'▲' and 'delta-up' or (trend_symbol==u'▼' and 'delta-down' or 'delta-flat'))"
-                              tal:content="trend_symbol">►</span>
+                        <span tal:attributes="class python:(
+                                ( (ser and ser[-1].get('value') is not None and ser[0].get('value') is not None) and
+                                  (float(('%.2f' % float(ser[-1].get('value'))) ) >
+                                   float(('%.2f' % float(ser[0].get('value'))) )) and 'delta-up'
+                                ) or (
+                                  ( (ser and ser[-1].get('value') is not None and ser[0].get('value') is not None) and
+                                    (float(('%.2f' % float(ser[-1].get('value'))) ) <
+                                     float(('%.2f' % float(ser[0].get('value'))) )) and 'delta-down'
+                                  ) or 'delta-flat'
+                                )
+                              )"
+                              tal:content="structure trend_symbol_code">&rarr;</span>
                       </div>
+
+                      <!-- Sparkline (mismo color que la serie) -->
                       <canvas class="spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
+
+                      <!-- Datos: fecha,valor|fecha,valor|... -->
                       <input type="hidden"
                              tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
                                              value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
+
+                      <!-- Color por fila (si backend provee r['color'], úsalo; si no, paleta por índice) -->
+                      <input type="hidden"
+                             tal:attributes="
+                               id python:u'spark-color-'+(r.get('uid') or unicode(repeat['r'].index));
+                               value python:(r.get('color') or u'#'+ (('343a40','0d6efd','fd7e14','198754','dc3545','6f42c1')[repeat['r'].index % 6]))
+                             " />
                     </td>
                   </tr>
                 </tal:calc>
@@ -689,32 +709,6 @@
           var t = Date.parse(st);
           return isNaN(t) ? 0 : t;
         }
-        function drawSpark(canvas, points){
-          if (!canvas || !points || points.length<2) return;
-          var ctx = canvas.getContext('2d');
-          var W = canvas.width, H = canvas.height;
-          var xs = points.map(function(p){return p[0];});
-          var ys = points.map(function(p){return p[1];});
-          var xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
-          var ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
-          if (xmin===xmax) { xmin -= 1; xmax += 1; }
-          if (ymin===ymax) { ymin -= 1; ymax += 1; }
-          var pad = 3;
-          var sx = function(x){ return pad + (x - xmin) * (W-2*pad) / (xmax - xmin); };
-          var sy = function(y){ return H - pad - (y - ymin) * (H-2*pad) / (ymax - ymin); };
-          ctx.clearRect(0,0,W,H);
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = '#343a40';
-          ctx.beginPath();
-          ctx.moveTo(sx(points[0][0]), sy(points[0][1]));
-          for (var i=1;i<points.length;i++){ ctx.lineTo(sx(points[i][0]), sy(points[i][1])); }
-          ctx.stroke();
-          var last = points[points.length-1];
-          ctx.fillStyle = '#343a40';
-          ctx.beginPath();
-          ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true);
-          ctx.fill();
-        }
         function parseHiddenSpark(id){
           var el = document.getElementById(id);
           if (!el) return null;
@@ -728,6 +722,48 @@
           }).filter(function(p){ return p[0] && isFinite(p[1]); });
           return pts.length ? pts : null;
         }
+        function parseSparkColor(id){
+          var el = document.getElementById(id);
+          var v = (el && el.value) ? String(el.value).trim() : '';
+          return v || '#343a40';
+        }
+        // Dibuja SOLO la línea (sin puntos) con color de la serie
+        function drawSpark(canvas, points, color){
+          if (!canvas || !points || points.length<2) return;
+          var ctx = canvas.getContext('2d');
+          var W = canvas.width, H = canvas.height;
+          var xs = points.map(function(p){return p[0];});
+          var ys = points.map(function(p){return p[1];});
+          var xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+          var ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+          if (xmin===xmax) { xmin -= 1; xmax += 1; }
+          if (ymin===ymax) { ymin -= 1; ymax += 1; }
+          var padX = 3, padY = 2;
+          var sx = function(x){ return padX + (x - xmin) * (W-2*padX) / (xmax - xmin); };
+          var sy = function(y){ return H - padY - (y - ymin) * (H-2*padY) / (ymax - ymin); };
+          ctx.clearRect(0,0,W,H);
+          ctx.lineWidth = 1;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = color || '#343a40';
+          ctx.beginPath();
+          ctx.moveTo(sx(points[0][0]), sy(points[0][1]));
+          for (var i=1;i<points.length;i++){ ctx.lineTo(sx(points[i][0]), sy(points[i][1])); }
+          ctx.stroke();
+        }
+        // Fallback a flecha si no hay canvas/pts (usa ENTIDADES HTML para evitar encoding)
+        function arrowFallback(cell, points){
+          if (!cell) return;
+          var arrow = '&rarr;';
+          if (points && points.length>=2){
+            var first = points[0][1], last = points[points.length-1][1];
+            var eps = Math.max(1e-9, Math.abs(first)*1e-4);
+            if (last > first + eps) arrow = '&uarr;';
+            else if (last < first - eps) arrow = '&darr;';
+          }
+          var span = cell.querySelector('div > span');
+          if (span){ span.innerHTML = arrow; }
+        }
         function initSparks(){
           var rows = document.querySelectorAll('#delta-check-panel canvas.spark');
           for (var i=0;i<rows.length;i++){
@@ -736,7 +772,12 @@
             if (!c.getAttribute('height')) c.setAttribute('height', 36);
             var uid = c.id.replace('spark-','');
             var pts = parseHiddenSpark('spark-data-'+uid);
-            if (pts) drawSpark(c, pts);
+            var col = parseSparkColor('spark-color-'+uid);
+            if (c.getContext && pts && pts.length>=2){
+              drawSpark(c, pts, col);
+            } else {
+              arrowFallback(c.parentNode, pts);
+            }
           }
         }
         function init(){ initSparks(); }
@@ -832,19 +873,17 @@
             var options = {
               chart: {
                 type: 'line',
-                height: 560,            /* igual que el contenedor */
+                height: 560,
                 backgroundColor: 'transparent',
-                spacingTop: 16,         /* FIX: menos espacio + sin offsets manuales */
+                spacingTop: 16,
                 spacingBottom: 16
               },
               title: {
                 text: (trendsData.title || 'Tendencias de Resultados'),
-                /* sin y: ... */
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                /* sin y: ... */
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
@@ -906,9 +945,8 @@
 
             if (typeof Highcharts !== 'undefined') {
               Highcharts.chart('trends-chart-container', options);
-              /* Asegurar alto del contenedor y reflow del chart */
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; } /* coherente con chart.height */
+              if (el) { el.style.height = '560px'; }
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
