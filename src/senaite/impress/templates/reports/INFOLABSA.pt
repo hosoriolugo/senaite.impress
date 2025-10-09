@@ -132,11 +132,10 @@
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
-      padding: 0;          /* FIX: sin padding para no recortar el SVG/título */
+      padding: 0;
       background: #fff;
-      overflow: visible;   /* asegurar visibilidad de textos fuera del plot area */
+      overflow: visible;
     }
-    /* Forzar visibilidad del título/subtítulo por si alguna regla global los oculta */
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle {
       display: block !important;
@@ -215,7 +214,6 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
-    <!-- (sin cambios) -->
     <tal:patient define="
       get python:getattr;
 
@@ -560,7 +558,6 @@
       rows python:(delta and delta.get('rows') or []);
       hasrows python:bool(rows);
 
-      /* --- Helper: coerción a número para semicuantitativos/ordinales --- */
       _norm python:lambda s: ( (s or u'').strip().lower().replace(u',', u'.') );
       _to_num python:lambda s: (
         None if s in (None, u'') else (
@@ -604,7 +601,6 @@
 
                   is_qual_row python:( (vnow_num is None) and (vprev_num is None) );
 
-                  /* Δ absoluto: solo si tenemos números (directos o serie) */
                   delta_abs_val python:(
                     ( (vnow_num is not None) and (vprev_num is not None) and (float(vnow_num) - float(vprev_num)) ) or
                     ( (not is_qual_row) and (n>=2) and (ser[-1].get('value') - ser[-2].get('value')) ) or
@@ -629,7 +625,6 @@
                       <div class="small" tal:condition="python:r.get('unit')" tal:content="python:r.get('unit')">U</div>
                     </td>
 
-                    <!-- Actual: siempre muestra el texto tal cual (numérico o cualitativo) -->
                     <td>
                       <div tal:content="python:(vnow_raw if (vnow_raw not in (None, u'')) else u'—')">—</div>
                       <div class="small"
@@ -642,7 +637,6 @@
                            )">—</div>
                     </td>
 
-                    <!-- Previo: siempre muestra el texto tal cual (numérico o cualitativo) -->
                     <td>
                       <div tal:content="python:(vprev_raw if (vprev_raw not in (None, u'')) else u'—')">—</div>
                       <div class="small">
@@ -653,7 +647,6 @@
                       </div>
                     </td>
 
-                    <!-- Δ vs previo: oculto cuando es cualitativo puro -->
                     <td tal:attributes="style python:is_qual_row and u'display:none' or u''">
                       <div tal:condition="python:((not is_qual_row) and (r.get('delta_pct') is not None))">
                         <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
@@ -662,7 +655,6 @@
                       <div class="small" tal:condition="python:(not is_qual_row) and r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
-                    <!-- Tendencia (sparkline): oculto cuando es cualitativo puro -->
                     <td tal:attributes="style python:is_qual_row and u'display:none' or u''">
                       <canvas class="spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
@@ -676,11 +668,9 @@
             </tbody>
           </table>
 
-          <!-- (ELIMINADO el bloque "Tendencias por analito" que dejaba hueco) -->
         </div>
       </div>
 
-      <!-- Dibujo de mini-sparklines -->
       <script type="text/javascript" tal:condition="hasrows">
       (function(){
         function parseTime(s){
@@ -770,7 +760,6 @@
              or {}
            );
 
-           /* Reglas para mostrar el gráfico: ocultar si no hay datos numéricos */
            _series python:(trends_data.get('series') or []);
            _has_numeric_series python:any([
              any([
@@ -849,9 +838,9 @@
             var options = {
               chart: {
                 type: 'line',
-                height: 560,            /* igual que el contenedor */
+                height: 560,
                 backgroundColor: 'transparent',
-                spacingTop: 28,         /* +espacio bajo el subtítulo */
+                spacingTop: 28,
                 spacingBottom: 16
               },
               title: {
@@ -860,7 +849,7 @@
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                y: 12,                  /* separa el subtítulo del plot */
+                y: 12,
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
@@ -922,9 +911,8 @@
 
             if (typeof Highcharts !== 'undefined') {
               Highcharts.chart('trends-chart-container', options);
-              /* Asegurar alto del contenedor y reflow del chart */
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; } /* coherente con chart.height */
+              if (el) { el.style.height = '560px'; }
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
