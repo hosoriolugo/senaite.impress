@@ -132,10 +132,11 @@
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
-      padding: 0;
+      padding: 0;          /* FIX: sin padding para no recortar el SVG/título */
       background: #fff;
-      overflow: visible;
+      overflow: visible;   /* asegurar visibilidad de textos fuera del plot area */
     }
+    /* Forzar visibilidad del título/subtítulo por si alguna regla global los oculta */
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle {
       display: block !important;
@@ -214,6 +215,7 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
+    <!-- (sin cambios) -->
     <tal:patient define="
       get python:getattr;
 
@@ -556,28 +558,6 @@
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
       hasrows python:bool(rows);
-
-      _norm python:lambda s: ((s or u'').strip().lower().replace(u',', u'.'));
-      _u python:lambda s: (
-        (isinstance(s, unicode) and s) or
-        (isinstance(s, str) and s.decode('utf-8','ignore')) or
-        unicode(s)
-      );
-
-      <!-- (FIX) sin 're': parseo numérico seguro -->
-      _to_num python:lambda s: (
-        None
-        if s in (None, u'')
-        else ( (lambda ns:
-                 ( (ns in (u'traza', u'trazas', u'trace')) and 0.5 ) or
-                 ( (ns.endswith(u'+') and ns[:-1].isdigit()) and float(ns[:-1]) ) or
-                 ( (all([c in u'+-.0123456789' for c in ns]) and ns not in (u'+', u'-', u'.', u'+.', u'-.'))
-                   and (ns.endswith(u'.') and None or float(ns)) ) or
-                 None
-               )(_norm(s))
-             )
-      );
-      _num_types python:(int, float);
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
         <div class="w-100">
@@ -603,32 +583,15 @@
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
-
-                  vnow_raw  python:r.get('value_now');
-                  vprev_raw python:r.get('prev_value');
-
-                  vnow_num  python:_to_num(vnow_raw);
-                  vprev_num python:_to_num(vprev_raw);
-
-                  is_qual_row python:((vnow_num is None) and (vprev_num is None));
-
-                  delta_abs_val python:(
-                    ( (vnow_num is not None) and (vprev_num is not None) and (float(vnow_num) - float(vprev_num)) ) or
-                    ( (not is_qual_row) and (n>=2) and (ser[-1].get('value') - ser[-2].get('value')) ) or
-                    None
-                  );
-                  delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
-                  delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—');
-
-                  delta_pct_str python:((not is_qual_row) and (r.get('delta_pct') or u'N/A') or None);
+                  delta_abs_val python:( (float(r.get('value_now')) - float(r.get('prev_value'))) if ((r.get('value_now') not in (None, u'', '')) and (r.get('prev_value') not in (None, u'', ''))) else ((ser[-1].get('value') - ser[-2].get('value')) if (n>=2) else None) );
+                  delta_abs_val_norm python:( (delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None );
+                  delta_abs_str python:( (delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—' );
+                  delta_pct_str python:(r.get('delta_pct') or u'N/A');
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
-                  delta_pct_val python:((_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None);
-
+                  delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
-                  rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
-
-                  show_spark python:((not is_qual_row) and (n>=2));
+                  rcv_ok python:( has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)) );
                 ">
                   <tr>
                     <td>
@@ -637,7 +600,7 @@
                     </td>
 
                     <td>
-                      <div tal:content="python:(vnow_raw if (vnow_raw not in (None, u'')) else u'—')">—</div>
+                      <div tal:content="python:r.get('value_now') or u'—'">—</div>
                       <div class="small"
                            tal:content="python:view.to_localized_time(
                              (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
@@ -649,7 +612,7 @@
                     </td>
 
                     <td>
-                      <div tal:content="python:(vprev_raw if (vprev_raw not in (None, u'')) else u'—')">—</div>
+                      <div tal:content="python:r.get('prev_value') or u'—'">—</div>
                       <div class="small">
                         <span i18n:translate="">ID</span>:
                         <strong tal:content="python:r.get('prev_sample_id') or u'—'">—</strong>
@@ -658,29 +621,21 @@
                       </div>
                     </td>
 
-                    <td tal:attributes="style python:is_qual_row and u'display:none' or u''">
-                      <div tal:condition="python:((not is_qual_row) and (r.get('delta_pct') is not None))">
+                    <td>
+                      <div tal:condition="python:(r.get('delta_pct') is not None)">
                         <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
-                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'Δ', (delta_abs_str), (delta_pct_str or u'N/A'))">Δ +0.00 (+0%)</span>
+                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'Δ', (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
                       </div>
-                      <div class="small" tal:condition="python:(not is_qual_row) and r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
+                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
-                    <!-- Mantén la celda para no romper la tabla, pero sólo renderiza spark cuando show_spark -->
-                    <td tal:attributes="style python:is_qual_row and u'display:none' or u''">
+                    <!-- Tendencia (sparkline) -->
+                    <td>
                       <canvas class="spark"
-                              tal:condition="python:show_spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
                       <input type="hidden"
-                             tal:condition="python:show_spark"
-                             tal:attributes="
-                               id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
-                               value python:u'|'.join([
-                                 u'%s,%s' % (_u(p.get('date')), unicode(p.get('value')))
-                                 for p in (r.get('series') or [])
-                                 if isinstance(p.get('value'), _num_types)
-                               ])
-                             " />
+                             tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
+                                             value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
                     </td>
                   </tr>
                 </tal:calc>
@@ -688,9 +643,11 @@
             </tbody>
           </table>
 
+          <!-- (ELIMINADO el bloque "Tendencias por analito" que dejaba hueco) -->
         </div>
       </div>
 
+      <!-- Dibujo de mini-sparklines -->
       <script type="text/javascript" tal:condition="hasrows">
       (function(){
         function parseTime(s){
@@ -735,7 +692,7 @@
           if (!el) return null;
           var raw = (el.value || '').trim();
           if (!raw) return null;
-          var pts = raw.split('|').map(function(s){
+          var pts = rawsplit = raw.split('|').map(function(s){
             var kv = s.split(',');
             var t = parseTime(kv[0]);
             var v = parseFloat(kv[1]);
@@ -770,7 +727,6 @@
          tal:define="
            get python:getattr;
            json modules/json;
-           <!-- (FIX) quitado 're modules/re;' -->
            _get_trends python:get(view,'get_trends_data', None);
            _trv python:getattr(ar, 'restrictedTraverse', None);
            _delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
@@ -778,19 +734,9 @@
              (_get_trends and (callable(_get_trends) and _get_trends() or _get_trends))
              or (_delta and (_delta.get('chart_v2') or _delta.get('chart')))
              or {}
-           );
-
-           _series python:(trends_data.get('series') or []);
-           _has_numeric_series python:any([
-             any([
-               ( (isinstance(p, (list, tuple)) and isinstance((len(p)>1 and p[1] or None), (int, float))) or
-                 (isinstance(p, dict) and isinstance(p.get('y'), (int, float))) )
-               for p in (s.get('data') or [])
-             ])
-             for s in _series
-           ]);
+           )
          "
-         tal:condition="python:bool(trends_data) and _has_numeric_series">
+         tal:condition="python:bool(trends_data)">
 
       <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
 
@@ -858,18 +804,19 @@
             var options = {
               chart: {
                 type: 'line',
-                height: 560,
+                height: 560,            /* igual que el contenedor */
                 backgroundColor: 'transparent',
-                spacingTop: 28,
+                spacingTop: 16,         /* FIX: menos espacio + sin offsets manuales */
                 spacingBottom: 16
               },
               title: {
                 text: (trendsData.title || 'Tendencias de Resultados'),
+                /* sin y: ... */
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                y: 12,
+                /* sin y: ... */
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
@@ -931,8 +878,9 @@
 
             if (typeof Highcharts !== 'undefined') {
               Highcharts.chart('trends-chart-container', options);
+              /* Asegurar alto del contenedor y reflow del chart */
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; }
+              if (el) { el.style.height = '560px'; } /* coherente con chart.height */
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
