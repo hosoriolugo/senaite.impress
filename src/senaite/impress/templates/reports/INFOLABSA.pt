@@ -583,8 +583,9 @@
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
-                  delta_abs_val python:( (r.get('value_now') is not None and r.get('prev_value') is not None) and (float(r.get('value_now')) - float(r.get('prev_value'))) or ((n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None) );
-                  delta_abs_str python:( (delta_abs_val is not None) and (u'%+.2f' % delta_abs_val) or u'—' );
+                  delta_abs_val python:( (float(r.get('value_now')) - float(r.get('prev_value'))) if ((r.get('value_now') not in (None, u'', '')) and (r.get('prev_value') not in (None, u'', ''))) else ((ser[-1].get('value') - ser[-2].get('value')) if (n>=2) else None) );
+                  delta_abs_val_norm python:( (delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None );
+                  delta_abs_str python:( (delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—' );
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
                   delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
@@ -691,7 +692,7 @@
           if (!el) return null;
           var raw = (el.value || '').trim();
           if (!raw) return null;
-          var pts = raw.split('|').map(function(s){
+          var pts = rawsplit = raw.split('|').map(function(s){
             var kv = s.split(',');
             var t = parseTime(kv[0]);
             var v = parseFloat(kv[1]);
