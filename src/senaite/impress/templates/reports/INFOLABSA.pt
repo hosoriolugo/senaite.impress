@@ -558,6 +558,11 @@
       hasrows python:bool(rows);
 
       _norm python:lambda s: ((s or u'').strip().lower().replace(u',', u'.'));
+      _u python:lambda s: (
+        (isinstance(s, unicode) and s) or
+        (isinstance(s, str) and s.decode('utf-8','ignore')) or
+        unicode(s)
+      );
 
       <!-- (FIX) sin 're': parseo numérico seguro -->
       _to_num python:lambda s: (
@@ -572,6 +577,7 @@
                )(_norm(s))
              )
       );
+      _num_types python:(int, float);
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
         <div class="w-100">
@@ -660,12 +666,21 @@
                       <div class="small" tal:condition="python:(not is_qual_row) and r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
+                    <!-- Mantén la celda para no romper la tabla, pero sólo renderiza spark cuando show_spark -->
                     <td tal:attributes="style python:is_qual_row and u'display:none' or u''">
                       <canvas class="spark"
+                              tal:condition="python:show_spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
                       <input type="hidden"
-                             tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
-                                             value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
+                             tal:condition="python:show_spark"
+                             tal:attributes="
+                               id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
+                               value python:u'|'.join([
+                                 u'%s,%s' % (_u(p.get('date')), unicode(p.get('value')))
+                                 for p in (r.get('series') or [])
+                                 if isinstance(p.get('value'), _num_types)
+                               ])
+                             " />
                     </td>
                   </tr>
                 </tal:calc>
