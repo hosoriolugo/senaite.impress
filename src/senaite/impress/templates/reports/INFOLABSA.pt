@@ -554,10 +554,22 @@
     <!-- =========== Delta Check (última página) =========== -->
     <tal:delta define="
       get python:getattr;
+      re modules/re;
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
       hasrows python:bool(rows);
+
+      /* --- Helper: coerción a número para semicuantitativos/ordinales --- */
+      _norm python:lambda s: ( (s or u'').strip().lower().replace(u',', u'.') );
+      _to_num python:lambda s: (
+        None if s in (None, u'') else (
+          ( re.match(r'^[+-]?\\d+(?:\\.\\d+)?$', _norm(s)) and float(_norm(s)) ) or
+          ( re.match(r'^(\\d)\\+$', _norm(s)) and float(re.match(r'^(\\d)\\+$', _norm(s)).group(1)) ) or
+          ( _norm(s) in (u'traza', u'trazas', u'trace') and 0.5 ) or
+          None
+        )
+      );
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
         <div class="w-100">
@@ -583,15 +595,33 @@
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
-                  delta_abs_val python:( (float(r.get('value_now')) - float(r.get('prev_value'))) if ((r.get('value_now') not in (None, u'', '')) and (r.get('prev_value') not in (None, u'', ''))) else ((ser[-1].get('value') - ser[-2].get('value')) if (n>=2) else None) );
+
+                  vnow_raw  python:r.get('value_now');
+                  vprev_raw python:r.get('prev_value');
+
+                  vnow_num  python:_to_num(vnow_raw);
+                  vprev_num python:_to_num(vprev_raw);
+
+                  is_qual_row python:( (vnow_num is None) and (vprev_num is None) );
+
+                  /* Δ absoluto: solo si tenemos números (directos o serie) */
+                  delta_abs_val python:(
+                    ( (vnow_num is not None) and (vprev_num is not None) and (float(vnow_num) - float(vprev_num)) ) or
+                    ( (not is_qual_row) and (n>=2) and (ser[-1].get('value') - ser[-2].get('value')) ) or
+                    None
+                  );
                   delta_abs_val_norm python:( (delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None );
                   delta_abs_str python:( (delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—' );
-                  delta_pct_str python:(r.get('delta_pct') or u'N/A');
+
+                  delta_pct_str python:( (not is_qual_row) and (r.get('delta_pct') or u'N/A') or None );
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
-                  delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
+                  delta_pct_val python:( (_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None );
+
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
                   rcv_ok python:( has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)) );
+
+                  show_spark python:( (not is_qual_row) and (n>=2) );
                 ">
                   <tr>
                     <td>
@@ -599,8 +629,9 @@
                       <div class="small" tal:condition="python:r.get('unit')" tal:content="python:r.get('unit')">U</div>
                     </td>
 
+                    <!-- Actual: siempre muestra el texto tal cual (numérico o cualitativo) -->
                     <td>
-                      <div tal:content="python:r.get('value_now') or u'—'">—</div>
+                      <div tal:content="python:(vnow_raw if (vnow_raw not in (None, u'')) else u'—')">—</div>
                       <div class="small"
                            tal:content="python:view.to_localized_time(
                              (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
@@ -611,8 +642,9 @@
                            )">—</div>
                     </td>
 
+                    <!-- Previo: siempre muestra el texto tal cual (numérico o cualitativo) -->
                     <td>
-                      <div tal:content="python:r.get('prev_value') or u'—'">—</div>
+                      <div tal:content="python:(vprev_raw if (vprev_raw not in (None, u'')) else u'—')">—</div>
                       <div class="small">
                         <span i18n:translate="">ID</span>:
                         <strong tal:content="python:r.get('prev_sample_id') or u'—'">—</strong>
@@ -621,16 +653,17 @@
                       </div>
                     </td>
 
-                    <td>
-                      <div tal:condition="python:(r.get('delta_pct') is not None)">
+                    <!-- Δ vs previo: oculto cuando es cualitativo puro -->
+                    <td tal:attributes="style python:is_qual_row and u'display:none' or u''">
+                      <div tal:condition="python:((not is_qual_row) and (r.get('delta_pct') is not None))">
                         <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
-                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'Δ', (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
+                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'Δ', (delta_abs_str), (delta_pct_str or u'N/A'))">Δ +0.00 (+0%)</span>
                       </div>
-                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
+                      <div class="small" tal:condition="python:(not is_qual_row) and r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
-                    <!-- Tendencia (sparkline) -->
-                    <td>
+                    <!-- Tendencia (sparkline): oculto cuando es cualitativo puro -->
+                    <td tal:attributes="style python:is_qual_row and u'display:none' or u''">
                       <canvas class="spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
                       <input type="hidden"
@@ -692,7 +725,7 @@
           if (!el) return null;
           var raw = (el.value || '').trim();
           if (!raw) return null;
-          var pts = rawsplit = raw.split('|').map(function(s){
+          var pts = raw.split('|').map(function(s){
             var kv = s.split(',');
             var t = parseTime(kv[0]);
             var v = parseFloat(kv[1]);
@@ -727,6 +760,7 @@
          tal:define="
            get python:getattr;
            json modules/json;
+           re modules/re;
            _get_trends python:get(view,'get_trends_data', None);
            _trv python:getattr(ar, 'restrictedTraverse', None);
            _delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
@@ -734,9 +768,20 @@
              (_get_trends and (callable(_get_trends) and _get_trends() or _get_trends))
              or (_delta and (_delta.get('chart_v2') or _delta.get('chart')))
              or {}
-           )
+           );
+
+           /* Reglas para mostrar el gráfico: ocultar si no hay datos numéricos */
+           _series python:(trends_data.get('series') or []);
+           _has_numeric_series python:any([
+             any([
+               ( (isinstance(p, (list, tuple)) and isinstance((len(p)>1 and p[1] or None), (int, float))) or
+                 (isinstance(p, dict) and isinstance(p.get('y'), (int, float))) )
+               for p in (s.get('data') or [])
+             ])
+             for s in _series
+           ]);
          "
-         tal:condition="python:bool(trends_data)">
+         tal:condition="python:bool(trends_data) and _has_numeric_series">
 
       <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
 
@@ -806,17 +851,16 @@
                 type: 'line',
                 height: 560,            /* igual que el contenedor */
                 backgroundColor: 'transparent',
-                spacingTop: 16,         /* FIX: menos espacio + sin offsets manuales */
+                spacingTop: 28,         /* +espacio bajo el subtítulo */
                 spacingBottom: 16
               },
               title: {
                 text: (trendsData.title || 'Tendencias de Resultados'),
-                /* sin y: ... */
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                /* sin y: ... */
+                y: 12,                  /* separa el subtítulo del plot */
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
