@@ -583,18 +583,8 @@
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
-
-                  /* === NUEVO: coerción segura y diferencia basada en value_now y prev_value === */
-                  to_float python:lambda v: (
-                    (v is None) and None
-                    or ( (isinstance(v,(int,float)) and float(v)) or float(unicode(v).replace(u',',u'.')) )
-                  );
-                  curr_v python:( (r.get('value_now') is not None) and to_float(r.get('value_now')) or None );
-                  prev_v python:( (r.get('prev_value') is not None) and to_float(r.get('prev_value')) or None );
-
-                  delta_abs_val python:( (curr_v is not None and prev_v is not None) and (curr_v - prev_v) or None );
-                  delta_abs_str python:( (delta_abs_val is not None) and (u'%+.2f' % delta_abs_val).replace(u'.00', u'.0').replace(u'.0', u'') or u'—' );
-
+                  delta_abs_val python:( (r.get('value_now') is not None and r.get('prev_value') is not None) and (r.get('value_now') - r.get('prev_value')) or ((n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None) );
+                  delta_abs_str python:( (delta_abs_val is not None) and (u'%+.2f' % delta_abs_val) or u'—' );
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
                   delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
