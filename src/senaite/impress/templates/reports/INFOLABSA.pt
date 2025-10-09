@@ -552,20 +552,25 @@
     <!-- =========== Delta Check (última página) =========== -->
     <tal:delta define="
       get python:getattr;
-      re modules/re;
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
       hasrows python:bool(rows);
 
-      _norm python:lambda s: ( (s or u'').strip().lower().replace(u',', u'.') );
+      _norm python:lambda s: ((s or u'').strip().lower().replace(u',', u'.'));
+
+      <!-- (FIX) sin 're': parseo numérico seguro -->
       _to_num python:lambda s: (
-        None if s in (None, u'') else (
-          ( re.match(r'^[+-]?\\d+(?:\\.\\d+)?$', _norm(s)) and float(_norm(s)) ) or
-          ( re.match(r'^(\\d)\\+$', _norm(s)) and float(re.match(r'^(\\d)\\+$', _norm(s)).group(1)) ) or
-          ( _norm(s) in (u'traza', u'trazas', u'trace') and 0.5 ) or
-          None
-        )
+        None
+        if s in (None, u'')
+        else ( (lambda ns:
+                 ( (ns in (u'traza', u'trazas', u'trace')) and 0.5 ) or
+                 ( (ns.endswith(u'+') and ns[:-1].isdigit()) and float(ns[:-1]) ) or
+                 ( (all([c in u'+-.0123456789' for c in ns]) and ns not in (u'+', u'-', u'.', u'+.', u'-.'))
+                   and (ns.endswith(u'.') and None or float(ns)) ) or
+                 None
+               )(_norm(s))
+             )
       );
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
@@ -599,25 +604,25 @@
                   vnow_num  python:_to_num(vnow_raw);
                   vprev_num python:_to_num(vprev_raw);
 
-                  is_qual_row python:( (vnow_num is None) and (vprev_num is None) );
+                  is_qual_row python:((vnow_num is None) and (vprev_num is None));
 
                   delta_abs_val python:(
                     ( (vnow_num is not None) and (vprev_num is not None) and (float(vnow_num) - float(vprev_num)) ) or
                     ( (not is_qual_row) and (n>=2) and (ser[-1].get('value') - ser[-2].get('value')) ) or
                     None
                   );
-                  delta_abs_val_norm python:( (delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None );
-                  delta_abs_str python:( (delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—' );
+                  delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
+                  delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—');
 
-                  delta_pct_str python:( (not is_qual_row) and (r.get('delta_pct') or u'N/A') or None );
+                  delta_pct_str python:((not is_qual_row) and (r.get('delta_pct') or u'N/A') or None);
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
-                  delta_pct_val python:( (_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None );
+                  delta_pct_val python:((_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None);
 
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
-                  rcv_ok python:( has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)) );
+                  rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
 
-                  show_spark python:( (not is_qual_row) and (n>=2) );
+                  show_spark python:((not is_qual_row) and (n>=2));
                 ">
                   <tr>
                     <td>
@@ -750,7 +755,7 @@
          tal:define="
            get python:getattr;
            json modules/json;
-           re modules/re;
+           <!-- (FIX) quitado 're modules/re;' -->
            _get_trends python:get(view,'get_trends_data', None);
            _trv python:getattr(ar, 'restrictedTraverse', None);
            _delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
