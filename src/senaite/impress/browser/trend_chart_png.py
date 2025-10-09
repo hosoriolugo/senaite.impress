@@ -34,7 +34,7 @@ def _parse_ms(x):
         # cadena
         try:
             # reemplazo para "YYYY-MM-DD HH:MM" sin "T"
-            if isinstance(x, basestring) and (' ' in x and 'T' not in x):
+            if ' ' in x and 'T' not in x:
                 x = x.replace(' ', 'T')
             # Date.parse equivalente simple:
             from DateTime import DateTime
@@ -53,37 +53,6 @@ def _safe_text(val):
         return unicode(val)
     except Exception:
         return u''
-
-
-def _load_font(size):
-    """Intenta TTF legible; si no, usa la default (mantiene compatibilidad)."""
-    try:
-        return ImageFont.truetype('DejaVuSans.ttf', size)
-    except Exception:
-        try:
-            return ImageFont.truetype('arial.ttf', size)
-        except Exception:
-            return ImageFont.load_default()
-
-
-def _truncate(draw, text, font, max_w, ellipsis=u'…'):
-    """Recorta texto para que quepa en max_w píxeles (no rompe layout)."""
-    w, _ = draw.textsize(text, font=font)
-    if w <= max_w:
-        return text
-    lo, hi = 0, max(0, len(text)-1)
-    while lo < hi:
-        mid = (lo + hi) // 2
-        t2 = text[:max(1, mid)] + ellipsis
-        w2, _ = draw.textsize(t2, font=font)
-        if w2 <= max_w:
-            lo = mid + 1
-        else:
-            hi = mid
-    res = text[:max(1, lo-1)] + ellipsis
-    if draw.textsize(res, font=font)[0] > max_w and len(res) > 1:
-        res = text[:max(1, lo-2)] + ellipsis
-    return res
 
 
 class TrendChartPNG(BrowserView):
@@ -181,16 +150,12 @@ class TrendChartPNG(BrowserView):
         W = max(600, _to_int(request.get('w', 1000), 1000))
         H = max(240, _to_int(request.get('h', 360), 360))
         dpi = max(96, _to_int(request.get('dpi', 144), 144))
-        # Tus paddings base (se respetan)
         pad_l = 60
         pad_r = 20
         pad_t = 30
         pad_b = 40
         bg = (255, 255, 255)
         grid = (230, 236, 240)
-        axis = (173, 181, 189)
-        txt_m = (108, 117, 125)
-        txt_b = (0, 0, 0)
 
         if not PIL_OK:
             # Respuesta de texto clara si Pillow no está
@@ -206,10 +171,8 @@ class TrendChartPNG(BrowserView):
         im = Image.new('RGB', (W, H), bg)
         dr = ImageDraw.Draw(im)
 
-        # Fuentes (mejor legibilidad si hay TTF; si no, igual que antes)
-        font       = _load_font(11)
-        font_small = _load_font(10)
-        font_title = _load_font(12)
+        # Fuentes (usa la por defecto para compatibilidad)
+        font = ImageFont.load_default()
 
         # Mensaje si no hay datos
         if not series:
@@ -222,6 +185,7 @@ class TrendChartPNG(BrowserView):
             return out.getvalue()
 
         # Extremos globales
+        # X en ms → también sacamos etiquetas legibles
         xs = []
         ys = []
         for s in series:
@@ -237,116 +201,48 @@ class TrendChartPNG(BrowserView):
             xmin -= 1000
             xmax += 1000
 
-        # ========= ENCABEZADO INTELIGENTE (título + leyenda) =========
-        title = u'Tendencias de Resultados'
-        ttw, tth = dr.textsize(title, font=font_title)
-
-        # Simulación de leyenda para calcular alto total y ajustar pad_t
-        leg_start_x = pad_l
-        leg_y0 = 6 + tth + 6     # debajo del título
-        space_x = 24
-        box_w, box_h = 14, 6
-        gap = 6
-
-        sim_x = leg_start_x
-        sim_y = leg_y0
-        last_lh = 0
-        # ancho máximo “útil” para una entrada de leyenda
-        max_line_w = W - pad_l - pad_r - 120
-
-        for idx, s in enumerate(series):
-            name = s['name']
-            unit = s.get('unit') or u''
-            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
-            ltw, lth = dr.textsize(label, font=font)
-            last_lh = lth
-            need_w = box_w + gap + ltw + space_x
-            if sim_x + need_w > (W - pad_r - 120):
-                sim_x = leg_start_x
-                sim_y += lth + 6
-            sim_x += need_w
-
-        legend_total_h = (sim_y - leg_y0) + (last_lh or 0)
-        # pad_t efectivo: respeta tu pad_t mínimo pero añade lo que realmente ocupa encabezado
-        pad_t_eff = max(pad_t, 6 + tth + 6 + legend_total_h + 6)
-
-        # Funciones de escala con pad_t efectivo
+        # Funciones de escala
         plot_w = W - pad_l - pad_r
-        plot_h = H - pad_t_eff - pad_b
-        # Si por encabezado quedó chico, garantizamos mínimo de 100 px de área
-        if plot_h < 100:
-            pad_t_eff = max(14, H - pad_b - 100)
-            plot_h = H - pad_t_eff - pad_b
+        plot_h = H - pad_t - pad_b
 
         def sx(ms):
             return pad_l + int((ms - xmin) * 1.0 * plot_w / (xmax - xmin))
 
         def sy(y):
-            return pad_t_eff + int((ymax - y) * 1.0 * plot_h / (ymax - ymin))
+            return pad_t + int((ymax - y) * 1.0 * plot_h / (ymax - ymin))
 
-        # ======== DIBUJO ENCABEZADO (real) ========
-        # Título
-        dr.text((pad_l, 6), title, fill=txt_b, font=font_title)
-
-        # Leyenda
-        leg_x = leg_start_x
-        leg_y = leg_y0
-        for idx, s in enumerate(series):
-            color = self.PALETTE[idx % len(self.PALETTE)]
-            name = s['name']
-            unit = s.get('unit') or u''
-            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
-
-            # Truncado defensivo por si el nombre es larguísimo
-            label_fit = _truncate(dr, label, font, max(60, max_line_w))
-
-            ltw, lth = dr.textsize(label_fit, font=font)
-            need_w = box_w + gap + ltw + space_x
-            if leg_x + need_w > (W - pad_r - 120):
-                leg_x = leg_start_x
-                leg_y += lth + 6
-
-            # Caja de color
-            dr.rectangle([leg_x, leg_y + 3, leg_x + box_w, leg_y + 3 + box_h],
-                         fill=color, outline=color)
-            # Texto
-            dr.text((leg_x + box_w + gap, leg_y), label_fit, fill=txt_b, font=font)
-            leg_x += need_w
-
-        # ======== GRID + Ejes ========
+        # Grid Y + eje Y
         for t in yticks:
             ypix = sy(t)
             dr.line([(pad_l, ypix), (W - pad_r, ypix)], fill=grid)
             lab = (u'%0.2f' % t).rstrip('0').rstrip('.')
-            tw, th = dr.textsize(lab, font=font_small)
-            dr.text((pad_l - 8 - tw, ypix - th / 2), lab, fill=txt_m, font=font_small)
-
+            tw, th = dr.textsize(lab, font=font)
+            dr.text((pad_l - 8 - tw, ypix - th / 2), lab, fill=(108, 117, 125), font=font)
         # Ejes
-        dr.line([(pad_l, pad_t_eff), (pad_l, H - pad_b)], fill=axis)
-        dr.line([(pad_l, H - pad_b), (W - pad_r, H - pad_b)], fill=axis)
-        # Marco tenue del área de plot (mejora lectura)
-        dr.rectangle([(pad_l, pad_t_eff), (W - pad_r, H - pad_b)], outline=(222, 226, 230))
+        dr.line([(pad_l, pad_t), (pad_l, H - pad_b)], fill=(173, 181, 189))
+        dr.line([(pad_l, H - pad_b), (W - pad_r, H - pad_b)], fill=(173, 181, 189))
 
-        # Etiquetas X (máx 6 o 7, como tenías)
+        # Etiquetas X (máx 6)
+        # Seleccionamos algunos puntos equiespaciados por ms
         slots = 6
         if slots > len(xs):
             slots = len(xs)
         if slots > 0:
             step_ms = (xmax - xmin) / float(slots)
+            labels = []
             for i in range(slots + 1):
                 ms = xmin + int(i * step_ms)
                 xpix = sx(ms)
+                # formatea fecha corta
                 try:
                     dt = datetime.datetime.utcfromtimestamp(ms / 1000.0)
                     lab = dt.strftime('%d/%m %H:%M')
                 except Exception:
                     lab = unicode(ms)
-                tw, th = dr.textsize(lab, font=font_small)
-                # Evita salirte del área visible
-                xtext = max(pad_l, min(xpix - tw / 2, W - pad_r - tw))
-                dr.text((xtext, H - pad_b + 4), lab, fill=txt_m, font=font_small)
+                tw, th = dr.textsize(lab, font=font)
+                dr.text((xpix - tw / 2, H - pad_b + 4), lab, fill=(108, 117, 125), font=font)
 
-        # Dibuja series (exactamente como ya lo hacías)
+        # Dibuja series
         for idx, s in enumerate(series):
             color = self.PALETTE[idx % len(self.PALETTE)]
             pts = s['data']
@@ -363,7 +259,28 @@ class TrendChartPNG(BrowserView):
                 r = 3
                 dr.ellipse([last[0] - r, last[1] - r, last[0] + r, last[1] + r], fill=color, outline=color)
 
-        # (Conservamos tu título final: ya se dibujó arriba; NO lo duplicamos)
+        # Leyenda
+        leg_x = pad_l
+        leg_y = 6
+        for idx, s in enumerate(series):
+            color = self.PALETTE[idx % len(self.PALETTE)]
+            name = s['name']
+            unit = s.get('unit') or u''
+            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
+            # caja color
+            dr.rectangle([leg_x, leg_y + 3, leg_x + 14, leg_y + 9], fill=color, outline=color)
+            dr.text((leg_x + 18, leg_y), label, fill=(0, 0, 0), font=font)
+            tw, th = dr.textsize(label, font=font)
+            leg_x += 18 + tw + 24
+            # salto si se acaba el ancho
+            if leg_x > W - pad_r - 120:
+                leg_x = pad_l
+                leg_y += th + 6
+
+        # Título
+        title = u'Tendencias de Resultados'
+        tw, th = dr.textsize(title, font=font)
+        dr.text((pad_l, max(0, pad_t - th - 8)), title, fill=(0, 0, 0), font=font)
 
         # Output
         out = StringIO()
