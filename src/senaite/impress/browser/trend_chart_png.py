@@ -5,11 +5,10 @@ from ZODB.POSException import POSKeyError
 from StringIO import StringIO
 import math
 import datetime
-import colorsys  # NUEVO
 
 try:
     # Pillow (normalmente ya viene en la build de Plone/SENAITE)
-    from PIL import Image, ImageDraw, ImageFont, ImageFilter  # + ImageFilter
+    from PIL import Image, ImageDraw, ImageFont
     PIL_OK = True
 except Exception:
     PIL_OK = False
@@ -56,15 +55,35 @@ def _safe_text(val):
         return u''
 
 
-def _hsv_palette(n):
-    """Genera n colores distinguibles en RGB (0..255) usando HSV."""
-    out = []
-    for i in range(max(1, n)):
-        h = float(i) / float(max(1, n))
-        s, v = 0.70, 0.85
-        r, g, b = colorsys.hsv_to_rgb(h, s, v)
-        out.append((int(r * 255), int(g * 255), int(b * 255)))
-    return out
+def _load_font(size):
+    """Intenta TTF legible; si no, usa la default (mantiene compatibilidad)."""
+    try:
+        return ImageFont.truetype('DejaVuSans.ttf', size)
+    except Exception:
+        try:
+            return ImageFont.truetype('arial.ttf', size)
+        except Exception:
+            return ImageFont.load_default()
+
+
+def _truncate(draw, text, font, max_w, ellipsis=u'…'):
+    """Recorta texto para que quepa en max_w píxeles (no rompe layout)."""
+    w, _ = draw.textsize(text, font=font)
+    if w <= max_w:
+        return text
+    lo, hi = 0, max(0, len(text)-1)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        t2 = text[:max(1, mid)] + ellipsis
+        w2, _ = draw.textsize(t2, font=font)
+        if w2 <= max_w:
+            lo = mid + 1
+        else:
+            hi = mid
+    res = text[:max(1, lo-1)] + ellipsis
+    if draw.textsize(res, font=font)[0] > max_w and len(res) > 1:
+        res = text[:max(1, lo-2)] + ellipsis
+    return res
 
 
 class TrendChartPNG(BrowserView):
@@ -95,8 +114,6 @@ class TrendChartPNG(BrowserView):
 
     def _get_chartdata(self, ar):
         # Usa el flow ya existente
-        if not ar:
-            return {}
         trv = getattr(ar, 'restrictedTraverse', None)
         if not trv:
             return {}
@@ -157,68 +174,26 @@ class TrendChartPNG(BrowserView):
             i += 1
         return ymin, ymax, ticks
 
-    # === Timestamp del AR actual (ms) para recorte por "hasta este análisis"
-    def _ar_cutoff_ms(self, ar):
-        get = getattr
-        dt = (
-            (get(ar, 'getDateVerified', None) and ar.getDateVerified()) or
-            (get(ar, 'getDatePublished', None) and ar.getDatePublished()) or
-            (get(ar, 'getDateReceived', None) and ar.getDateReceived()) or
-            getattr(ar, 'created', None)
-        )
-        if not dt:
-            return None
-        try:
-            from DateTime import DateTime as ZDT
-            if isinstance(dt, ZDT):
-                return long(dt.timeTime() * 1000.0)
-        except Exception:
-            pass
-        try:
-            if hasattr(dt, 'timetuple'):
-                return long((dt - datetime.datetime(1970, 1, 1)).total_seconds() * 1000.0)
-        except Exception:
-            pass
-        try:
-            if isinstance(dt, tuple) and len(dt) >= 6:
-                return long(datetime.datetime(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]).strftime('%s')) * 1000
-        except Exception:
-            pass
-        return None
-
     def __call__(self):
         # --- Parámetros ---
         request = self.request
         uid = request.get('uid') or request.form.get('uid')
-        rid = request.get('rid') or request.form.get('rid')  # aceptado, opcional
-
-        # límites de puntos/ventana + opciones de presentación
-        max_points = max(1, _to_int(request.get('max_points', request.form.get('max_points', 6)), 6))
-        days = max(1, _to_int(request.get('days', request.form.get('days', 365)), 365))
-        show_note = request.get('note', request.form.get('note', '1'))
-        show_note = False if str(show_note) in ('0', 'false', 'False') else True
-        even = request.get('even', request.form.get('even', '1'))  # <== por defecto ON
-        even = True if str(even) in ('1', 'true', 'True') else False
-        sharpen = request.get('sharpen', request.form.get('sharpen', '1'))
-        sharpen = False if str(sharpen) in ('0', 'false', 'False') else True
-
-        # Lee params (w/h pueden venir o ser adaptativos)
-        W_param = request.get('w')
-        H_param = request.get('h')
-        dpi = max(96, _to_int(request.get('dpi', 300), 300))  # 300 por defecto
-        # Permitimos hasta 6x por si quieres subirlo desde la plantilla
-        scale = max(1, min(6, _to_int(request.get('scale', 4), 4)))  # supermuestreo x4 por defecto
-
-        # Paddings base (se ajustarán dinámicamente)
-        base_pad_l = 72
-        base_pad_r = 72   # generoso para no cortar etiquetas a la derecha
-        base_pad_t = 14   # padding real se recalcula con leyenda/título/nota
-        base_pad_b = 68   # más espacio para etiquetas X
+        W = max(600, _to_int(request.get('w', 1000), 1000))
+        H = max(240, _to_int(request.get('h', 360), 360))
+        dpi = max(96, _to_int(request.get('dpi', 144), 144))
+        # Tus paddings base (se respetan)
+        pad_l = 60
+        pad_r = 20
+        pad_t = 30
+        pad_b = 40
         bg = (255, 255, 255)
         grid = (230, 236, 240)
         axis = (173, 181, 189)
+        txt_m = (108, 117, 125)
+        txt_b = (0, 0, 0)
 
         if not PIL_OK:
+            # Respuesta de texto clara si Pillow no está
             self.request.response.setHeader('Content-Type', 'text/plain; charset=utf-8')
             return u'Pillow no disponible: no se puede generar el PNG en el servidor.'
 
@@ -227,342 +202,171 @@ class TrendChartPNG(BrowserView):
         chart = self._get_chartdata(ar)
         series = chart.get('series') or []
 
-        # Recorte por cutoff (hasta AR actual) + ventana + límite de puntos (incluye actual)
-        cutoff_ms = self._ar_cutoff_ms(ar)
-        if cutoff_ms is None:
-            try:
-                cutoff_ms = max([pt[0] for s in series for pt in (s.get('data') or [])])
-            except Exception:
-                cutoff_ms = None
-        if series:
-            millis_window = days * 24 * 60 * 60 * 1000L
-            new_series = []
-            for s in series:
-                pts = list(s.get('data') or [])
-                if cutoff_ms is not None:
-                    pts = [p for p in pts if p[0] <= cutoff_ms and p[0] >= (cutoff_ms - millis_window)]
-                if len(pts) > max_points:
-                    pts = pts[-max_points:]  # ¡últimos N, incluye el actual!
-                if pts:
-                    s2 = dict(s); s2['data'] = pts
-                    new_series.append(s2)
-            series = new_series
-
-        # Canvas: W/H adaptativos si no llegan
-        pts_per_series = [len(s['data']) for s in series] or [0]
-        pts_max = max(pts_per_series)
-        n_series = len(series)
-
-        if W_param is None or H_param is None:
-            if even:
-                # equidistante: deja más px por punto para etiquetas cómodas
-                px_per_point = 280
-            else:
-                if pts_max <= 10:
-                    px_per_point = 70
-                elif pts_max <= 16:
-                    px_per_point = 56
-                elif pts_max <= 24:
-                    px_per_point = 48
-                else:
-                    px_per_point = 40
-            W = max(1200, min(2400, max(1000, max(6, pts_max) * px_per_point)))
-            legend_rows_est = int(math.ceil(max(1, n_series) / 6.0))
-            extra_h = max(0, (legend_rows_est - 1) * 26)
-            H = max(360, min(820, 400 + extra_h))
-        else:
-            W = max(600, _to_int(W_param, 1800))
-            H = max(240, _to_int(H_param, 540))
-
-        # === Supermuestreo
-        W2, H2 = W * scale, H * scale
-        pad_l2, pad_r2 = base_pad_l * scale, base_pad_r * scale
-        pad_b2 = base_pad_b * scale  # top dinámico (se calcula más abajo)
-
-        im = Image.new('RGB', (W2, H2), bg)
+        # Canvas
+        im = Image.new('RGB', (W, H), bg)
         dr = ImageDraw.Draw(im)
 
-        # Fuentes
-        def _load_font(sz):
-            try:
-                return ImageFont.truetype('DejaVuSans.ttf', sz)
-            except Exception:
-                try:
-                    return ImageFont.truetype('arial.ttf', sz)
-                except Exception:
-                    return ImageFont.load_default()
-
-        font       = _load_font(int(11 * scale))
-        font_small = _load_font(int(10 * scale))
-        font_title = _load_font(int(12 * scale))
-        font_note  = _load_font(int(10 * scale))
+        # Fuentes (mejor legibilidad si hay TTF; si no, igual que antes)
+        font       = _load_font(11)
+        font_small = _load_font(10)
+        font_title = _load_font(12)
 
         # Mensaje si no hay datos
-        if not series or not any(s.get('data') for s in series) or pts_max < 2:
-            msg = u'Sin datos suficientes para gráfico'
+        if not series:
+            msg = u'Sin datos para gráfico'
             tw, th = dr.textsize(msg, font=font)
-            dr.text(((W2 - tw) / 2, (H2 - th) / 2), msg, fill=(100, 100, 100), font=font)
+            dr.text(((W - tw) / 2, (H - th) / 2), msg, fill=(100, 100, 100), font=font)
             out = StringIO()
-            im_small = im.resize((W, H), Image.LANCZOS) if scale > 1 else im
-            if sharpen:
-                try:
-                    im_small = im_small.filter(ImageFilter.UnsharpMask(radius=1.5, percent=140, threshold=2))
-                except Exception:
-                    pass
-            im_small.save(out, format='PNG', dpi=(dpi, dpi))
+            im.save(out, format='PNG', dpi=(dpi, dpi))
             self.request.response.setHeader('Content-Type', 'image/png')
             return out.getvalue()
 
-        # ==== Preparación de X y Y ====
-        # Y-range “bonito”
-        ys = [y for s in series for (_, y) in s['data']]
-        ymin = min(ys); ymax = max(ys)
+        # Extremos globales
+        xs = []
+        ys = []
+        for s in series:
+            for ms, y in s['data']:
+                xs.append(ms)
+                ys.append(y)
+        xmin = min(xs)
+        xmax = max(xs)
+        ymin = min(ys)
+        ymax = max(ys)
         ymin, ymax, yticks = self._nice_range(ymin, ymax)
-
-        # Timestamps (para modo tiempo y para construir referencia global)
-        all_ms = [ms for s in series for (ms, _) in s['data']]
-        if not all_ms:
-            all_ms = [0]
-        xmin = min(all_ms); xmax = max(all_ms)
         if xmin == xmax:
-            xmin -= 1000; xmax += 1000
+            xmin -= 1000
+            xmax += 1000
 
-        # === Referencia global de X (últimos max_points tras el recorte) ===
-        ref_xs = sorted(set(all_ms))
-        if len(ref_xs) > max_points:
-            ref_xs = ref_xs[-max_points:]
-        n_ref = len(ref_xs)
-        ix_by_ms = dict((ms, i) for i, ms in enumerate(ref_xs))
-
-        # --- CALCULO DE LAYOUT SUPERIOR (leyenda + título + nota) PARA EVITAR SOLAPES ---
-        # Paleta
-        palette = list(self.PALETTE) if n_series <= len(self.PALETTE) else _hsv_palette(n_series)
-
-        # Simulación de leyenda para obtener alto total
-        leg_x = pad_l2
-        leg_y = int(6 * scale)
-        space_x = int(24 * scale)
-        box_w = int(14 * scale)
-        box_h = int(6 * scale)
-        gap   = int(6  * scale)
-
-        sim_leg_x, sim_leg_y, last_lth = leg_x, leg_y, int(12*scale)
-        for idx, s in enumerate(series):
-            name = s['name']; unit = s.get('unit') or u''
-            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
-            ltw, lth = dr.textsize(label, font=font); last_lth = lth
-            sim_leg_x += box_w + gap + ltw + space_x
-            if sim_leg_x > W2 - pad_r2 - int(120*scale):
-                sim_leg_x = pad_l2
-                sim_leg_y += lth + int(6 * scale)
-        legend_total_h = (sim_leg_y - leg_y) + last_lth + int(6 * scale)
-
-        # Título y nota
+        # ========= ENCABEZADO INTELIGENTE (título + leyenda) =========
         title = u'Tendencias de Resultados'
         ttw, tth = dr.textsize(title, font=font_title)
-        note_txt = u'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).'
-        ntw, nth = dr.textsize(note_txt, font=font_note) if show_note else (0, 0)
 
-        # Padding superior real
-        pad_t2 = (base_pad_t * scale) + legend_total_h + tth + (nth if show_note else 0) + int(14 * scale)
+        # Simulación de leyenda para calcular alto total y ajustar pad_t
+        leg_start_x = pad_l
+        leg_y0 = 6 + tth + 6     # debajo del título
+        space_x = 24
+        box_w, box_h = 14, 6
+        gap = 6
 
-        # Ahora sí: área de trazado
-        plot_w2 = W2 - pad_l2 - pad_r2
-        plot_h2 = H2 - pad_t2 - pad_b2
+        sim_x = leg_start_x
+        sim_y = leg_y0
+        last_lh = 0
+        # ancho máximo “útil” para una entrada de leyenda
+        max_line_w = W - pad_l - pad_r - 120
 
-        # --- Ejes y grilla ---
-        def sx_time(ms):
-            return pad_l2 + int((ms - xmin) * 1.0 * plot_w2 / (xmax - xmin))
+        for idx, s in enumerate(series):
+            name = s['name']
+            unit = s.get('unit') or u''
+            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
+            ltw, lth = dr.textsize(label, font=font)
+            last_lh = lth
+            need_w = box_w + gap + ltw + space_x
+            if sim_x + need_w > (W - pad_r - 120):
+                sim_x = leg_start_x
+                sim_y += lth + 6
+            sim_x += need_w
 
-        def sx_index(i):
-            if n_ref <= 1:
-                return pad_l2 + plot_w2 // 2
-            return pad_l2 + int(i * (plot_w2) / float(n_ref - 1))
+        legend_total_h = (sim_y - leg_y0) + (last_lh or 0)
+        # pad_t efectivo: respeta tu pad_t mínimo pero añade lo que realmente ocupa encabezado
+        pad_t_eff = max(pad_t, 6 + tth + 6 + legend_total_h + 6)
+
+        # Funciones de escala con pad_t efectivo
+        plot_w = W - pad_l - pad_r
+        plot_h = H - pad_t_eff - pad_b
+        # Si por encabezado quedó chico, garantizamos mínimo de 100 px de área
+        if plot_h < 100:
+            pad_t_eff = max(14, H - pad_b - 100)
+            plot_h = H - pad_t_eff - pad_b
+
+        def sx(ms):
+            return pad_l + int((ms - xmin) * 1.0 * plot_w / (xmax - xmin))
 
         def sy(y):
-            return pad_t2 + int((ymax - y) * 1.0 * plot_h2 / (ymax - ymin))
+            return pad_t_eff + int((ymax - y) * 1.0 * plot_h / (ymax - ymin))
 
-        lw = max(1, int(1.6 * scale))  # AJUSTE: línea un poco más fina que 2*scale para suavizar
-        # Grid Y + etiquetas Y
+        # ======== DIBUJO ENCABEZADO (real) ========
+        # Título
+        dr.text((pad_l, 6), title, fill=txt_b, font=font_title)
+
+        # Leyenda
+        leg_x = leg_start_x
+        leg_y = leg_y0
+        for idx, s in enumerate(series):
+            color = self.PALETTE[idx % len(self.PALETTE)]
+            name = s['name']
+            unit = s.get('unit') or u''
+            label = name + (unit and (u' (' + unit.strip() + u')') or u'')
+
+            # Truncado defensivo por si el nombre es larguísimo
+            label_fit = _truncate(dr, label, font, max(60, max_line_w))
+
+            ltw, lth = dr.textsize(label_fit, font=font)
+            need_w = box_w + gap + ltw + space_x
+            if leg_x + need_w > (W - pad_r - 120):
+                leg_x = leg_start_x
+                leg_y += lth + 6
+
+            # Caja de color
+            dr.rectangle([leg_x, leg_y + 3, leg_x + box_w, leg_y + 3 + box_h],
+                         fill=color, outline=color)
+            # Texto
+            dr.text((leg_x + box_w + gap, leg_y), label_fit, fill=txt_b, font=font)
+            leg_x += need_w
+
+        # ======== GRID + Ejes ========
         for t in yticks:
             ypix = sy(t)
-            dr.line([(pad_l2, ypix), (W2 - pad_r2, ypix)], fill=grid)
+            dr.line([(pad_l, ypix), (W - pad_r, ypix)], fill=grid)
             lab = (u'%0.2f' % t).rstrip('0').rstrip('.')
             tw, th = dr.textsize(lab, font=font_small)
-            dr.text((pad_l2 - int(8*scale) - tw, ypix - th / 2), lab, fill=(108, 117, 125), font=font_small)
-        # Ejes y marco
-        dr.line([(pad_l2, pad_t2), (pad_l2, H2 - pad_b2)], fill=axis, width=lw)
-        dr.line([(pad_l2, H2 - pad_b2), (W2 - pad_r2, H2 - pad_b2)], fill=axis, width=lw)
-        dr.rectangle([(pad_l2, pad_t2), (W2 - pad_r2, H2 - pad_b2)], outline=(222, 226, 230))
+            dr.text((pad_l - 8 - tw, ypix - th / 2), lab, fill=txt_m, font=font_small)
 
-        # Etiquetas X
-        def _format_dt(ms):
-            try:
-                dt = datetime.datetime.utcfromtimestamp(ms / 1000.0)
-                return dt.strftime('%d/%m %H:%M')
-            except Exception:
-                return unicode(ms)
+        # Ejes
+        dr.line([(pad_l, pad_t_eff), (pad_l, H - pad_b)], fill=axis)
+        dr.line([(pad_l, H - pad_b), (W - pad_r, H - pad_b)], fill=axis)
+        # Marco tenue del área de plot (mejora lectura)
+        dr.rectangle([(pad_l, pad_t_eff), (W - pad_r, H - pad_b)], outline=(222, 226, 230))
 
-        if even:
-            # Usamos la referencia global ref_xs para X y para labels (equidistante)
-            for i, ms in enumerate(ref_xs):
-                xpix = sx_index(i)
-                lab = _format_dt(ms)
+        # Etiquetas X (máx 6 o 7, como tenías)
+        slots = 6
+        if slots > len(xs):
+            slots = len(xs)
+        if slots > 0:
+            step_ms = (xmax - xmin) / float(slots)
+            for i in range(slots + 1):
+                ms = xmin + int(i * step_ms)
+                xpix = sx(ms)
+                try:
+                    dt = datetime.datetime.utcfromtimestamp(ms / 1000.0)
+                    lab = dt.strftime('%d/%m %H:%M')
+                except Exception:
+                    lab = unicode(ms)
                 tw, th = dr.textsize(lab, font=font_small)
-                xtext = max(pad_l2, min(xpix - tw / 2, W2 - pad_r2 - tw))
-                dr.text((xtext, H2 - pad_b2 + int(4*scale)), lab, fill=(108, 117, 125), font=font_small)
-        else:
-            # por tiempo: si ≤6 puntos únicos, todos; si no, muestrear a 6
-            xs_unique = sorted(set(all_ms))
-            if len(xs_unique) <= 6:
-                xticks = xs_unique
-            else:
-                step = float(len(xs_unique) - 1) / 5.0
-                xticks = [xs_unique[int(round(i * step))] for i in range(6)]
-            for ms in xticks:
-                xpix = sx_time(ms)
-                lab = _format_dt(ms)
-                tw, th = dr.textsize(lab, font=font_small)
-                xtext = max(pad_l2, min(xpix - tw / 2, W2 - pad_r2 - tw))
-                dr.text((xtext, H2 - pad_b2 + int(4*scale)), lab, fill=(108, 117, 125), font=font_small)
+                # Evita salirte del área visible
+                xtext = max(pad_l, min(xpix - tw / 2, W - pad_r - tw))
+                dr.text((xtext, H - pad_b + 4), lab, fill=txt_m, font=font_small)
 
-        # Dibujo de series + etiquetas de valor
+        # Dibuja series (exactamente como ya lo hacías)
         for idx, s in enumerate(series):
-            color = palette[idx % len(palette)]
+            color = self.PALETTE[idx % len(self.PALETTE)]
             pts = s['data']
-            unit = s.get('unit') or u''
-
-            # Orden por fecha por si acaso
-            pts_sorted = sorted(pts, key=lambda r: r[0])
-
+            # línea
             last = None
-            for (ms, y) in pts_sorted:
-                if even:
-                    i = ix_by_ms.get(ms, None)
-                    if i is None:
-                        # si el punto no está en ref_xs (no debería pasar), lo saltamos
-                        continue
-                    xpix = sx_index(i)
-                else:
-                    xpix = sx_time(ms)
+            for (ms, y) in pts:
+                xpix = sx(ms)
                 ypix = sy(y)
                 if last is not None:
-                    dr.line([last, (xpix, ypix)], fill=color, width=lw)
+                    dr.line([last, (xpix, ypix)], fill=color, width=2)
                 last = (xpix, ypix)
-
+            # último punto
             if last:
-                r = max(2, int(3 * scale))
+                r = 3
                 dr.ellipse([last[0] - r, last[1] - r, last[0] + r, last[1] + r], fill=color, outline=color)
 
-            # Etiquetas de valor (AJUSTE: siempre con unidad si existe)
-            n = len(pts_sorted)
-            if n:
-                if n <= 12:
-                    label_every = 1
-                elif n <= 24:
-                    label_every = 2
-                else:
-                    label_every = 3
-                for j, (ms, y) in enumerate(pts_sorted):
-                    # seguimos muestreando para no saturar (pero con unidad en cada etiqueta dibujada)
-                    if (j % label_every != 0) and (j != n - 1):
-                        continue
-                    if even:
-                        i = ix_by_ms.get(ms, None)
-                        if i is None:
-                            continue
-                        xpix = sx_index(i)
-                    else:
-                        xpix = sx_time(ms)
-                    ypix = sy(y)
-                    val_txt = (u'%0.2f' % y).rstrip('0').rstrip('.')
-                    txt = val_txt + (u' ' + unit if unit else u'')  # AJUSTE: unidad SIEMPRE
-                    tw, th = dr.textsize(txt, font=font_small)
-                    xtext = max(pad_l2, min(xpix + int(4 * scale), W2 - pad_r2 - tw))
-                    ytext = ypix - int(12 * scale)
-                    # halo para legibilidad
-                    for dx, dy in ((-1,0),(1,0),(0,-1),(0,1)):
-                        dr.text((xtext + dx, ytext + dy), txt, fill=(255,255,255), font=font_small)
-                    dr.text((xtext, ytext), txt, fill=(0,0,0), font=font_small)
+        # (Conservamos tu título final: ya se dibujó arriba; NO lo duplicamos)
 
-        # Salida con reducción LANCZOS y nitidez extra
+        # Output
         out = StringIO()
-        if scale > 1:
-            im = im.resize((W, H), Image.LANCZOS)
-        if sharpen:
-            try:
-                # AJUSTE: enfoque según escala para evitar sobremarcado en escalas altas
-                radius = 0.9 + 0.4 * max(1, (scale - 1))   # e.g., 1.3 @scale=2, 1.7 @scale=3
-                percent = 120 + 20 * max(0, (scale - 1))  # e.g., 140 @scale=2, 160 @scale=3
-                im = im.filter(ImageFilter.UnsharpMask(radius=radius, percent=percent, threshold=2))
-            except Exception:
-                pass
         im.save(out, format='PNG', dpi=(dpi, dpi))
         self.request.response.setHeader('Content-Type', 'image/png')
         return out.getvalue()
-
-
-# ===== View que devuelve Data-URI para WeasyPrint =====
-class InfolabsaTrendChartDataURI(BrowserView):
-    """Devuelve data:image/png;base64,... invocando el view PNG internamente (sin HTTP)."""
-
-    def __call__(self, uid=None, rid=None, w=None, h=None, dpi=None, scale=None,
-                 max_points=None, days=None, note=None, even=None, sharpen=None):
-        request = self.request
-        # Recuperar parámetros
-        uid = uid or request.get('uid') or request.form.get('uid')
-        rid = rid or request.get('rid') or request.form.get('rid')
-        w = w or request.get('w') or request.form.get('w')
-        h = h or request.get('h') or request.form.get('h')
-        dpi = dpi or request.get('dpi') or request.form.get('dpi')
-        scale = scale or request.get('scale') or request.form.get('scale')
-        max_points = max_points or request.get('max_points') or request.form.get('max_points')
-        days = days or request.get('days') or request.form.get('days')
-        note = note or request.get('note') or request.form.get('note')
-        even = even or request.get('even') or request.form.get('even')
-        sharpen = sharpen or request.get('sharpen') or request.form.get('sharpen')
-
-        # Guardar cabeceras previas para restaurar luego
-        resp = request.response
-        prev_ct = resp.getHeader('Content-Type')
-        prev_cd = resp.getHeader('Content-Disposition')
-
-        # Inyectar parámetros al request.form para el sub-view
-        if uid is not None:         request.form['uid'] = uid
-        if rid is not None:         request.form['rid'] = rid
-        if w is not None:           request.form['w'] = str(w)
-        if h is not None:           request.form['h'] = str(h)
-        if dpi is not None:         request.form['dpi'] = str(dpi)
-        if scale is not None:       request.form['scale'] = str(scale)
-        if max_points is not None:  request.form['max_points'] = str(max_points)
-        if days is not None:        request.form['days'] = str(days)
-        if note is not None:        request.form['note'] = str(note)
-        if even is not None:        request.form['even'] = str(even)
-        if sharpen is not None:     request.form['sharpen'] = str(sharpen)
-
-        try:
-            png_view = self.context.restrictedTraverse('@@infolabsa-trend-chart.png')
-            data = png_view()
-        finally:
-            if prev_ct: resp.setHeader('Content-Type', prev_ct)
-            else:       resp.setHeader('Content-Type', None)
-            if prev_cd: resp.setHeader('Content-Disposition', prev_cd)
-            else:       resp.setHeader('Content-Disposition', None)
-
-        if not data:
-            resp.setHeader('Content-Type', 'text/plain; charset=utf-8')
-            return u''
-
-        # Asegurar bytes y construir Data-URI
-        try:
-            from base64 import b64encode
-            if isinstance(data, unicode):
-                data = data.encode('utf-8', 'ignore')
-            b64 = b64encode(data)
-            datauri = 'data:image/png;base64,' + b64
-        except Exception:
-            resp.setHeader('Content-Type', 'text/plain; charset=utf-8')
-            return u''
-
-        resp.setHeader('Content-Type', 'text/plain; charset=utf-8')
-        return datauri
