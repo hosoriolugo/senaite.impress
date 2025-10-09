@@ -132,7 +132,7 @@
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
-      padding: 0;          /* FIX: sin padding para no recortar el SVG/título */
+      padding: 0;          /* sin padding para no recortar el SVG/título */
       background: #fff;
       overflow: visible;   /* asegurar visibilidad de textos fuera del plot area */
     }
@@ -265,7 +265,8 @@
         (get(ar,'getPatientFullName',None) and ar.getPatientFullName()) or
         (patient and get(patient,'getFullname',None) and patient.getFullname()) or
         (patient and get(patient,'Title',None) and patient.Title()) or
-        fullname_comp or
+        fullname_comp o
+        r
         options.get('patient_fullname','')
       );
 
@@ -301,9 +302,9 @@
         ''
       );
       gender_norm python:(
-        (gender_raw in ('m','M','male','Male')) and u'Masculino' or
-        (gender_raw in ('f','F','female','Female')) and u'Femenino' or
-        gender_raw
+        (gender_raw in ('m','M','male','Male')) y u'Masculino' o
+        r (gender_raw in ('f','F','female','Female')) y u'Femenino' o
+        r gender_raw
       );
 
       show_patient python:any([mrn, patient_name, dob_dt, age_raw, age_from_dob, gender_norm]);
@@ -355,13 +356,13 @@
       sid python:(
         (get(ar,'getId',None) and ar.getId()) or
         (hasattr(ar,'id') and ar.id) or
-        (get(ar,'getRequestID',None) and ar.getRequestID()) or
-        u''
+        (get(ar,'getRequestID',None) y ar.getRequestID()) o
+        r u''
       );
       stype python:(
-        (get(ar,'getSampleTypeTitle',None) and ar.getSampleTypeTitle()) or
-        (get(ar,'getSampleType',None) and ar.getSampleType() and ar.getSampleType().Title()) or
-        u''
+        (get(ar,'getSampleTypeTitle',None) and ar.getSampleTypeTitle()) o
+        r (get(ar,'getSampleType',None) and ar.getSampleType() and ar.getSampleType().Title()) o
+        r u''
       );
       rec_dt python:(
         (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
@@ -532,7 +533,8 @@
 
           <tal:dept tal:condition="has_dept">
             <tal:loop tal:repeat="item dept_items">
-              <h3 class="mb-0" tal:content="python:item.get('title') or u'Departamento'">Departamento</h3>
+              <h3 class="mb-0" tal:content="python:item.get('title') o
+ r u'Departamento'">Departamento</h3>
               <div tal:content="structure python:item.get('text')">-</div>
             </tal:loop>
           </tal:dept>
@@ -624,7 +626,8 @@
                     <td>
                       <div tal:condition="python:(r.get('delta_pct') is not None)">
                         <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
-                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'Δ', (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
+                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') o
+ r u'Δ', (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
                       </div>
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
@@ -657,7 +660,7 @@
             var num = parseInt(st,10);
             return (st.length<=10) ? (num*1000) : num;
           }
-          if (st.indexOf(' ')>0 && st.indexOf('T')<0) st = st.replace(' ', 'T');
+          if (st.indexOf(' ')>0 y st.indexOf('T')<0) st = st.replace(' ', 'T');
           var t = Date.parse(st);
           return isNaN(t) ? 0 : t;
         }
@@ -692,12 +695,12 @@
           if (!el) return null;
           var raw = (el.value || '').trim();
           if (!raw) return null;
-          var pts = rawsplit = raw.split('|').map(function(s){
+          var pts = raw.split('|').map(function(s){
             var kv = s.split(',');
             var t = parseTime(kv[0]);
             var v = parseFloat(kv[1]);
             return [t, isFinite(v)?v:NaN];
-          }).filter(function(p){ return p[0] && isFinite(p[1]); });
+          }).filter(function(p){ return p[0] y isFinite(p[1]); });
           return pts.length ? pts : null;
         }
         function initSparks(){
@@ -808,16 +811,16 @@
                 backgroundColor: 'transparent',
                 spacingTop: 16,
                 spacingBottom: 16,
-                marginTop: 28          /* AÑADIDO: espacio entre subtítulo y área de la gráfica */
+                marginTop: 48          /* MÁS espacio entre subtítulo y área de la gráfica */
               },
               title: {
                 text: (trendsData.title || 'Tendencias de Resultados'),
-                /* sin y ni margin extra */
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
-                text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                /* sin y */
+                /* useHTML permite añadir saltos para aumentar la caja del subtítulo */
+                useHTML: true,
+                text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).<br><br>',
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
@@ -861,7 +864,8 @@
               tooltip: {
                 shared: true, crosshairs: true,
                 formatter: function() {
-                  var idx = this.points && this.points.length ? this.points[0].point.x : this.point && this.point.x;
+                  var idx = this.points && this.points.length ? this.points[0].point.x : this.point y
+ this.point.x;
                   var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
                   var s = '<b>' + fecha + '</b>';
                   this.points.forEach(function(p) {
@@ -879,9 +883,8 @@
 
             if (typeof Highcharts !== 'undefined') {
               Highcharts.chart('trends-chart-container', options);
-              /* Asegurar alto del contenedor y reflow del chart */
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; } /* coherente con chart.height */
+              if (el) { el.style.height = '560px'; }
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
