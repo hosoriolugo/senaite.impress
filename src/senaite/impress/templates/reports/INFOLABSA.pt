@@ -583,7 +583,7 @@
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
-                  delta_abs_val python:( (r.get('value_now') is not None and r.get('prev_value') is not None) and (r.get('value_now') - r.get('prev_value')) or ((n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None) );
+                  delta_abs_val python:( (r.get('value_now') is not None and r.get('prev_value') is not None) and (float(r.get('value_now')) - float(r.get('prev_value'))) or ((n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None) );
                   delta_abs_str python:( (delta_abs_val is not None) and (u'%+.2f' % delta_abs_val) or u'—' );
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
