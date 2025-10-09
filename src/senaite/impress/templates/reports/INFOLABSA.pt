@@ -692,7 +692,7 @@
           if (!el) return null;
           var raw = (el.value || '').trim();
           if (!raw) return null;
-          var pts = rawsplit = raw.split('|').map(function(s){
+          var pts = raw.split('|').map(function(s){
             var kv = s.split(',');
             var t = parseTime(kv[0]);
             var v = parseFloat(kv[1]);
@@ -806,17 +806,16 @@
                 type: 'line',
                 height: 560,            /* igual que el contenedor */
                 backgroundColor: 'transparent',
-                spacingTop: 16,         /* FIX: menos espacio + sin offsets manuales */
+                spacingTop: 16,         /* menos espacio + sin offsets manuales */
                 spacingBottom: 16
               },
               title: {
                 text: (trendsData.title || 'Tendencias de Resultados'),
-                /* sin y: ... */
+                margin: 28,             /* AÑADIDO: espacio entre subtítulo y plot */
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                /* sin y: ... */
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
