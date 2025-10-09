@@ -93,7 +93,6 @@
     .section-delta table.table-sm td, .section-delta table.table-sm th { padding-top:2px; padding-bottom:2px; }
     .section-delta .delta-up   { color:#fd7e14; font-weight:700; } /* ▲ */
     .section-delta .delta-down { color:#0d6efd; font-weight:700; } /* ▼ */
-    .section-delta .delta-flat { color:#6c757d; font-weight:700; } /* ► */
     .section-delta .spark { width:120px; height:36px; }
 
     /* RCV (dejado pero comentado en markup) */
@@ -584,41 +583,14 @@
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
-
-                  # ===== A) Δ ABSOLUTO: usa value_now/prev_value si existen; si no, últimos de serie =====
-                  _now_raw  python:r.get('value_now');
-                  _prev_raw python:r.get('prev_value');
-                  _now  python:(_now_raw  not in (None, u'', '') and float(_now_raw)  or None);
-                  _prev python:(_prev_raw not in (None, u'', '') and float(_prev_raw) or None);
-
-                  _last_y python:((n>=1) and (ser[-1].get('value')) or None);
-                  _prev_y python:((n>=2) and (ser[-2].get('value')) or None);
-
-                  delta_abs_val python:(
-                    (_now is not None and _prev is not None) and (_now - _prev)
-                    or (_last_y is not None and _prev_y is not None) and (_last_y - _prev_y)
-                    or None
-                  );
+                  delta_abs_val python:( (n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None );
                   delta_abs_str python:( (delta_abs_val is not None) and (u'%+.2f' % delta_abs_val) or u'—' );
-
-                  # % que viene del backend (se conserva el formato y signo)
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
                   delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
                   rcv_ok python:( has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)) );
-
-                  # ===== B) TENDENCIA DINÁMICA (flecha) basada en misma serie que el sparkline =====
-                  _first_y python:((n>=1) and (ser[0].get('value')) or None);
-                  _first_2d python:(_first_y is not None and float(('%.2f' % float(_first_y))) or None);
-                  _last_2d  python:(_last_y  is not None and float(('%.2f' % float(_last_y)))  or None);
-                  trend_symbol python:(
-                    (_first_2d is None or _last_2d is None) and u'►'
-                    or (_last_2d > _first_2d) and u'▲'
-                    or (_last_2d < _first_2d) and u'▼'
-                    or u'►'
-                  );
                 ">
                   <tr>
                     <td>
@@ -656,20 +628,13 @@
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
-                    <!-- Tendencia (flecha + sparkline) -->
+                    <!-- Tendencia (sparkline) -->
                     <td>
-                      <div>
-                        <span tal:attributes="class python:(trend_symbol==u'▲' and 'delta-up' or (trend_symbol==u'▼' and 'delta-down' or 'delta-flat'))"
-                              tal:content="trend_symbol">►</span>
-                      </div>
                       <canvas class="spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
                       <input type="hidden"
                              tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
                                              value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
-                      <input type="hidden"
-                             tal:attributes="id python:u'spark-color-'+(r.get('uid') or unicode(repeat['r'].index));
-                                             value python:r.get('color') or u''" />
                     </td>
                   </tr>
                 </tal:calc>
@@ -695,12 +660,7 @@
           var t = Date.parse(st);
           return isNaN(t) ? 0 : t;
         }
-        function getSparkColor(uid){
-          var el = document.getElementById('spark-color-'+uid);
-          var c = el && (el.value || '').trim();
-          return c || '#343a40';
-        }
-        function drawSpark(canvas, points, color){
+        function drawSpark(canvas, points){
           if (!canvas || !points || points.length<2) return;
           var ctx = canvas.getContext('2d');
           var W = canvas.width, H = canvas.height;
@@ -715,13 +675,13 @@
           var sy = function(y){ return H - pad - (y - ymin) * (H-2*pad) / (ymax - ymin); };
           ctx.clearRect(0,0,W,H);
           ctx.lineWidth = 1;
-          ctx.strokeStyle = color || '#343a40';
+          ctx.strokeStyle = '#343a40';
           ctx.beginPath();
           ctx.moveTo(sx(points[0][0]), sy(points[0][1]));
           for (var i=1;i<points.length;i++){ ctx.lineTo(sx(points[i][0]), sy(points[i][1])); }
           ctx.stroke();
           var last = points[points.length-1];
-          ctx.fillStyle = ctx.strokeStyle;
+          ctx.fillStyle = '#343a40';
           ctx.beginPath();
           ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true);
           ctx.fill();
@@ -747,7 +707,7 @@
             if (!c.getAttribute('height')) c.setAttribute('height', 36);
             var uid = c.id.replace('spark-','');
             var pts = parseHiddenSpark('spark-data-'+uid);
-            if (pts) drawSpark(c, pts, getSparkColor(uid));
+            if (pts) drawSpark(c, pts);
           }
         }
         function init(){ initSparks(); }
