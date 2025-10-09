@@ -114,6 +114,19 @@
     /* (conservada por si reactivas fechas) */
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
 
+    /* Flechas de tendencia en Delta Check */
+    .section-delta .trend-arrow {
+      display: block;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1;
+      margin-bottom: 2px; /* flecha encima del spark */
+      text-align: center;
+    }
+    .section-delta .trend-up   { color:#fd7e14; } /* ↑ */
+    .section-delta .trend-down { color:#0d6efd; } /* ↓ */
+    .section-delta .trend-flat { color:#6c757d; } /* → */
+
     /* ===== SECCIÓN TENDENCIAS ===== */
     .section-trends {
       margin: 30px 0;
@@ -132,7 +145,7 @@
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
-      padding: 0;          /* sin padding para no recortar el SVG/título */
+      padding: 0;          /* FIX: sin padding para no recortar el SVG/título */
       background: #fff;
       overflow: visible;   /* asegurar visibilidad de textos fuera del plot area */
     }
@@ -215,7 +228,7 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
-    <!-- (sin cambios salvo corrección de sintaxis) -->
+    <!-- (sin cambios) -->
     <tal:patient define="
       get python:getattr;
 
@@ -592,6 +605,8 @@
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
                   rcv_ok python:( has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)) );
+                  dir_sym python:(r.get('delta_dir') or u'');
+                  trend_arrow python:((dir_sym==u'▲') and u'↑' or (dir_sym==u'▼') and u'↓' or u'→');
                 ">
                   <tr>
                     <td>
@@ -629,8 +644,13 @@
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
-                    <!-- Tendencia (sparkline) -->
+                    <!-- Tendencia (flecha + sparkline) -->
                     <td>
+                      <!-- Flecha de dirección (↑ ↓ →) -->
+                      <div class="trend-arrow"
+                           tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'↑') and 'trend-up' or (trend_arrow==u'↓') and 'trend-down' or 'trend-flat')"
+                           tal:content="python:trend_arrow">→</div>
+
                       <canvas class="spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
                       <input type="hidden"
@@ -692,7 +712,7 @@
           if (!el) return null;
           var raw = (el.value || '').trim();
           if (!raw) return null;
-          var pts = raw.split('|').map(function(s){
+          var pts = rawsplit = raw.split('|').map(function(s){
             var kv = s.split(',');
             var t = parseTime(kv[0]);
             var v = parseFloat(kv[1]);
@@ -806,17 +826,18 @@
                 type: 'line',
                 height: 560,            /* igual que el contenedor */
                 backgroundColor: 'transparent',
-                spacingTop: 16,
+                spacingTop: 60,         /* ↑ más aire sobre el plot */
                 spacingBottom: 16,
-                marginTop: 48          /* MÁS espacio entre subtítulo y área de la gráfica */
+                marginTop: 60           /* ↑ empuja el área de trazado hacia abajo */
               },
               title: {
                 text: (trendsData.title || 'Tendencias de Resultados'),
+                margin: 12,             /* espacio entre título y subtítulo */
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
-                useHTML: true,
-                text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).<br><br>',
+                text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
+                y: 30,                  /* baja el subtítulo: crea una “línea” visible antes del trazado */
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
