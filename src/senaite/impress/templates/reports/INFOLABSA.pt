@@ -149,7 +149,6 @@
       background: #fff;
       overflow: visible;   /* asegurar visibilidad de textos fuera del plot area */
     }
-    /* Forzar visibilidad del título/subtítulo por si alguna regla global los oculta */
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle {
       display: block !important;
@@ -474,6 +473,112 @@
     <div class="results-center-cells">
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
+
+    <!-- ========== RESULTADOS (CON RANGOS DE REFERENCIA) ========== -->
+    <tal:results_ref define="
+      get python:getattr;
+
+      _get_analyses python:(
+        (get(ar,'getAnalyses',None) and ar.getAnalyses) or
+        (get(ar,'analyses',None) and ar.analyses) or
+        None
+      );
+      analyses python:(
+        _get_analyses and (
+          (callable(_get_analyses) and _get_analyses(full_objects=True)) or
+          _get_analyses
+        ) or []
+      );
+
+      _norm python:lambda s: ((s or u'').strip().lower());
+    " tal:condition="python:bool(analyses)">
+      <div class="results-center-cells">
+        <h3 class="mb-1">Resultados (con rangos de referencia)</h3>
+        <table class="table table-sm table-condensed">
+          <thead>
+            <tr>
+              <th>Analito</th>
+              <th>Resultado</th>
+              <th>Unidad</th>
+              <th>Rango de referencia</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tal:loop tal:repeat="a analyses">
+              <tr tal:define="
+                   svc python:(get(a,'getService',None) and a.getService() or None);
+                   kw  python:(
+                          (get(a,'getKeyword',None) and a.getKeyword()) or
+                          (svc and get(svc,'getKeyword',None) and svc.getKeyword()) or
+                          u''
+                        );
+                   title python:(
+                          (svc and ((get(svc,'Title',None) and svc.Title()) or (get(svc,'getTitle',None) and svc.getTitle()))) or
+                          (get(a,'Title',None) and a.Title()) or
+                          u''
+                        );
+
+                   _refs_raw_srv python:(svc and get(svc,'getReferenceResults',None) and svc.getReferenceResults() or []);
+                   _refs_raw_an  python:(get(a,'getReferenceResults',None) and a.getReferenceResults() or []);
+                   _refs_raw     python:(_refs_raw_srv or _refs_raw_an or []);
+
+                   refs python:[
+                     dict([
+                       (tuple(p) if (isinstance(p,(list,tuple)) and len(p)==2) else p)
+                       for p in (ref or [])
+                     ])
+                     for ref in (_refs_raw if isinstance(_refs_raw,(list,tuple)) else [])
+                   ];
+
+                   myref_list python:(
+                     [r for r in refs if _norm(r.get('keyword')) == _norm(kw)] or
+                     [r for r in refs if _norm(r.get('keyword')) == _norm(title)] or
+                     [r for r in refs if (_norm(title).startswith(_norm(r.get('keyword') or u'')) or _norm(kw).startswith(_norm(r.get('keyword') or u'')))]
+                   );
+
+                   r0   python:(myref_list and myref_list[0] or {});
+                   rmin python:r0.get('min');
+                   rmax python:r0.get('max');
+                   rres python:r0.get('result');
+
+                   unit python:(
+                     (get(a,'getResultUnit',None) and a.getResultUnit()) or
+                     (get(a,'getUnit',None) and a.getUnit()) or
+                     (svc and get(svc,'getUnit',None) and svc.getUnit()) or
+                     u''
+                   );
+
+                   rng_text python:(
+                     ( (rmin not in (None,u'', '')) and (rmax not in (None,u'', '')) and (u'%s–%s' % (rmin, rmax)) ) or
+                     ( rres or u'' )
+                   );
+                   rng_text_unit python:( rng_text and (rng_text + (unit and (u' ' + unit) or u'')) or u'—' );
+
+                   val  python:(
+                     (get(a,'getResult',None) and a.getResult()) or
+                     (get(a,'Result',None) and a.Result()) or
+                     u''
+                   );
+                 ">
+                <td>
+                  <span tal:content="python:(title or kw or u'—')">—</span>
+                </td>
+                <td>
+                  <span tal:content="python:(val not in (None,u'') and val or u'—')">—</span>
+                </td>
+                <td>
+                  <span tal:content="python:(unit or u'—')">—</span>
+                </td>
+                <td>
+                  <span tal:content="rng_text_unit">—</span>
+                </td>
+              </tr>
+            </tal:loop>
+          </tbody>
+        </table>
+      </div>
+    </tal:results_ref>
+    <!-- ========== FIN BLOQUE EXTRA ========== -->
 
     <!-- Interpretacion de resultados -->
     <tal:interp define="
