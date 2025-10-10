@@ -35,61 +35,57 @@
           <td tal:content="python:r['result']">—</td>
           <td tal:content="python:r['unit']">—</td>
 
-          <!-- ===== RANGO DE REFERENCIA (con fallback desde a/getReferenceResults) ===== -->
+          <!-- ===== RANGO DE REFERENCIA (NORMALIZADO y SIN BORRAR NADA MÁS) ===== -->
           <td>
             <tal:ref define="
-              _get python:getattr;
+              _is_seq python:lambda x: isinstance(x, (list, tuple));
+              _as_dict python:lambda it: (
+                (hasattr(it, 'get') and it) or
+                (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or
+                {}
+              );
+
               rr_raw python:(
                 (hasattr(a,'getReferenceResults') and a.getReferenceResults()) or
-                (hasattr(a,'get') and a.get('getReferenceResults',None)) or
                 None
               );
-              rr_list python:(
-                rr_raw if isinstance(rr_raw, (list, tuple))
-                else ( [] )
+
+              recs python:[
+                _as_dict(item)
+                for item in (rr_raw if _is_seq(rr_raw) else [rr_raw])
+                if item
+              ];
+
+              kw python:(
+                (hasattr(a,'getKeyword') and a.getKeyword()) or
+                r.get('keyword') or
+                None
               );
-              rr_min python:(
-                r.get('ref_low') if (r.get('ref_low') not in (None, u'', ''))
-                else (
-                  (len(rr_list) and ( _get(rr_list[0],'get',None) and rr_list[0].get('min') ) ) or
-                  (len(rr_list) and isinstance(rr_list[0], (list,tuple)) and dict(rr_list[0]).get('min')) or
-                  None
-                )
-              );
-              rr_max python:(
-                r.get('ref_high') if (r.get('ref_high') not in (None, u'', ''))
-                else (
-                  (len(rr_list) and ( _get(rr_list[0],'get',None) and rr_list[0].get('max') ) ) or
-                  (len(rr_list) and isinstance(rr_list[0], (list,tuple)) and dict(rr_list[0]).get('max')) or
-                  None
-                )
-              );
-              rr_eq python:(
-                (r.get('ref_eq') not in (None, u'', '')) and r.get('ref_eq') or
-                ( (len(rr_list) and ( _get(rr_list[0],'get',None) and rr_list[0].get('result') ) ) or
-                  (len(rr_list) and isinstance(rr_list[0], (list,tuple)) and dict(rr_list[0]).get('result')) or
-                  None
-                )
-              );
-              rr_src python:(
-                r.get('ref_src') or
-                ( (len(rr_list) and ( _get(rr_list[0],'get',None) and rr_list[0].get('keyword') ) ) or
-                  (len(rr_list) and isinstance(rr_list[0], (list,tuple)) and dict(rr_list[0]).get('keyword')) or
-                  ''
-                )
-              );
+
+              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
+              rec python:(rec_sel_list and rec_sel_list[0] or {});
+
+              rr_min_raw python:(r.get('ref_low')  if (r.get('ref_low')  not in (None, u'', '')) else rec.get('min'));
+              rr_max_raw python:(r.get('ref_high') if (r.get('ref_high') not in (None, u'', '')) else rec.get('max'));
+              rr_eq_raw  python:(r.get('ref_eq')   if (r.get('ref_eq')   not in (None, u'', '')) else rec.get('result'));
+              rr_src     python:(r.get('ref_src') or rec.get('keyword') or '');
+
+              rr_min python:rr_min_raw;
+              rr_max python:rr_max_raw;
+              rr_eq  python:rr_eq_raw;
+
               rr_text python:(
                 r.get('ref_range') or
-                ( (rr_eq not in (None, u'', '')) and (u'='+unicode(rr_eq)) ) or
-                ( (rr_min not in (None, u'', '')) and (rr_max not in (None, u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max)) ) or
+                ((rr_eq  not in (None,u'', '')) and (u'='+unicode(rr_eq))) or
+                ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or
                 u'—'
               )
             ">
               <span class="ref-range"
                     tal:attributes="
-                      data-low  python: rr_min if rr_min is not None else '';
-                      data-high python: rr_max if rr_max is not None else '';
-                      data-src  python: rr_src or '';
+                      data-low  python: rr_min if rr_min not in (None,u'','') else '';
+                      data-high python: rr_max if rr_max not in (None,u'','') else '';
+                      data-src  python: rr_src;
                       title     python: rr_text">
                 <span tal:content="python:rr_text">—</span>
               </span>
@@ -129,21 +125,26 @@
             <tal:al define="
               _tofloat python:lambda v: ( (isinstance(v,(int,float)) and float(v)) or ( (v not in (None,u'', '')) and float(unicode(v).replace(',','.')) ) or None );
               res_val python:_tofloat(r.get('result'));
-              min_v   python: (rr_min if 'rr_min' in locals() else (r.get('ref_low') if r.get('ref_low') not in (None,u'','') else None));
-              max_v   python: (rr_max if 'rr_max' in locals() else (r.get('ref_high') if r.get('ref_high') not in (None,u'','') else None));
-              has_rng python: ( (min_v not in (None,)) or (max_v not in (None,)) );
-              out_low python: ( (res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)) );
-              out_hi  python: ( (res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)) );
-              out_rng python: ( out_low or out_hi );
-              base_txt python: ( r.get('alert_text') or u'' );
-              base_title python: ( r.get('alert_title') or u'' );
-              base_cls python: ( r.get('alert_classes') or u'' );
-              txt python: ( base_txt or (out_rng and u'Fuera de rango') or (has_rng and u'—') or u'—' );
-              ttl python: ( base_title or
+
+              /* usa rr_min/rr_max ya calculados arriba si existen; si no, los del row */
+              min_v   python:( ( 'rr_min' in locals() and rr_min ) or (r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else None) );
+              max_v   python:( ( 'rr_max' in locals() and rr_max ) or (r.get('ref_high') if r.get('ref_high') not in (None,u'','') else None) );
+
+              has_rng python:( (min_v not in (None,)) or (max_v not in (None,)) );
+              out_low python:( (res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)) );
+              out_hi  python:( (res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)) );
+              out_rng python:( out_low or out_hi );
+
+              base_txt   python:( r.get('alert_text') or u'' );
+              base_title python:( r.get('alert_title') or u'' );
+              base_cls   python:( r.get('alert_classes') or u'' );
+
+              txt  python:( base_txt or (out_rng and u'Fuera de rango') or (has_rng and u'—') or u'—' );
+              ttl  python:( base_title or
                             (out_low and u'Resultado por debajo del mínimo') or
-                            (out_hi and u'Resultado por encima del máximo') or
+                            (out_hi  and u'Resultado por encima del máximo') or
                             u'' );
-              cls python: ( base_cls or (out_rng and u'fr-alert') or u'' )
+              cls  python:( base_cls or (out_rng and u'fr-alert') or u'' )
             ">
               <span tal:attributes="class python:cls; title python:ttl"
                     tal:content="python:txt">—</span>
