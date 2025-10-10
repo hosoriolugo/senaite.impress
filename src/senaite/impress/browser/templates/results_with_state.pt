@@ -35,36 +35,121 @@
           <td tal:content="python:r['result']">—</td>
           <td tal:content="python:r['unit']">—</td>
 
-          <!-- ===== AJUSTE: celda de Rango de referencia con data-* ===== -->
+          <!-- ===== RANGO DE REFERENCIA (con fallback desde a/getReferenceResults) ===== -->
           <td>
-            <span class="ref-range"
-                  tal:attributes="
-                    data-low  python: r.get('ref_low')  if r.get('ref_low')  is not None else '';
-                    data-high python: r.get('ref_high') if r.get('ref_high') is not None else '';
-                    data-src  python: r.get('ref_src') or '';
-                    title     python: r.get('ref_range') or ''">
-              <span tal:content="python:r['ref_range'] or u'—'">—</span>
-            </span>
-            <small class="text-muted ms-1"
-                   tal:condition="python:r.get('ref_src')">
-              <span tal:content="python:r['ref_src']">src</span>
-            </small>
+            <tal:ref define="
+              _get python:getattr;
+              rr_raw python:(
+                (hasattr(a,'getReferenceResults') and a.getReferenceResults()) or
+                (hasattr(a,'get') and a.get('getReferenceResults',None)) or
+                None
+              );
+              rr_list python:(
+                rr_raw if isinstance(rr_raw, (list, tuple))
+                else ( [] )
+              );
+              rr_min python:(
+                r.get('ref_low') if (r.get('ref_low') not in (None, u'', ''))
+                else (
+                  (len(rr_list) and ( _get(rr_list[0],'get',None) and rr_list[0].get('min') ) ) or
+                  (len(rr_list) and isinstance(rr_list[0], (list,tuple)) and dict(rr_list[0]).get('min')) or
+                  None
+                )
+              );
+              rr_max python:(
+                r.get('ref_high') if (r.get('ref_high') not in (None, u'', ''))
+                else (
+                  (len(rr_list) and ( _get(rr_list[0],'get',None) and rr_list[0].get('max') ) ) or
+                  (len(rr_list) and isinstance(rr_list[0], (list,tuple)) and dict(rr_list[0]).get('max')) or
+                  None
+                )
+              );
+              rr_eq python:(
+                (r.get('ref_eq') not in (None, u'', '')) and r.get('ref_eq') or
+                ( (len(rr_list) and ( _get(rr_list[0],'get',None) and rr_list[0].get('result') ) ) or
+                  (len(rr_list) and isinstance(rr_list[0], (list,tuple)) and dict(rr_list[0]).get('result')) or
+                  None
+                )
+              );
+              rr_src python:(
+                r.get('ref_src') or
+                ( (len(rr_list) and ( _get(rr_list[0],'get',None) and rr_list[0].get('keyword') ) ) or
+                  (len(rr_list) and isinstance(rr_list[0], (list,tuple)) and dict(rr_list[0]).get('keyword')) or
+                  ''
+                )
+              );
+              rr_text python:(
+                r.get('ref_range') or
+                ( (rr_eq not in (None, u'', '')) and (u'='+unicode(rr_eq)) ) or
+                ( (rr_min not in (None, u'', '')) and (rr_max not in (None, u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max)) ) or
+                u'—'
+              )
+            ">
+              <span class="ref-range"
+                    tal:attributes="
+                      data-low  python: rr_min if rr_min is not None else '';
+                      data-high python: rr_max if rr_max is not None else '';
+                      data-src  python: rr_src or '';
+                      title     python: rr_text">
+                <span tal:content="python:rr_text">—</span>
+              </span>
+              <small class="text-muted ms-1" tal:condition="python:rr_src">
+                <span tal:content="python:rr_src">src</span>
+              </small>
+            </tal:ref>
           </td>
-          <!-- ===== FIN AJUSTE ===== -->
+          <!-- ===== FIN RANGO ===== -->
 
+          <!-- ===== ESTADO (fallback a state_title/review_state) ===== -->
           <td class="text-center">
-            <span tal:attributes="class python:r['estado_class']">
-              <span tal:condition="python:r['estado_symbol']==u'⚠'" class="fr-alert">⚠</span>
-              <span tal:condition="python:r['estado_symbol']==u'✓'" class="flag-ok">✓</span>
-              <span tal:condition="python:r['estado_symbol']==u'❗'" class="al-critical">❗</span>
-              <span tal:condition="python:r['estado_symbol']==u'—'">—</span>
-              <span tal:content="python:r['estado_text']">Estado</span>
-            </span>
+            <tal:est define="
+              est_sym  python: r.get('estado_symbol') or u'—';
+              est_txt0 python: r.get('estado_text') or u'';
+              est_txt  python: est_txt0 or
+                               (hasattr(a,'state_title') and a.state_title) or
+                               (hasattr(a,'review_state') and a.review_state) or u'—';
+              est_cls  python: r.get('estado_class') or
+                               ((est_txt.lower().strip() in (u'aprobado', u'verificado', u'valid', u'published')) and 'estado-ok' or
+                                (est_txt.lower().strip() in (u'pendiente', u'draft', u'to be verified')) and 'estado-na' or
+                                (u'estado-na'))
+            ">
+              <span tal:attributes="class python:est_cls">
+                <span tal:condition="python:est_sym==u'⚠'" class="fr-alert">⚠</span>
+                <span tal:condition="python:est_sym==u'✓'" class="flag-ok">✓</span>
+                <span tal:condition="python:est_sym==u'❗'" class="al-critical">❗</span>
+                <span tal:condition="python:est_sym in (None, u'', u'—')">—</span>
+                <span tal:content="python:est_txt">Estado</span>
+              </span>
+            </tal:est>
           </td>
+          <!-- ===== FIN ESTADO ===== -->
+
+          <!-- ===== ALERTAS (fallback si está fuera de rango) ===== -->
           <td class="text-center">
-            <span tal:attributes="class python:r['alert_classes']; title python:r['alert_title']"
-                  tal:content="python:r['alert_text']">—</span>
+            <tal:al define="
+              _tofloat python:lambda v: ( (isinstance(v,(int,float)) and float(v)) or ( (v not in (None,u'', '')) and float(unicode(v).replace(',','.')) ) or None );
+              res_val python:_tofloat(r.get('result'));
+              min_v   python: (rr_min if 'rr_min' in locals() else (r.get('ref_low') if r.get('ref_low') not in (None,u'','') else None));
+              max_v   python: (rr_max if 'rr_max' in locals() else (r.get('ref_high') if r.get('ref_high') not in (None,u'','') else None));
+              has_rng python: ( (min_v not in (None,)) or (max_v not in (None,)) );
+              out_low python: ( (res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)) );
+              out_hi  python: ( (res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)) );
+              out_rng python: ( out_low or out_hi );
+              base_txt python: ( r.get('alert_text') or u'' );
+              base_title python: ( r.get('alert_title') or u'' );
+              base_cls python: ( r.get('alert_classes') or u'' );
+              txt python: ( base_txt or (out_rng and u'Fuera de rango') or (has_rng and u'—') or u'—' );
+              ttl python: ( base_title or
+                            (out_low and u'Resultado por debajo del mínimo') or
+                            (out_hi and u'Resultado por encima del máximo') or
+                            u'' );
+              cls python: ( base_cls or (out_rng and u'fr-alert') or u'' )
+            ">
+              <span tal:attributes="class python:cls; title python:ttl"
+                    tal:content="python:txt">—</span>
+            </tal:al>
           </td>
+          <!-- ===== FIN ALERTAS ===== -->
         </tr>
       </tal:row>
     </tal:loop>
@@ -115,13 +200,12 @@
       var el = cells[j];
       var html = el.innerHTML;
       if (!html) continue;
-      // No tocar nodos que contengan comentarios HTML
       if (html.indexOf('<!--') !== -1) continue;
 
       var n = html;
       n = wrap(n, /(\bHH\b|\bH\b|↑)/g, 'fr-alert');     // altos
       n = wrap(n, /(\bLL\b|\bL\b|↓)/g, 'al-delta');     // bajos (usa naranja)
-      n = wrap(n, /(⚠|❗)/g, 'al-critical');            // críticos/alertas (sin '!' genérico)
+      n = wrap(n, /(⚠|❗)/g, 'al-critical');            // críticos/alertas
       n = wrap(n, /(▲|▼|Δ)/g, 'al-delta');             // delta
 
       if (n !== html) el.innerHTML = n;
