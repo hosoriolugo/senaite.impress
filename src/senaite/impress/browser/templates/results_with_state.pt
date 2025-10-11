@@ -44,11 +44,9 @@
                 (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or
                 {}
               );
+              _val python:lambda obj, name: ( (hasattr(obj, name) and (getattr(obj, name)() if callable(getattr(obj, name)) else getattr(obj, name))) or None );
 
-              rr_raw python:(
-                (hasattr(a,'getReferenceResults') and a.getReferenceResults()) or
-                None
-              );
+              rr_raw python: _val(a, 'getReferenceResults');
 
               recs python:[
                 _as_dict(item)
@@ -56,11 +54,7 @@
                 if item
               ];
 
-              kw python:(
-                (hasattr(a,'getKeyword') and a.getKeyword()) or
-                r.get('keyword') or
-                None
-              );
+              kw python:( _val(a,'getKeyword') or r.get('keyword') or None );
 
               rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
               rec python:(rec_sel_list and rec_sel_list[0] or {});
@@ -129,23 +123,17 @@
                 (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or
                 {}
               );
+              _val python:lambda obj, name: ( (hasattr(obj, name) and (getattr(obj, name)() if callable(getattr(obj, name)) else getattr(obj, name))) or None );
               _tofloat python:lambda v: ( (isinstance(v,(int,float)) and float(v)) or ( (v not in (None,u'', '')) and float(unicode(v).replace(',','.')) ) or None );
               res_val python:_tofloat(r.get('result'));
 
-              rr_raw python:(
-                (hasattr(a,'getReferenceResults') and a.getReferenceResults()) or
-                None
-              );
+              rr_raw python: _val(a, 'getReferenceResults');
               recs python:[
                 _as_dict(item)
                 for item in (rr_raw if _is_seq(rr_raw) else [rr_raw])
                 if item
               ];
-              kw python:(
-                (hasattr(a,'getKeyword') and a.getKeyword()) or
-                r.get('keyword') or
-                None
-              );
+              kw python:( _val(a,'getKeyword') or r.get('keyword') or None );
               rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
               rec python:(rec_sel_list and rec_sel_list[0] or {});
 
