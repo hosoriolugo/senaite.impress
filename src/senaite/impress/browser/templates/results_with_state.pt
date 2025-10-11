@@ -35,50 +35,67 @@
           <td tal:content="python:r['result']">—</td>
           <td tal:content="python:r['unit']">—</td>
 
-          <!-- ===== RANGO DE REFERENCIA (robusto: brain u objeto) ===== -->
+          <!-- ===== RANGO DE REFERENCIA (con fallback a Objeto y Servicio) ===== -->
           <td>
             <tal:ref define="
+              json modules/json;
               _is_seq python:lambda x: isinstance(x, (list, tuple));
               _as_dict python:lambda it: (
                 (hasattr(it, 'get') and it) or
                 (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or
                 {}
               );
-              _val python:lambda obj, name: (
-                (hasattr(obj, name) and (getattr(obj, name)() if callable(getattr(obj, name)) else getattr(obj, name)))
-                or None
+
+              /* 1) Origenes posibles del rango */
+              obj python:(hasattr(a,'getObject') and a.getObject() or None);
+              rr_brain python:(hasattr(a,'getReferenceResults') and a.getReferenceResults() or None);
+              rr_obj   python:(obj and hasattr(obj,'getReferenceResults') and obj.getReferenceResults() or None);
+
+              pc python:context.portal_catalog;
+              svc_uid python:(
+                (hasattr(a,'getServiceUID') and a.getServiceUID()) or
+                (obj and hasattr(obj,'getServiceUID') and obj.getServiceUID()) or
+                None
+              );
+              svc_brains python:(svc_uid and pc(UID=svc_uid) or []);
+              svc_obj python:(svc_brains and svc_brains[0].getObject() or None);
+              rr_svc python:(
+                (svc_brains and hasattr(svc_brains[0],'getReferenceResults') and svc_brains[0].getReferenceResults()) or
+                (svc_obj and hasattr(svc_obj,'getReferenceResults') and svc_obj.getReferenceResults()) or
+                None
               );
 
-              obj python:(hasattr(a,'getObject') and a.getObject() or None);
+              /* 2) Elige la mejor fuente disponible */
+              rr_raw_best python:( rr_brain or rr_obj or rr_svc or None );
 
-              rr_raw python:_val(a, 'getReferenceResults');
-              rr_raw_obj python:(obj and _val(obj, 'getReferenceResults') or None);
-              rr_raw_best python:(rr_raw if rr_raw not in (None, u'', '') else rr_raw_obj);
+              /* 3) Si viene como cadena JSON, parsea */
+              rr_parsed python:(
+                (isinstance(rr_raw_best, basestring) and rr_raw_best.strip().startswith(u'[') and json.loads(rr_raw_best)) or
+                rr_raw_best
+              );
 
+              /* 4) Normaliza a lista de dicts */
               recs python:[
                 _as_dict(item)
-                for item in (rr_raw_best if _is_seq(rr_raw_best) else [rr_raw_best])
+                for item in (rr_parsed if _is_seq(rr_parsed) else [rr_parsed])
                 if item
               ];
 
+              /* 5) Keyword para escoger el registro correcto */
               kw python:(
-                _val(a,'getKeyword') or
-                (obj and _val(obj,'getKeyword')) or
-                r.get('keyword') or
-                r.get('name')
+                (hasattr(a,'getKeyword') and a.getKeyword()) or
+                r.get('name') or
+                None
               );
 
               rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
               rec python:(rec_sel_list and rec_sel_list[0] or {});
 
-              rr_min_raw python:(r.get('ref_low')  if (r.get('ref_low')  not in (None, u'', '')) else rec.get('min'));
-              rr_max_raw python:(r.get('ref_high') if (r.get('ref_high') not in (None, u'', '')) else rec.get('max'));
-              rr_eq_raw  python:(r.get('ref_eq')   if (r.get('ref_eq')   not in (None, u'', '')) else rec.get('result'));
-              rr_src     python:(r.get('ref_src') or rec.get('keyword') or '');
-
-              rr_min python:rr_min_raw;
-              rr_max python:rr_max_raw;
-              rr_eq  python:rr_eq_raw;
+              /* 6) Decide qué mostrar: primero lo que ya traía la fila r, si no, lo del rec */
+              rr_min python:( r.get('ref_low')  if (r.get('ref_low')  not in (None, u'', '')) else rec.get('min') );
+              rr_max python:( r.get('ref_high') if (r.get('ref_high') not in (None, u'', '')) else rec.get('max') );
+              rr_eq  python:( r.get('ref_eq')   if (r.get('ref_eq')   not in (None, u'', '')) else rec.get('result') );
+              rr_src python:( r.get('ref_src') or rec.get('keyword') or '' );
 
               rr_text python:(
                 r.get('ref_range') or
@@ -126,59 +143,20 @@
           </td>
           <!-- ===== FIN ESTADO ===== -->
 
-          <!-- ===== ALERTAS (fallback si está fuera de rango) ===== -->
+          <!-- ===== ALERTAS (igual que tenías) ===== -->
           <td class="text-center">
             <tal:al define="
-              _is_seq python:lambda x: isinstance(x, (list, tuple));
-              _as_dict python:lambda it: (
-                (hasattr(it, 'get') and it) or
-                (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or
-                {}
-              );
-              _val python:lambda obj, name: (
-                (hasattr(obj, name) and (getattr(obj, name)() if callable(getattr(obj, name)) else getattr(obj, name)))
-                or None
-              );
-              _tofloat python:lambda v: (
-                (isinstance(v,(int,float)) and float(v)) or
-                ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None
-              );
-
+              _tofloat python:lambda v: ( (isinstance(v,(int,float)) and float(v)) or ( (v not in (None,u'', '')) and float(unicode(v).replace(',','.')) ) or None );
               res_val python:_tofloat(r.get('result'));
-
-              obj python:(hasattr(a,'getObject') and a.getObject() or None);
-              rr_raw python:_val(a, 'getReferenceResults');
-              rr_raw_obj python:(obj and _val(obj, 'getReferenceResults') or None);
-              rr_raw_best python:(rr_raw if rr_raw not in (None, u'', '') else rr_raw_obj);
-
-              recs python:[
-                _as_dict(item)
-                for item in (rr_raw_best if _is_seq(rr_raw_best) else [rr_raw_best])
-                if item
-              ];
-
-              kw python:(
-                _val(a,'getKeyword') or
-                (obj and _val(obj,'getKeyword')) or
-                r.get('keyword') or
-                r.get('name')
-              );
-
-              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
-              rec python:(rec_sel_list and rec_sel_list[0] or {});
-
-              min_v   python:( r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else rec.get('min') );
-              max_v   python:( r.get('ref_high') if r.get('ref_high') not in (None,u'','') else rec.get('max') );
-
+              min_v   python:(r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else None);
+              max_v   python:(r.get('ref_high') if r.get('ref_high') not in (None,u'','') else None);
               has_rng python:( (min_v not in (None,)) or (max_v not in (None,)) );
               out_low python:( (res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)) );
               out_hi  python:( (res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)) );
               out_rng python:( out_low or out_hi );
-
               base_txt   python:( r.get('alert_text') or u'' );
               base_title python:( r.get('alert_title') or u'' );
               base_cls   python:( r.get('alert_classes') or u'' );
-
               txt  python:( base_txt or (out_rng and u'Fuera de rango') or (has_rng and u'—') or u'—' );
               ttl  python:( base_title or
                             (out_low and u'Resultado por debajo del mínimo') or
