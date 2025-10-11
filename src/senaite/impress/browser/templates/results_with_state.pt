@@ -40,69 +40,34 @@
             <tal:ref define="
               json modules/json;
               _is_seq python:lambda x: isinstance(x, (list, tuple));
-              _as_dict python:lambda it: (
-                (hasattr(it, 'get') and it) or
-                (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or
-                {}
-              );
+              _as_dict python:lambda it: ((hasattr(it, 'get') and it) or (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or {});
 
-              /* 1) Origenes posibles del rango */
               obj python:(hasattr(a,'getObject') and a.getObject() or None);
               rr_brain python:(hasattr(a,'getReferenceResults') and a.getReferenceResults() or None);
               rr_obj   python:(obj and hasattr(obj,'getReferenceResults') and obj.getReferenceResults() or None);
 
-              pc python:context.portal_catalog;
-              svc_uid python:(
-                (hasattr(a,'getServiceUID') and a.getServiceUID()) or
-                (obj and hasattr(obj,'getServiceUID') and obj.getServiceUID()) or
-                None
-              );
-              svc_brains python:(svc_uid and pc(UID=svc_uid) or []);
+              svc_uid python:((hasattr(a,'getServiceUID') and a.getServiceUID()) or (obj and hasattr(obj,'getServiceUID') and obj.getServiceUID()) or None);
+              svc_brains python:(svc_uid and context.portal_catalog(UID=svc_uid) or []);
               svc_obj python:(svc_brains and svc_brains[0].getObject() or None);
-              rr_svc python:(
-                (svc_brains and hasattr(svc_brains[0],'getReferenceResults') and svc_brains[0].getReferenceResults()) or
-                (svc_obj and hasattr(svc_obj,'getReferenceResults') and svc_obj.getReferenceResults()) or
-                None
-              );
+              rr_svc python:((svc_brains and hasattr(svc_brains[0],'getReferenceResults') and svc_brains[0].getReferenceResults()) or (svc_obj and hasattr(svc_obj,'getReferenceResults') and svc_obj.getReferenceResults()) or None);
 
-              /* 2) Elige la mejor fuente disponible */
-              rr_raw_best python:( rr_brain or rr_obj or rr_svc or None );
+              rr_raw_best python:(rr_brain or rr_obj or rr_svc or None);
 
-              /* 3) Si viene como cadena JSON, parsea */
-              rr_parsed python:(
-                (isinstance(rr_raw_best, basestring) and rr_raw_best.strip().startswith(u'[') and json.loads(rr_raw_best)) or
-                rr_raw_best
-              );
+              rr_parsed python:((isinstance(rr_raw_best, basestring) and rr_raw_best.strip().startswith(u'[') and json.loads(rr_raw_best)) or rr_raw_best);
 
-              /* 4) Normaliza a lista de dicts */
-              recs python:[
-                _as_dict(item)
-                for item in (rr_parsed if _is_seq(rr_parsed) else [rr_parsed])
-                if item
-              ];
+              recs python:[ _as_dict(item) for item in (rr_parsed if _is_seq(rr_parsed) else [rr_parsed]) if item ];
 
-              /* 5) Keyword para escoger el registro correcto */
-              kw python:(
-                (hasattr(a,'getKeyword') and a.getKeyword()) or
-                r.get('name') or
-                None
-              );
+              kw python:((hasattr(a,'getKeyword') and a.getKeyword()) or r.get('name') or None);
 
               rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
               rec python:(rec_sel_list and rec_sel_list[0] or {});
 
-              /* 6) Decide qué mostrar: primero lo que ya traía la fila r, si no, lo del rec */
               rr_min python:( r.get('ref_low')  if (r.get('ref_low')  not in (None, u'', '')) else rec.get('min') );
               rr_max python:( r.get('ref_high') if (r.get('ref_high') not in (None, u'', '')) else rec.get('max') );
               rr_eq  python:( r.get('ref_eq')   if (r.get('ref_eq')   not in (None, u'', '')) else rec.get('result') );
               rr_src python:( r.get('ref_src') or rec.get('keyword') or '' );
 
-              rr_text python:(
-                r.get('ref_range') or
-                ((rr_eq  not in (None,u'', '')) and (u'='+unicode(rr_eq))) or
-                ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or
-                u'—'
-              )
+              rr_text python:( r.get('ref_range') or ((rr_eq not in (None,u'', '')) and (u'='+unicode(rr_eq))) or ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or u'—' )
             ">
               <span class="ref-range"
                     tal:attributes="
@@ -146,23 +111,20 @@
           <!-- ===== ALERTAS (igual que tenías) ===== -->
           <td class="text-center">
             <tal:al define="
-              _tofloat python:lambda v: ( (isinstance(v,(int,float)) and float(v)) or ( (v not in (None,u'', '')) and float(unicode(v).replace(',','.')) ) or None );
+              _tofloat python:lambda v: ((isinstance(v,(int,float)) and float(v)) or ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None);
               res_val python:_tofloat(r.get('result'));
               min_v   python:(r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else None);
               max_v   python:(r.get('ref_high') if r.get('ref_high') not in (None,u'','') else None);
-              has_rng python:( (min_v not in (None,)) or (max_v not in (None,)) );
-              out_low python:( (res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)) );
-              out_hi  python:( (res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)) );
-              out_rng python:( out_low or out_hi );
-              base_txt   python:( r.get('alert_text') or u'' );
-              base_title python:( r.get('alert_title') or u'' );
-              base_cls   python:( r.get('alert_classes') or u'' );
-              txt  python:( base_txt or (out_rng and u'Fuera de rango') or (has_rng and u'—') or u'—' );
-              ttl  python:( base_title or
-                            (out_low and u'Resultado por debajo del mínimo') or
-                            (out_hi  and u'Resultado por encima del máximo') or
-                            u'' );
-              cls  python:( base_cls or (out_rng and u'fr-alert') or u'' )
+              has_rng python:((min_v not in (None,)) or (max_v not in (None,)));
+              out_low python:((res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)));
+              out_hi  python:((res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)));
+              out_rng python:(out_low or out_hi);
+              base_txt   python:(r.get('alert_text') or u'');
+              base_title python:(r.get('alert_title') or u'');
+              base_cls   python:(r.get('alert_classes') or u'');
+              txt  python:(base_txt or (out_rng and u'Fuera de rango') or (has_rng and u'—') or u'—');
+              ttl  python:(base_title or (out_low and u'Resultado por debajo del mínimo') or (out_hi and u'Resultado por encima del máximo') or u'');
+              cls  python:(base_cls or (out_rng and u'fr-alert') or u'')
             ">
               <span tal:attributes="class python:cls; title python:ttl"
                     tal:content="python:txt">—</span>
@@ -201,7 +163,6 @@
   if (!root) return;
 
   var colorize = function(container){
-    // Estado (símbolos en la columna de estado)
     var est = container.querySelectorAll('td.text-center span');
     for (var i=0;i<est.length;i++){
       var t = (est[i].textContent || '').trim();
@@ -210,10 +171,9 @@
       if (t.indexOf('⚠') !== -1) est[i].classList.add('fr-alert');
     }
 
-    // Recolorear H/L/↑/↓/⚠/❗/▲/▼ SOLO en el tbody de esta tabla
     var cells = container.querySelectorAll('table tbody td, table tbody td.text-center span');
     var wrap = function(html, re, cls){
-      return html.replace(re, function(m){ return '<span class="'+cls+'">'+m+'</span>'; });
+      return html.replace(re, function(m){ return '<span class=\"'+cls+'\">'+m+'</span>'; });
     };
     for (var j=0;j<cells.length;j++){
       var el = cells[j];
@@ -222,10 +182,10 @@
       if (html.indexOf('<!--') !== -1) continue;
 
       var n = html;
-      n = wrap(n, /(\bHH\b|\bH\b|↑)/g, 'fr-alert');     // altos
-      n = wrap(n, /(\bLL\b|\bL\b|↓)/g, 'al-delta');     // bajos (usa naranja)
-      n = wrap(n, /(⚠|❗)/g, 'al-critical');            // críticos/alertas
-      n = wrap(n, /(▲|▼|Δ)/g, 'al-delta');             // delta
+      n = wrap(n, /(\bHH\b|\bH\b|↑)/g, 'fr-alert');
+      n = wrap(n, /(\bLL\b|\bL\b|↓)/g, 'al-delta');
+      n = wrap(n, /(⚠|❗)/g, 'al-critical');
+      n = wrap(n, /(▲|▼|Δ)/g, 'al-delta');
 
       if (n !== html) el.innerHTML = n;
     }
