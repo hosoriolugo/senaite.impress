@@ -123,12 +123,34 @@
           <!-- ===== ALERTAS (fallback si está fuera de rango) ===== -->
           <td class="text-center">
             <tal:al define="
+              _is_seq python:lambda x: isinstance(x, (list, tuple));
+              _as_dict python:lambda it: (
+                (hasattr(it, 'get') and it) or
+                (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or
+                {}
+              );
               _tofloat python:lambda v: ( (isinstance(v,(int,float)) and float(v)) or ( (v not in (None,u'', '')) and float(unicode(v).replace(',','.')) ) or None );
               res_val python:_tofloat(r.get('result'));
 
-              /* usa rr_min/rr_max ya calculados arriba si existen; si no, los del row */
-              min_v   python:( ( 'rr_min' in locals() and rr_min ) or (r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else None) );
-              max_v   python:( ( 'rr_max' in locals() and rr_max ) or (r.get('ref_high') if r.get('ref_high') not in (None,u'','') else None) );
+              rr_raw python:(
+                (hasattr(a,'getReferenceResults') and a.getReferenceResults()) or
+                None
+              );
+              recs python:[
+                _as_dict(item)
+                for item in (rr_raw if _is_seq(rr_raw) else [rr_raw])
+                if item
+              ];
+              kw python:(
+                (hasattr(a,'getKeyword') and a.getKeyword()) or
+                r.get('keyword') or
+                None
+              );
+              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
+              rec python:(rec_sel_list and rec_sel_list[0] or {});
+
+              min_v   python:( r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else rec.get('min') );
+              max_v   python:( r.get('ref_high') if r.get('ref_high') not in (None,u'','') else rec.get('max') );
 
               has_rng python:( (min_v not in (None,)) or (max_v not in (None,)) );
               out_low python:( (res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)) );
