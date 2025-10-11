@@ -51,7 +51,7 @@
 
               obj python:(hasattr(a,'getObject') and a.getObject() or None);
 
-              rr_raw brain python:_val(a, 'getReferenceResults');
+              rr_raw python:_val(a, 'getReferenceResults');
               rr_raw_obj python:(obj and _val(obj, 'getReferenceResults') or None);
               rr_raw_best python:(rr_raw if rr_raw not in (None, u'', '') else rr_raw_obj);
 
@@ -61,11 +61,14 @@
                 if item
               ];
 
-              kw brain python:(_val(a,'getKeyword') or r.get('keyword') or None);
-              kw_obj python:(obj and _val(obj,'getKeyword') or None);
-              kw_best python:(kw if kw not in (None, u'', '') else (kw_obj if kw_obj not in (None, u'', '') else (r.get('keyword') or r.get('name'))));
+              kw python:(
+                _val(a,'getKeyword') or
+                (obj and _val(obj,'getKeyword')) or
+                r.get('keyword') or
+                r.get('name')
+              );
 
-              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw_best)] or (recs[:1] if recs else []));
+              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
               rec python:(rec_sel_list and rec_sel_list[0] or {});
 
               rr_min_raw python:(r.get('ref_low')  if (r.get('ref_low')  not in (None, u'', '')) else rec.get('min'));
@@ -140,21 +143,28 @@
                 (isinstance(v,(int,float)) and float(v)) or
                 ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None
               );
+
               res_val python:_tofloat(r.get('result'));
 
               obj python:(hasattr(a,'getObject') and a.getObject() or None);
-              rr_raw brain python:_val(a, 'getReferenceResults');
+              rr_raw python:_val(a, 'getReferenceResults');
               rr_raw_obj python:(obj and _val(obj, 'getReferenceResults') or None);
               rr_raw_best python:(rr_raw if rr_raw not in (None, u'', '') else rr_raw_obj);
+
               recs python:[
                 _as_dict(item)
                 for item in (rr_raw_best if _is_seq(rr_raw_best) else [rr_raw_best])
                 if item
               ];
-              kw brain python:(_val(a,'getKeyword') or r.get('keyword') or None);
-              kw_obj python:(obj and _val(obj,'getKeyword') or None);
-              kw_best python:(kw if kw not in (None, u'', '') else (kw_obj if kw_obj not in (None, u'', '') else (r.get('keyword') or r.get('name'))));
-              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw_best)] or (recs[:1] if recs else []));
+
+              kw python:(
+                _val(a,'getKeyword') or
+                (obj and _val(obj,'getKeyword')) or
+                r.get('keyword') or
+                r.get('name')
+              );
+
+              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
               rec python:(rec_sel_list and rec_sel_list[0] or {});
 
               min_v   python:( r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else rec.get('min') );
