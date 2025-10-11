@@ -43,21 +43,44 @@
               _as_dict python:lambda it: ((hasattr(it, 'get') and it) or (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or {});
 
               obj python:(hasattr(a,'getObject') and a.getObject() or None);
-              rr_brain python:(hasattr(a,'getReferenceResults') and a.getReferenceResults() or None);
-              rr_obj   python:(obj and hasattr(obj,'getReferenceResults') and obj.getReferenceResults() or None);
 
-              svc_uid python:((hasattr(a,'getServiceUID') and a.getServiceUID()) or (obj and hasattr(obj,'getServiceUID') and obj.getServiceUID()) or None);
+              rr_brain python:(
+                (hasattr(a,'getReferenceResults') and a.getReferenceResults) or
+                None
+              );
+              rr_obj   python:(
+                obj and hasattr(obj,'getReferenceResults') and obj.getReferenceResults() or
+                None
+              );
+
+              svc_uid python:(
+                (hasattr(a,'getServiceUID') and a.getServiceUID) or
+                (obj and hasattr(obj,'getServiceUID') and obj.getServiceUID()) or
+                None
+              );
               svc_brains python:(svc_uid and context.portal_catalog(UID=svc_uid) or []);
-              svc_obj python:(svc_brains and svc_brains[0].getObject() or None);
-              rr_svc python:((svc_brains and hasattr(svc_brains[0],'getReferenceResults') and svc_brains[0].getReferenceResults()) or (svc_obj and hasattr(svc_obj,'getReferenceResults') and svc_obj.getReferenceResults()) or None);
+              svc_brain  python:(svc_brains and svc_brains[0] or None);
+              svc_obj    python:(svc_brain and svc_brain.getObject() or None);
+              rr_svc python:(
+                (svc_brain and hasattr(svc_brain,'getReferenceResults') and svc_brain.getReferenceResults) or
+                (svc_obj and hasattr(svc_obj,'getReferenceResults') and svc_obj.getReferenceResults()) or
+                None
+              );
 
               rr_raw_best python:(rr_brain or rr_obj or rr_svc or None);
 
-              rr_parsed python:((isinstance(rr_raw_best, basestring) and rr_raw_best.strip().startswith(u'[') and json.loads(rr_raw_best)) or rr_raw_best);
+              rr_parsed python:(
+                (isinstance(rr_raw_best, basestring) and rr_raw_best.strip().startswith(u'[') and json.loads(rr_raw_best)) or
+                rr_raw_best
+              );
 
               recs python:[ _as_dict(item) for item in (rr_parsed if _is_seq(rr_parsed) else [rr_parsed]) if item ];
 
-              kw python:((hasattr(a,'getKeyword') and a.getKeyword()) or r.get('name') or None);
+              kw python:(
+                (hasattr(a,'getKeyword') and a.getKeyword) or
+                r.get('name') or
+                None
+              );
 
               rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
               rec python:(rec_sel_list and rec_sel_list[0] or {});
@@ -65,9 +88,14 @@
               rr_min python:( r.get('ref_low')  if (r.get('ref_low')  not in (None, u'', '')) else rec.get('min') );
               rr_max python:( r.get('ref_high') if (r.get('ref_high') not in (None, u'', '')) else rec.get('max') );
               rr_eq  python:( r.get('ref_eq')   if (r.get('ref_eq')   not in (None, u'', '')) else rec.get('result') );
-              rr_src python:( r.get('ref_src') or rec.get('keyword') or '' );
+              rr_src python:( r.get('ref_src') or rec.get('keyword') or u'' );
 
-              rr_text python:( r.get('ref_range') or ((rr_eq not in (None,u'', '')) and (u'='+unicode(rr_eq))) or ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or u'—' )
+              rr_text python:(
+                r.get('ref_range') or
+                ((rr_eq  not in (None,u'', '')) and (u'='+unicode(rr_eq))) or
+                ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or
+                u'—'
+              )
             ">
               <span class="ref-range"
                     tal:attributes="
