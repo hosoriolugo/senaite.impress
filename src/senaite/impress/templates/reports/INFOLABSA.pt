@@ -824,20 +824,20 @@
             var options = {
               chart: {
                 type: 'line',
-                height: 560,            /* igual que el contenedor */
+                height: 560,
                 backgroundColor: 'transparent',
-                spacingTop: 60,         /* ↑ más aire sobre el plot */
+                spacingTop: 60,
                 spacingBottom: 16,
-                marginTop: 60           /* ↑ empuja el área de trazado hacia abajo */
+                marginTop: 60
               },
               title: {
                 text: (trendsData.title || 'Tendencias de Resultados'),
-                margin: 12,             /* espacio entre título y subtítulo */
+                margin: 12,
                 style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
               },
               subtitle: {
                 text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                y: 30,                  /* baja el subtítulo: crea una “línea” visible antes del trazado */
+                y: 30,
                 style: { color: '#6c757d', fontSize: '12px' }
               },
               xAxis: {
@@ -899,9 +899,8 @@
 
             if (typeof Highcharts !== 'undefined') {
               Highcharts.chart('trends-chart-container', options);
-              /* Asegurar alto del contenedor y reflow del chart */
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; } /* coherente con chart.height */
+              if (el) { el.style.height = '560px'; }
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
