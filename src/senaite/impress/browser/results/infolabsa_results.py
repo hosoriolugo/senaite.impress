@@ -182,6 +182,42 @@ class InfolabsaResultsWithState(BrowserView):
         text = self._first_text_from_lo_hi(lo_txt, hi_txt)
         return text, lo, hi, None
 
+    # ---------- NUEVO: helper que llama al pipeline de senaite.patient ----------
+    def _get_patient_results_range(self, a):
+        """
+        Intenta obtener el mismo ResultsRange que usa la UI de análisis,
+        cortesía de senaite.patient:
+        - api.get_results_range(analysis)  (si existe)
+        - getPatientResultsRange(), getDynamicResultsRange(), getFinalResultsRange()
+        Devuelve (text, lo, hi) o (u"", None, None) si no hay nada.
+        """
+        # 1) API central (senaite.patient)
+        if api:
+            for fname in ("get_results_range", "getResultsRangeFor"):
+                try:
+                    fn = getattr(api, fname, None)
+                    if callable(fn):
+                        rr = fn(a)
+                        if isinstance(rr, dict):
+                            text, lo, hi, _eq = self._format_results_range(rr)
+                            if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                                return text, lo, hi
+                except Exception:
+                    pass
+
+        # 2) Métodos alternativos en el análisis (algunos add-ons los exponen)
+        for mname in ("getPatientResultsRange", "getDynamicResultsRange", "getFinalResultsRange"):
+            try:
+                rr = getattr(a, mname)()
+                if isinstance(rr, dict):
+                    text, lo, hi, _eq = self._format_results_range(rr)
+                    if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                        return text, lo, hi
+            except Exception:
+                pass
+
+        return u"", None, None
+
     # ---------- NUEVO: rangos por edad/género desde Service.getReferenceRanges ----------
     def _age_years(self, patient, ar):
         # Usa patient.getAge() o DOB; fallback al AR si lo trae
@@ -347,7 +383,10 @@ class InfolabsaResultsWithState(BrowserView):
     def _extract_specs_minmax_for_analysis(self, a):
         try:
             service = self._get_service(a)
-            keyword = getattr(service, "getKeyword", lambda: None)() if service else None
+            # NUEVO: intenta keyword también desde el análisis si el servicio no lo da
+            keyword = (getattr(service, "getKeyword", lambda: None)() if service else None) \
+                      or self._get(a, "getKeyword") \
+                      or self._get(a, "getServiceKeyword")
             if not keyword:
                 return None, None, None
             ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
@@ -586,33 +625,12 @@ class InfolabsaResultsWithState(BrowserView):
     def _compute_ref_range(self, a):
         """Devuelve (ref_text, low, high, src) usando prioridad razonable en 2.6"""
 
-        # -1) NUEVO: Adapter de senaite.patient → IDynamicResultsRange
+        # NUEVO (top priority): usar el pipeline real de senaite.patient
         try:
-            from zope.component import queryAdapter
-            try:
-                # Import directo de la interfaz (si existe)
-                from bika.lims.interfaces import IDynamicResultsRange
-            except Exception:
-                IDynamicResultsRange = None
-            if IDynamicResultsRange is not None:
-                adapter = queryAdapter(a, IDynamicResultsRange)
-            else:
-                adapter = None
-            if adapter:
-                rr = None
-                # método público típico del adapter
-                if hasattr(adapter, "get") and callable(adapter.get):
-                    try:
-                        rr = adapter.get()
-                    except Exception:
-                        rr = None
-                # formateo estándar
-                if isinstance(rr, dict):
-                    text, lo, hi, _eq = self._format_results_range(rr)
-                    if any(v not in (None, u"", "") for v in (text, lo, hi)):
-                        return text, lo, hi, u"adapter.dynamic"
+            text_p, lo_p, hi_p = self._get_patient_results_range(a)
+            if lo_p is not None or hi_p is not None or (text_p and text_p != u""):
+                return text_p, lo_p, hi_p, u"patient.pipeline"
         except Exception:
-            # no rompe la cadena si falla
             pass
 
         # 0) Service.getReferenceRanges() por edad/género (muy usado)
@@ -666,7 +684,10 @@ class InfolabsaResultsWithState(BrowserView):
                 ar_spec = self._get(ar, "getSpecification")
                 if ar_spec:
                     service = self._get_service(a)
-                    keyword = self._get(service, "getKeyword") if service else None
+                    # NUEVO: keyword desde analysis si el service no ayuda
+                    keyword = (self._get(service, "getKeyword") if service else None) \
+                              or self._get(a, "getKeyword") \
+                              or self._get(a, "getServiceKeyword")
                     if keyword and hasattr(ar_spec, "getResultsRange"):
                         rr = ar_spec.getResultsRange(keyword)
                         if rr and isinstance(rr, dict):
@@ -678,7 +699,9 @@ class InfolabsaResultsWithState(BrowserView):
 
         # 5) dynamic/spec/refdef/analysis/service/refvalues (tus caminos)
         service = self._get_service(a)
-        kw = self._get(service, "getKeyword") if service else None
+        kw = (self._get(service, "getKeyword") if service else None) \
+             or self._get(a, "getKeyword") \
+             or self._get(a, "getServiceKeyword")
         if kw:
             dlo, dhi, dsrc = self._extract_dynamic_specs_minmax(a, kw)
             if dlo is not None or dhi is not None:
@@ -707,7 +730,8 @@ class InfolabsaResultsWithState(BrowserView):
 
         # Nada encontrado
         try:
-            keyword = self._get(service, "getKeyword") if service else "UNKNOWN"
+            keyword = ((self._get(service, "getKeyword") if service else None)
+                       or self._get(a, "getKeyword") or "UNKNOWN")
             title = self._get(a, "Title") or "UNKNOWN"
             uid = self._get(a, "UID")
             logger.warning("[impress] NO RANGO para '%s' (kw=%s, uid=%s)", title, keyword, uid)
@@ -717,30 +741,6 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ---------- NUEVO: extraer 'result' (=) si existe, para exponer ref_eq ----------
     def _extract_ref_eq(self, a):
-        # 0) Adapter dinámico de senaite.patient
-        try:
-            from zope.component import queryAdapter
-            try:
-                from bika.lims.interfaces import IDynamicResultsRange
-            except Exception:
-                IDynamicResultsRange = None
-            if IDynamicResultsRange is not None:
-                adapter = queryAdapter(a, IDynamicResultsRange)
-            else:
-                adapter = None
-            if adapter and hasattr(adapter, "get") and callable(adapter.get):
-                rr = None
-                try:
-                    rr = adapter.get()
-                except Exception:
-                    rr = None
-                if isinstance(rr, dict):
-                    val = rr.get("result") or rr.get("value")
-                    if val not in (None, u"", ""):
-                        return self._u(val)
-        except Exception:
-            pass
-
         try:
             rr = self._get(a, "getResultsRange")
             if isinstance(rr, dict):
