@@ -31,6 +31,11 @@ def _to_num(x):
     try:
         if x in (None, u"", ""):
             return None
+        # Python 2 long; en Py3 no existe, pero no rompe
+        try:
+            long  # noqa
+        except Exception:
+            long = int  # type: ignore
         if isinstance(x, (int, long, float)):
             return float(x)
         s = _to_unicode(x).replace(",", ".")
@@ -153,29 +158,47 @@ class InfolabsaResultsWithState(BrowserView):
     # ---------- NUEVO: formateador compatible con “Especificación” ----------
     def _format_results_range(self, results_range):
         """
-        Devuelve (text, lo, hi, eq) a partir de un dict de ResultsRange.
-        - Usa 'rangecomment' si existe (igual que la grilla de AR).
-        - Si hay 'result' (igualdad), devuelve '=valor'.
-        - Si hay min/max, arma 'min – max' respetando hidemin/hidemax.
+        Devuelve (text, lo, hi, eq) a partir de un dict “ResultsRange” heterogéneo.
+        - rangecomment/comment tiene prioridad
+        - si hay 'result'/'value' => '=valor'
+        - si hay límites, arma 'min – max' respetando hidemin/hidemax
         """
         if not isinstance(results_range, dict):
             return u"", None, None, None
 
-        # Comentario de rango (tiene prioridad en muchos flows)
-        comment = results_range.get("rangecomment") or results_range.get("comment")
+        u_ = self._u
+
+        # 1) Comentario
+        comment = (results_range.get("rangecomment")
+                   or results_range.get("comment")
+                   or results_range.get("RangeComment"))
         if comment not in (None, u"", ""):
-            return self._u(comment), results_range.get("min"), results_range.get("max"), None
+            lo = (results_range.get("min") or results_range.get("Min")
+                  or results_range.get("lower") or results_range.get("Lower")
+                  or results_range.get("LowerLimit"))
+            hi = (results_range.get("max") or results_range.get("Max")
+                  or results_range.get("upper") or results_range.get("Upper")
+                  or results_range.get("UpperLimit"))
+            return u_(comment), lo, hi, None
 
-        # Igualdad (=)
-        eq_val = results_range.get("result") or results_range.get("value")
+        # 2) Igualdad
+        eq_val = (results_range.get("result") or results_range.get("value")
+                  or results_range.get("Result") or results_range.get("Value"))
         if eq_val not in (None, u"", ""):
-            return u"=" + self._u(eq_val), None, None, self._u(eq_val)
+            return u"=" + u_(eq_val), None, None, u_(eq_val)
 
-        # Intervalo
-        lo = results_range.get("min")
-        hi = results_range.get("max")
-        hide_min = results_range.get("hidemin", "") == "on"
-        hide_max = results_range.get("hidemax", "") == "on"
+        # 3) Intervalo + ocultamiento
+        lo = (results_range.get("min") or results_range.get("Min")
+              or results_range.get("lower") or results_range.get("Lower")
+              or results_range.get("LowerLimit"))
+        hi = (results_range.get("max") or results_range.get("Max")
+              or results_range.get("upper") or results_range.get("Upper")
+              or results_range.get("UpperLimit"))
+
+        hide_min = (results_range.get("hidemin") == "on"
+                    or results_range.get("hide_min") == "on")
+        hide_max = (results_range.get("hidemax") == "on"
+                    or results_range.get("hide_max") == "on")
 
         lo_txt = (None if hide_min else lo)
         hi_txt = (None if hide_max else hi)
@@ -185,11 +208,12 @@ class InfolabsaResultsWithState(BrowserView):
     # ---------- NUEVO: helper que llama al pipeline de senaite.patient ----------
     def _get_patient_results_range(self, a):
         """
-        Intenta obtener el mismo ResultsRange que usa la UI de análisis,
-        cortesía de senaite.patient:
-        - api.get_results_range(analysis)  (si existe)
-        - getPatientResultsRange(), getDynamicResultsRange(), getFinalResultsRange()
-        Devuelve (text, lo, hi) o (u"", None, None) si no hay nada.
+        Intenta obtener el mismo ResultsRange que usa la UI de análisis:
+        - api.get_results_range(a)  (si existe)
+        - api.getResultsRangeFor(a) (algunas ramas lo exponen así)
+        - a.getPatientResultsRange() / a.getDynamicResultsRange() / a.getFinalResultsRange()
+        - a.getResultsRange()  <-- añadido como parte del pipeline “patient”
+        Devuelve (text, lo, hi) o (u"", None, None).
         """
         # 1) API central (senaite.patient)
         if api:
@@ -205,7 +229,7 @@ class InfolabsaResultsWithState(BrowserView):
                 except Exception:
                     pass
 
-        # 2) Métodos alternativos en el análisis (algunos add-ons los exponen)
+        # 2) Métodos “patient-like” en el análisis
         for mname in ("getPatientResultsRange", "getDynamicResultsRange", "getFinalResultsRange"):
             try:
                 rr = getattr(a, mname)()
@@ -215,6 +239,17 @@ class InfolabsaResultsWithState(BrowserView):
                         return text, lo, hi
             except Exception:
                 pass
+
+        # 3) (NUEVO) getResultsRange parcha­do en Analysis
+        try:
+            rr = getattr(a, "getResultsRange", None)
+            rr = rr() if callable(rr) else None
+            if isinstance(rr, dict):
+                text, lo, hi, _eq = self._format_results_range(rr)
+                if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                    return text, lo, hi
+        except Exception:
+            pass
 
         return u"", None, None
 
@@ -226,6 +261,11 @@ class InfolabsaResultsWithState(BrowserView):
                 age = patient.getAge()
                 if hasattr(age, "years"):
                     return int(age.years)
+                # Python 2 long
+                try:
+                    long  # noqa
+                except Exception:
+                    long = int  # type: ignore
                 if isinstance(age, (int, long)):
                     return int(age)
         except Exception:
@@ -247,6 +287,10 @@ class InfolabsaResultsWithState(BrowserView):
                 age = ar.getAge()
                 if hasattr(age, "years"):
                     return int(age.years)
+                try:
+                    long  # noqa
+                except Exception:
+                    long = int  # type: ignore
                 if isinstance(age, (int, long)):
                     return int(age)
         except Exception:
@@ -741,6 +785,27 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ---------- NUEVO: extraer 'result' (=) si existe, para exponer ref_eq ----------
     def _extract_ref_eq(self, a):
+        # 0) pipeline “patient” primero (api / patient-like / a.getResultsRange)
+        try:
+            if api and hasattr(api, "get_results_range"):
+                rr = api.get_results_range(a)
+                if isinstance(rr, dict):
+                    v = rr.get("result") or rr.get("value")
+                    if v not in (None, u"", ""):
+                        return self._u(v)
+        except Exception:
+            pass
+        for mname in ("getPatientResultsRange", "getDynamicResultsRange", "getFinalResultsRange", "getResultsRange"):
+            try:
+                rr = getattr(a, mname)() if hasattr(a, mname) else None
+                if isinstance(rr, dict):
+                    v = rr.get("result") or rr.get("value")
+                    if v not in (None, u"", ""):
+                        return self._u(v)
+            except Exception:
+                pass
+
+        # 1) los demás caminos que ya tenías
         try:
             rr = self._get(a, "getResultsRange")
             if isinstance(rr, dict):
@@ -877,6 +942,12 @@ class InfolabsaResultsWithState(BrowserView):
 
         # USAR LA PRIORIDAD ACTUALIZADA
         ref_text, low, high, ref_src = self._compute_ref_range(a)
+
+        # (Diagnóstico opcional) Ver de dónde salió el rango en runtime
+        try:
+            logger.info("[impress] RefRange SRC=%s → %s (lo=%s hi=%s)", ref_src, ref_text or u"", low, high)
+        except Exception:
+            pass
 
         # Estado (workflow del análisis)
         wf_state = self._workflow_state(a) or u''
