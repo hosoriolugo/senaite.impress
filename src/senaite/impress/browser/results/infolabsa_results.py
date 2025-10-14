@@ -105,6 +105,18 @@ class InfolabsaResultsWithState(BrowserView):
                 return v
         return u""
 
+    # ---------- NUEVO: keyword robusto (Service -> Analysis -> Title) ----------
+    def _service_or_analysis_keyword(self, a):
+        """Keyword robusto: Service.getKeyword() -> Analysis.getKeyword()/Title."""
+        svc = self._get_service(a)
+        kw = self._get(svc, "getKeyword") if svc else None
+        if not kw:
+            kw = (self._get(a, "getKeyword") or
+                  self._get(a, "Keyword") or
+                  self._get(a, "title") or
+                  self._get(a, "Title"))
+        return (self._u(kw).strip() if kw else None)
+
     # ---------- low/high genéricos ----------
     def _get_low_high_candidates(self, obj):
         """Intenta leer low/high de muchos alias habituales."""
@@ -346,10 +358,17 @@ class InfolabsaResultsWithState(BrowserView):
     # ---------- 2) ANALYSIS SPECIFICATIONS ----------
     def _extract_specs_minmax_for_analysis(self, a):
         try:
-            service = self._get_service(a)
-            keyword = getattr(service, "getKeyword", lambda: None)() if service else None
+            # ORIGINAL:
+            # service = self._get_service(a)
+            # keyword = getattr(service, "getKeyword", lambda: None)() if service else None
+            # if not keyword:
+            #     return None, None, None
+
+            # AJUSTE (keyword robusto)
+            keyword = self._service_or_analysis_keyword(a)
             if not keyword:
                 return None, None, None
+
             ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
 
             candidates = []
@@ -358,7 +377,7 @@ class InfolabsaResultsWithState(BrowserView):
                 (client, "Client"),
                 (contact, "Contact"),
                 (st, "SampleType"),
-                (service, "Service"),
+                (self._get_service(a), "Service"),
             ):
                 if not holder:
                     continue
@@ -402,7 +421,7 @@ class InfolabsaResultsWithState(BrowserView):
                                 k = gv() if callable(gv) else None
                                 if k:
                                     break
-                        if k == keyword:
+                        if (k or u"").strip() == keyword:
                             return row
                 return None
 
@@ -636,8 +655,8 @@ class InfolabsaResultsWithState(BrowserView):
             if ar:
                 ar_spec = self._get(ar, "getSpecification")
                 if ar_spec:
-                    service = self._get_service(a)
-                    keyword = self._get(service, "getKeyword") if service else None
+                    # AJUSTE: keyword robusto
+                    keyword = self._service_or_analysis_keyword(a)
                     if keyword and hasattr(ar_spec, "getResultsRange"):
                         rr = ar_spec.getResultsRange(keyword)
                         if rr and isinstance(rr, dict):
@@ -649,9 +668,10 @@ class InfolabsaResultsWithState(BrowserView):
 
         # 5) dynamic/spec/refdef/analysis/service/refvalues (tus caminos)
         service = self._get_service(a)
-        kw = self._get(service, "getKeyword") if service else None
-        if kw:
-            dlo, dhi, dsrc = self._extract_dynamic_specs_minmax(a, kw)
+        # AJUSTE: usa keyword robusto
+        kw_any = self._service_or_analysis_keyword(a)
+        if kw_any:
+            dlo, dhi, dsrc = self._extract_dynamic_specs_minmax(a, kw_any)
             if dlo is not None or dhi is not None:
                 txt = self._first_text_from_lo_hi(dlo, dhi)
                 return txt, dlo, dhi, dsrc
@@ -678,7 +698,9 @@ class InfolabsaResultsWithState(BrowserView):
 
         # Nada encontrado
         try:
-            keyword = self._get(service, "getKeyword") if service else "UNKNOWN"
+            # AJUSTE: para el log, usa también el keyword robusto
+            keyword = (kw_any if (kw_any not in (None, u"")) else
+                       (self._get(service, "getKeyword") if service else "UNKNOWN"))
             title = self._get(a, "Title") or "UNKNOWN"
             uid = self._get(a, "UID")
             logger.warning("[impress] NO RANGO para '%s' (kw=%s, uid=%s)", title, keyword, uid)
@@ -719,7 +741,8 @@ class InfolabsaResultsWithState(BrowserView):
             ar_spec = ar and self._get(ar, "getSpecification")
             if ar_spec:
                 svc = self._get_service(a)
-                keyword = self._get(svc, "getKeyword") if svc else None
+                # AJUSTE: keyword robusto
+                keyword = self._service_or_analysis_keyword(a)
                 if keyword and hasattr(ar_spec, "getResultsRange"):
                     rr = ar_spec.getResultsRange(keyword)
                     if isinstance(rr, dict):
