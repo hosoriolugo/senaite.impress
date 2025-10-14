@@ -92,8 +92,11 @@
 
               rr_text python:(
                 r.get('ref_range') or
+                r.get('range') or
                 ((rr_eq  not in (None,u'', '')) and (u'='+unicode(rr_eq))) or
                 ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or
+                ((rr_min not in (None,u'', '')) and (u'≥'+unicode(rr_min))) or
+                ((rr_max not in (None,u'', '')) and (u'≤'+unicode(rr_max))) or
                 u'—'
               )
             ">
