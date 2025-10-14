@@ -253,6 +253,263 @@ class InfolabsaResultsWithState(BrowserView):
 
         return u"", None, None
 
+    # ---------- NUEVO (UI-like): helpers para leer la Spec enlazada ----------
+    def _age_days(self, patient, ar):
+        # Usa DOB si es posible
+        try:
+            if patient:
+                for fn in ("getBirthDate", "getDateOfBirth"):
+                    dob = getattr(patient, fn, lambda: None)()
+                    if dob:
+                        try:
+                            dob = dob.asdatetime().date()
+                        except Exception:
+                            dob = getattr(dob, "date", lambda: dob)()
+                        import datetime
+                        today = datetime.date.today()
+                        return (today - dob).days
+        except Exception:
+            pass
+        # Fallback a years -> days (aprox)
+        yrs = self._age_years(patient, ar)
+        try:
+            if yrs is not None:
+                return int(yrs) * 365
+        except Exception:
+            pass
+        return None
+
+    def _analysis_keyword(self, a):
+        for name in ("getKeyword", "getId", "getServiceKeyword"):
+            fn = getattr(a, name, None)
+            if callable(fn):
+                try:
+                    v = fn()
+                    if v:
+                        return self._u(v)
+                except Exception:
+                    pass
+        return u""
+
+    def _patient_gender_MF(self, patient, ar):
+        # Normaliza a 'M'/'F' o None
+        for obj, attr in ((patient, "getGender"), (patient, "getSex"), (ar, "getGender"), (ar, "getSex")):
+            if obj and hasattr(obj, attr):
+                try:
+                    raw = getattr(obj, attr)()
+                    if raw:
+                        s = self._u(raw).strip().lower()
+                        if s in ("m", "male", "masculino", "hombre"):
+                            return u"M"
+                        if s in ("f", "female", "femenino", "mujer"):
+                            return u"F"
+                        break
+                except Exception:
+                    pass
+        return None
+
+    def _get_aspec(self, analysis):
+        # Intenta recuperar el AnalysisSpec hijo
+        fn = getattr(analysis, "getAnalysisSpec", None)
+        if callable(fn):
+            try:
+                # Algunos exponen arg 'create', otros no
+                try:
+                    return fn(create=False)
+                except TypeError:
+                    return fn()
+            except Exception:
+                pass
+        try:
+            schema = getattr(analysis, "Schema", lambda: None)()
+            if schema and "AnalysisSpec" in schema:
+                return schema["AnalysisSpec"].get(analysis)
+        except Exception:
+            pass
+        return None
+
+    def _current_spec_linked(self, analysis):
+        """Devuelve ('dx'|'at'|None, obj) igual que la UI: directo o vía AnalysisSpec."""
+        # Directo en Analysis
+        for kind, getter in (("dx", "getDynamicAnalysisSpec"), ("at", "getSpecification")):
+            fn = getattr(analysis, getter, None)
+            if callable(fn):
+                try:
+                    obj = fn()
+                    if obj:
+                        return kind, obj
+                except Exception:
+                    pass
+        # Vía hijo AnalysisSpec
+        aspec = self._get_aspec(analysis)
+        if aspec:
+            for kind, getter in (("dx", "getDynamicAnalysisSpec"), ("at", "getSpecification")):
+                fn = getattr(aspec, getter, None)
+                if callable(fn):
+                    try:
+                        obj = fn()
+                        if obj:
+                            return kind, obj
+                    except Exception:
+                        pass
+        return None, None
+
+    def _rows_from_dx(self, dx):
+        for attr in ("getRows", "getData", "get_data", "rows", "data"):
+            val = getattr(dx, attr, None)
+            if callable(val):
+                try:
+                    rows = val()
+                except Exception:
+                    rows = None
+            else:
+                rows = val
+            if rows:
+                return rows
+        return []
+
+    def _resolve_dx_row_for_analysis(self, dx, analysis, patient, ar):
+        """Elige la fila DX correcta según Keyword + género + edad(días) + filtros opcionales."""
+        rows = self._rows_from_dx(dx)
+        if not rows:
+            return None
+
+        kw = self._analysis_keyword(analysis).strip().upper()
+        gender_MF = self._patient_gender_MF(patient, ar)  # 'M'/'F'/None
+        age_days = self._age_days(patient, ar)
+
+        # UIDs de contexto
+        client_uid = None
+        if ar and getattr(ar, "aq_parent", None) and hasattr(ar.aq_parent, "UID"):
+            try:
+                client_uid = ar.aq_parent.UID()
+            except Exception:
+                pass
+        sampletype_uid = self._get(analysis, "getSampleTypeUID")
+        method_uid = self._get(analysis, "getMethodUID")
+
+        def N(x):
+            if x is None:
+                return None
+            try:
+                return self._u(x).strip().upper()
+            except Exception:
+                return x
+
+        candidates = []
+        for r in rows:
+            # Keyword
+            r_kw = N(r.get("Keyword") or r.get("keyword") or r.get("service_keyword"))
+            if not r_kw or r_kw != kw:
+                continue
+
+            # Género
+            r_gender = r.get("gender")
+            if r_gender:
+                r_gender = N(r_gender)
+                if gender_MF and r_gender not in (gender_MF, u"*", u"ANY", u"ALL"):
+                    continue
+
+            # Edad (min/max en días o años)
+            ok_age = True
+            if age_days is not None:
+                amin = _to_num(r.get("age_min_days") or r.get("age_min"))
+                amax = _to_num(r.get("age_max_days") or r.get("age_max"))
+                if amin is not None and age_days < amin:
+                    ok_age = False
+                if amax is not None and age_days > amax:
+                    ok_age = False
+            if not ok_age:
+                continue
+
+            # Filtros opcionales por UID
+            def match_uid(field, given):
+                rv = r.get(field) or r.get(field.capitalize()) or r.get(field.replace("_uid", "").title()+"UID")
+                if not rv or not given:
+                    return True
+                return N(rv) == N(given)
+
+            if not match_uid("client_uid", client_uid):
+                continue
+            if not match_uid("sampletype_uid", sampletype_uid):
+                continue
+            if not match_uid("method_uid", method_uid):
+                continue
+
+            candidates.append(r)
+
+        return candidates[0] if candidates else None
+
+    def _dict_from_dx_row(self, row):
+        if not row:
+            return None
+        return {
+            "unit": self._u(row.get("unit")) if row.get("unit") else None,
+            "min": _to_num(row.get("min")),
+            "max": _to_num(row.get("max")),
+            "warn_low": _to_num(row.get("warn_low")),
+            "warn_high": _to_num(row.get("warn_high")),
+            "panic_low": _to_num(row.get("panic_low")),
+            "panic_high": _to_num(row.get("panic_high")),
+            "target": _to_num(row.get("target")),
+            "notes": self._u(row.get("notes") or u"") or None,
+            "_source": "dx",
+        }
+
+    def _dict_from_at(self, spec_at):
+        """Adapta un AT clásico: intenta getters comunes."""
+        getv = lambda o, n: getattr(o, "get" + n, lambda: None)()
+        return {
+            "unit": self._u(getv(spec_at, "Unit") or u"") or None,
+            "min": _to_num(getv(spec_at, "Min")),
+            "max": _to_num(getv(spec_at, "Max")),
+            "warn_low": _to_num(getv(spec_at, "WarnLow")),
+            "warn_high": _to_num(getv(spec_at, "WarnHigh")),
+            "panic_low": _to_num(getv(spec_at, "PanicLow")),
+            "panic_high": _to_num(getv(spec_at, "PanicHigh")),
+            "target": _to_num(getv(spec_at, "Target")),
+            "notes": self._u(getv(spec_at, "Notes") or u"") or None,
+            "_source": "at",
+        }
+
+    def _compute_from_linked_spec(self, a):
+        """Usa la Spec enlazada (DX/AT) exactamente como hace la UI."""
+        kind, obj = self._current_spec_linked(a)
+        if not obj:
+            return u"", None, None, None
+        ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+
+        if kind == "dx":
+            row = self._resolve_dx_row_for_analysis(obj, a, patient, ar)
+            dd = self._dict_from_dx_row(row)
+            if dd:
+                txt = self._first_text_from_lo_hi(dd.get("min"), dd.get("max"))
+                unit = dd.get("unit")
+                if unit:
+                    txt = (txt + u" " + unit).strip()
+                return txt, dd.get("min"), dd.get("max"), u"linked.dx"
+
+        if kind == "at":
+            dd = self._dict_from_at(obj)
+            if dd and any(dd.get(k) is not None for k in ("min", "max", "target", "panic_low", "panic_high")):
+                txt = self._first_text_from_lo_hi(dd.get("min"), dd.get("max"))
+                unit = dd.get("unit")
+                if not txt and dd.get("target") is not None:
+                    txt = u"≈%s" % (self._u(int(dd.get("target"))) if dd.get("target") is not None else u"")
+                if not txt and (dd.get("panic_low") is not None or dd.get("panic_high") is not None):
+                    lo = dd.get("panic_low"); hi = dd.get("panic_high")
+                    if lo is not None and hi is not None:
+                        txt = self._first_text_from_lo_hi(lo, hi)
+                    elif lo is not None:
+                        txt = u"≥%s" % self._u(int(lo))
+                    elif hi is not None:
+                        txt = u"≤%s" % self._u(int(hi))
+                if unit and txt:
+                    txt = (txt + u" " + unit).strip()
+                return txt, dd.get("min"), dd.get("max"), u"linked.at"
+
+        return u"", None, None, None
+
     # ---------- NUEVO: rangos por edad/género desde Service.getReferenceRanges ----------
     def _age_years(self, patient, ar):
         # Usa patient.getAge() o DOB; fallback al AR si lo trae
@@ -674,6 +931,14 @@ class InfolabsaResultsWithState(BrowserView):
             text_p, lo_p, hi_p = self._get_patient_results_range(a)
             if lo_p is not None or hi_p is not None or (text_p and text_p != u""):
                 return text_p, lo_p, hi_p, u"patient.pipeline"
+        except Exception:
+            pass
+
+        # NUEVO (exact match con la UI): usar la Spec enlazada (DX/AT) si existe
+        try:
+            txt_l, lo_l, hi_l, src_l = self._compute_from_linked_spec(a)
+            if lo_l is not None or hi_l is not None or (txt_l and txt_l != u""):
+                return txt_l, lo_l, hi_l, src_l or u"linked.spec"
         except Exception:
             pass
 
