@@ -150,6 +150,38 @@ class InfolabsaResultsWithState(BrowserView):
             return self._u(rr), None, None
         return u"", None, None
 
+    # ---------- NUEVO: formateador compatible con “Especificación” ----------
+    def _format_results_range(self, results_range):
+        """
+        Devuelve (text, lo, hi, eq) a partir de un dict de ResultsRange.
+        - Usa 'rangecomment' si existe (igual que la grilla de AR).
+        - Si hay 'result' (igualdad), devuelve '=valor'.
+        - Si hay min/max, arma 'min – max' respetando hidemin/hidemax.
+        """
+        if not isinstance(results_range, dict):
+            return u"", None, None, None
+
+        # Comentario de rango (tiene prioridad en muchos flows)
+        comment = results_range.get("rangecomment") or results_range.get("comment")
+        if comment not in (None, u"", ""):
+            return self._u(comment), results_range.get("min"), results_range.get("max"), None
+
+        # Igualdad (=)
+        eq_val = results_range.get("result") or results_range.get("value")
+        if eq_val not in (None, u"", ""):
+            return u"=" + self._u(eq_val), None, None, self._u(eq_val)
+
+        # Intervalo
+        lo = results_range.get("min")
+        hi = results_range.get("max")
+        hide_min = results_range.get("hidemin", "") == "on"
+        hide_max = results_range.get("hidemax", "") == "on"
+
+        lo_txt = (None if hide_min else lo)
+        hi_txt = (None if hide_max else hi)
+        text = self._first_text_from_lo_hi(lo_txt, hi_txt)
+        return text, lo, hi, None
+
     # ---------- NUEVO: rangos por edad/género desde Service.getReferenceRanges ----------
     def _age_years(self, patient, ar):
         # Usa patient.getAge() o DOB; fallback al AR si lo trae
@@ -550,7 +582,7 @@ class InfolabsaResultsWithState(BrowserView):
             pass
         return None, None, None
 
-    # ---------- PRIORIDAD para SENAITE 2.6 ----------
+    # ---------- PRIORIDAD para SENAITE 2.6 (ajustada para igualar “Especificación”) ----------
     def _compute_ref_range(self, a):
         """Devuelve (ref_text, low, high, src) usando prioridad razonable en 2.6"""
 
@@ -559,30 +591,24 @@ class InfolabsaResultsWithState(BrowserView):
         if lo_ag is not None or hi_ag is not None:
             return (self._first_text_from_lo_hi(lo_ag, hi_ag), lo_ag, hi_ag, u"svc.refranges")
 
-        # 1) Analysis.getResultsRange() canónico
+        # 1) Analysis.getResultsRange() canónico (formateo completo)
         try:
             results_range = self._get(a, "getResultsRange")
             if results_range and isinstance(results_range, dict):
-                lo = results_range.get('min')
-                hi = results_range.get('max')
-                hide_min = results_range.get('hidemin', '') == 'on'
-                hide_max = results_range.get('hidemax', '') == 'on'
-                if not hide_min and not hide_max and (lo is not None or hi is not None):
-                    text = self._first_text_from_lo_hi(lo, hi)
+                text, lo, hi, _eq = self._format_results_range(results_range)
+                if any(v not in (None, u"", "") for v in (text, lo, hi)):
                     return text, lo, hi, u"analysis.getResultsRange"
         except Exception:
             pass
 
-        # 2) Analysis.getSpecification()
+        # 2) Analysis.getSpecification() -> getResultsRange()
         try:
             spec = self._get(a, "getSpecification")
             if spec:
                 results_range = self._get(spec, "getResultsRange")
                 if results_range and isinstance(results_range, dict):
-                    lo = results_range.get('min')
-                    hi = results_range.get('max')
-                    if lo is not None or hi is not None:
-                        text = self._first_text_from_lo_hi(lo, hi)
+                    text, lo, hi, _eq = self._format_results_range(results_range)
+                    if any(v not in (None, u"", "") for v in (text, lo, hi)):
                         return text, lo, hi, u"analysis.spec.resultsrange"
                 lo = self._get(spec, "min") or self._get(spec, "Min")
                 hi = self._get(spec, "max") or self._get(spec, "Max")
@@ -592,23 +618,19 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             pass
 
-        # 3) Service.getResultsRange()
+        # 3) Service.getResultsRange() (formateo completo)
         try:
             service = self._get_service(a)
             if service:
                 results_range = self._get(service, "getResultsRange")
                 if results_range and isinstance(results_range, dict):
-                    lo = results_range.get('min')
-                    hi = results_range.get('max')
-                    hide_min = results_range.get('hidemin', '') == 'on'
-                    hide_max = results_range.get('hidemax', '') == 'on'
-                    if not hide_min and not hide_max and (lo is not None or hi is not None):
-                        text = self._first_text_from_lo_hi(lo, hi)
+                    text, lo, hi, _eq = self._format_results_range(results_range)
+                    if any(v not in (None, u"", "") for v in (text, lo, hi)):
                         return text, lo, hi, u"service.getResultsRange"
         except Exception:
             pass
 
-        # 4) AR.getSpecification(keyword)
+        # 4) AR.getSpecification(keyword) (formateo completo)
         try:
             ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
             if ar:
@@ -619,10 +641,8 @@ class InfolabsaResultsWithState(BrowserView):
                     if keyword and hasattr(ar_spec, "getResultsRange"):
                         rr = ar_spec.getResultsRange(keyword)
                         if rr and isinstance(rr, dict):
-                            lo = rr.get('min')
-                            hi = rr.get('max')
-                            if lo is not None or hi is not None:
-                                text = self._first_text_from_lo_hi(lo, hi)
+                            text, lo, hi, _eq = self._format_results_range(rr)
+                            if any(v not in (None, u"", "") for v in (text, lo, hi)):
                                 return text, lo, hi, u"ar.spec.keyword"
         except Exception:
             pass
@@ -665,6 +685,50 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             pass
         return u"", None, None, u"not_found"
+
+    # ---------- NUEVO: extraer 'result' (=) si existe, para exponer ref_eq ----------
+    def _extract_ref_eq(self, a):
+        try:
+            rr = self._get(a, "getResultsRange")
+            if isinstance(rr, dict):
+                val = rr.get("result") or rr.get("value")
+                if val not in (None, u"", ""):
+                    return self._u(val)
+        except Exception:
+            pass
+        try:
+            spec = self._get(a, "getSpecification")
+            rr = spec and self._get(spec, "getResultsRange")
+            if isinstance(rr, dict):
+                val = rr.get("result") or rr.get("value")
+                if val not in (None, u"", ""):
+                    return self._u(val)
+        except Exception:
+            pass
+        try:
+            svc = self._get_service(a)
+            rr = svc and self._get(svc, "getResultsRange")
+            if isinstance(rr, dict):
+                val = rr.get("result") or rr.get("value")
+                if val not in (None, u"", ""):
+                    return self._u(val)
+        except Exception:
+            pass
+        try:
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+            ar_spec = ar and self._get(ar, "getSpecification")
+            if ar_spec:
+                svc = self._get_service(a)
+                keyword = self._get(svc, "getKeyword") if svc else None
+                if keyword and hasattr(ar_spec, "getResultsRange"):
+                    rr = ar_spec.getResultsRange(keyword)
+                    if isinstance(rr, dict):
+                        val = rr.get("result") or rr.get("value")
+                        if val not in (None, u"", ""):
+                            return self._u(val)
+        except Exception:
+            pass
+        return None
 
     # ---------- estado de workflow del análisis ----------
     def _workflow_state(self, a):
@@ -780,6 +844,9 @@ class InfolabsaResultsWithState(BrowserView):
         if not ref_text and (low is not None or high is not None):
             ref_text = self._first_text_from_lo_hi(low, high)
 
+        # NUEVO: exponer ref_eq si existe (para plantillas que lo lean)
+        ref_eq = self._extract_ref_eq(a)
+
         return {
             # Display
             'name': name,
@@ -791,6 +858,7 @@ class InfolabsaResultsWithState(BrowserView):
             'ref_low': low,
             'ref_high': high,
             'ref_src': ref_src or u'',
+            'ref_eq': ref_eq,  # <--- añadido (no rompe nada existente)
 
             # Alias por compatibilidad con plantillas
             'reference_range': (ref_text or u''),
