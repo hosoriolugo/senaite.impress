@@ -14,6 +14,9 @@
   .estado-warn   { color:#d9534f; font-weight:700; }
   .estado-crit   { color:#d63384; font-weight:800; }
   .estado-na     { color:#6c757d; }
+
+  /* Permite que los rangos largos hagan wrap */
+  #results-with-state table.table tbody td { white-space: normal; word-break: break-word; }
 </style>
 
 <table class="table table-sm table-condensed">
@@ -35,39 +38,47 @@
           <td tal:content="python:r['result']">—</td>
           <td tal:content="python:r['unit']">—</td>
 
-          <!-- ===== RANGO DE REFERENCIA (con fallback a Objeto y Servicio) ===== -->
+          <!-- ===== RANGO DE REFERENCIA (prioriza lo calculado en row(a)) ===== -->
           <td>
             <tal:ref define="
               json modules/json;
+
               _is_seq python:lambda x: isinstance(x, (list, tuple));
               _as_dict python:lambda it: ((hasattr(it, 'get') and it) or (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or {});
 
+              _norm python:lambda s: (unicode(s or u'').strip().lower());
+
+              /* 1) Valores ya calculados por row(a) (los buenos) */
+              rr_min0 python:r.get('ref_low');
+              rr_max0 python:r.get('ref_high');
+              rr_eq0  python:r.get('ref_eq');
+              rr_txt0 python:( r.get('ref_range') or r.get('range') or u'' );
+
+              /* 2) Si hubiera que caer a objetos (poco frecuente), los leemos bien */
               obj python:(hasattr(a,'getObject') and a.getObject() or None);
 
-              rr_brain python:(
-                (hasattr(a,'getReferenceResults') and a.getReferenceResults) or
+              rr_from_a python:(
+                (hasattr(a,'getReferenceResults') and a.getReferenceResults()) or
                 None
               );
-              rr_obj   python:(
+              rr_from_obj python:(
                 obj and hasattr(obj,'getReferenceResults') and obj.getReferenceResults() or
                 None
               );
 
               svc_uid python:(
-                (hasattr(a,'getServiceUID') and a.getServiceUID) or
+                (hasattr(a,'getServiceUID') and a.getServiceUID()) or
                 (obj and hasattr(obj,'getServiceUID') and obj.getServiceUID()) or
                 None
               );
               svc_brains python:(svc_uid and context.portal_catalog(UID=svc_uid) or []);
-              svc_brain  python:(svc_brains and svc_brains[0] or None);
-              svc_obj    python:(svc_brain and svc_brain.getObject() or None);
-              rr_svc python:(
-                (svc_brain and hasattr(svc_brain,'getReferenceResults') and svc_brain.getReferenceResults) or
+              svc_obj    python:(svc_brains and svc_brains[0].getObject() or None);
+              rr_from_svc python:(
                 (svc_obj and hasattr(svc_obj,'getReferenceResults') and svc_obj.getReferenceResults()) or
                 None
               );
 
-              rr_raw_best python:(rr_brain or rr_obj or rr_svc or None);
+              rr_raw_best python:(rr_from_a or rr_from_obj or rr_from_svc or None);
 
               rr_parsed python:(
                 (isinstance(rr_raw_best, basestring) and rr_raw_best.strip().startswith(u'[') and json.loads(rr_raw_best)) or
@@ -76,23 +87,26 @@
 
               recs python:[ _as_dict(item) for item in (rr_parsed if _is_seq(rr_parsed) else [rr_parsed]) if item ];
 
-              kw python:(
-                (hasattr(a,'getKeyword') and a.getKeyword) or
+              kw_raw python:(
+                (hasattr(a,'getKeyword') and a.getKeyword()) or
                 r.get('name') or
-                None
+                u''
               );
+              kw python:_norm(kw_raw);
 
-              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
+              rec_sel_list python:(
+                [d for d in recs if (_norm(d.get('keyword'))==kw)] or
+                (recs[:1] if recs else [])
+              );
               rec python:(rec_sel_list and rec_sel_list[0] or {});
 
-              rr_min python:( r.get('ref_low')  if (r.get('ref_low')  not in (None, u'', '')) else rec.get('min') );
-              rr_max python:( r.get('ref_high') if (r.get('ref_high') not in (None, u'', '')) else rec.get('max') );
-              rr_eq  python:( r.get('ref_eq')   if (r.get('ref_eq')   not in (None, u'', '')) else rec.get('result') );
+              rr_min python:( rr_min0 if (rr_min0 not in (None, u'', '')) else rec.get('min') );
+              rr_max python:( rr_max0 if (rr_max0 not in (None, u'', '')) else rec.get('max') );
+              rr_eq  python:( rr_eq0  if (rr_eq0  not in (None, u'', '')) else rec.get('result') );
               rr_src python:( r.get('ref_src') or rec.get('keyword') or u'' );
 
               rr_text python:(
-                r.get('ref_range') or
-                r.get('range') or
+                (rr_txt0 and unicode(rr_txt0)) or
                 ((rr_eq  not in (None,u'', '')) and (u'='+unicode(rr_eq))) or
                 ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or
                 ((rr_min not in (None,u'', '')) and (u'≥'+unicode(rr_min))) or
@@ -139,7 +153,7 @@
           </td>
           <!-- ===== FIN ESTADO ===== -->
 
-          <!-- ===== ALERTAS (igual que tenías) ===== -->
+          <!-- ===== ALERTAS ===== -->
           <td class="text-center">
             <tal:al define="
               _tofloat python:lambda v: ((isinstance(v,(int,float)) and float(v)) or ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None);
@@ -204,7 +218,7 @@
 
     var cells = container.querySelectorAll('table tbody td, table tbody td.text-center span');
     var wrap = function(html, re, cls){
-      return html.replace(re, function(m){ return '<span class=\"'+cls+'\">'+m+'</span>'; });
+      return html.replace(re, function(m){ return '<span class="'+cls+'">'+m+'</span>'; });
     };
     for (var j=0;j<cells.length;j++){
       var el = cells[j];
