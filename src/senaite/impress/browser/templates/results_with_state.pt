@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="utf-8"?>
 <tal:results i18n:domain="senaite.impress">
 <div id="results-with-state">
 
@@ -39,17 +38,18 @@
           <td tal:content="python:r['result']">—</td>
           <td tal:content="python:r['unit']">—</td>
 
-          <!-- ===== RANGO DE REFERENCIA (con fallback a Objeto y Servicio) ===== -->
+          <!-- ===== RANGO DE REFERENCIA (prioriza lo calculado en row(a)) ===== -->
           <td>
             <tal:ref define="
               json modules/json;
               _is_seq python:lambda x: isinstance(x, (list, tuple));
               _as_dict python:lambda it: ((hasattr(it, 'get') and it) or (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or {});
+              _call python:lambda f: (callable(f) and f() or f);
 
               obj python:(hasattr(a,'getObject') and a.getObject() or None);
 
               rr_brain python:(
-                (hasattr(a,'getReferenceResults') and a.getReferenceResults()) or
+                (hasattr(a,'getReferenceResults') and _call(a.getReferenceResults)) or
                 None
               );
               rr_obj   python:(
@@ -58,15 +58,15 @@
               );
 
               svc_uid python:(
-                (hasattr(a,'getServiceUID') and a.getServiceUID()) or
-                (obj and hasattr(obj,'getServiceUID') and obj.getServiceUID()) or
+                (hasattr(a,'getServiceUID') and _call(a.getServiceUID)) or
+                (obj and hasattr(obj,'getServiceUID') and _call(obj.getServiceUID)) or
                 None
               );
               svc_brains python:(svc_uid and context.portal_catalog(UID=svc_uid) or []);
               svc_brain  python:(svc_brains and svc_brains[0] or None);
               svc_obj    python:(svc_brain and svc_brain.getObject() or None);
               rr_svc python:(
-                (svc_brain and hasattr(svc_brain,'getReferenceResults') and svc_brain.getReferenceResults()) or
+                (svc_brain and hasattr(svc_brain,'getReferenceResults') and _call(svc_brain.getReferenceResults)) or
                 (svc_obj and hasattr(svc_obj,'getReferenceResults') and svc_obj.getReferenceResults()) or
                 None
               );
@@ -81,7 +81,7 @@
               recs python:[ _as_dict(item) for item in (rr_parsed if _is_seq(rr_parsed) else [rr_parsed]) if item ];
 
               kw python:(
-                (hasattr(a,'getKeyword') and a.getKeyword()) or
+                (hasattr(a,'getKeyword') and _call(a.getKeyword)) or
                 r.get('name') or
                 None
               );
@@ -96,8 +96,11 @@
 
               rr_text python:(
                 r.get('ref_range') or
+                r.get('range') or
                 ((rr_eq  not in (None,u'', '')) and (u'='+unicode(rr_eq))) or
                 ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or
+                ((rr_min not in (None,u'', '')) and (u'≥'+unicode(rr_min))) or
+                ((rr_max not in (None,u'', '')) and (u'≤'+unicode(rr_max))) or
                 u'—'
               )
             ">
@@ -140,7 +143,7 @@
           </td>
           <!-- ===== FIN ESTADO ===== -->
 
-          <!-- ===== ALERTAS (igual que tenías) ===== -->
+          <!-- ===== ALERTAS ===== -->
           <td class="text-center">
             <tal:al define="
               _tofloat python:lambda v: ((isinstance(v,(int,float)) and float(v)) or ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None);
