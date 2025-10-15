@@ -39,6 +39,8 @@
           <td tal:content="python:r['unit']">—</td>
 
           <!-- ===== RANGO DE REFERENCIA (prioriza lo calculado en row(a)) ===== -->
+          <!-- 1) Valores ya calculados por row(a) (los buenos) -->
+          <!-- 2) Si hubiera que caer a objetos (poco frecuente), se leen desde análisis/objeto/servicio -->
           <td>
             <tal:ref define="
               json modules/json;
@@ -48,13 +50,11 @@
 
               _norm python:lambda s: (unicode(s or u'').strip().lower());
 
-              /* 1) Valores ya calculados por row(a) (los buenos) */
               rr_min0 python:r.get('ref_low');
               rr_max0 python:r.get('ref_high');
               rr_eq0  python:r.get('ref_eq');
               rr_txt0 python:( r.get('ref_range') or r.get('range') or u'' );
 
-              /* 2) Si hubiera que caer a objetos (poco frecuente), los leemos bien */
               obj python:(hasattr(a,'getObject') and a.getObject() or None);
 
               rr_from_a python:(
