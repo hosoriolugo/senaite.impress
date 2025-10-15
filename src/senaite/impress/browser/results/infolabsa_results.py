@@ -44,6 +44,49 @@ def _to_num(x):
         return None
 
 
+# ------------------------- NUEVOS HELPERS SUAVES (no-disruptivos) -------------------------
+
+def _pretty_src(ref_src, debug=False):
+    """Mapea el origen técnico a una etiqueta amable; oculta 'not_found' para usuario."""
+    if not ref_src:
+        return u""
+    s = _to_unicode(ref_src or u"").strip().lower()
+    if s in (u"not_found", u"unknown", u""):
+        return u"" if not debug else u"origen: " + _to_unicode(ref_src)
+    mapita = {
+        u"patient.pipeline": u"ajustado por edad/género",
+        u"linked.dx": u"especificación dinámica",
+        u"linked.at": u"especificación",
+        u"linked.spec": u"especificación",
+        u"svc.refranges": u"servicio (edad/género)",
+        u"analysis.getresultsrange": u"análisis",
+        u"analysis.spec.resultsrange": u"especificación",
+        u"analysis.spec.direct": u"especificación",
+        u"service.getresultsrange": u"servicio",
+        u"ar.spec.keyword": u"spec del AR",
+        u"dynamic": u"especificación dinámica",
+        u"spec": u"especificación",
+        u"refdef": u"definición de referencia",
+        u"analysis": u"análisis",
+        u"service": u"servicio",
+        u"service.refvalues": u"valores de referencia",
+    }
+    return mapita.get(s, u"" if not debug else u"origen: " + _to_unicode(ref_src))
+
+
+def _format_ref_text_with_unit(ref_text, unit):
+    """Devuelve el rango con unidad, sin duplicar ni dejar espacios raros."""
+    t = _to_unicode(ref_text or u"").strip()
+    unit_s = _to_unicode(unit or u"").strip()
+    if not t:
+        return u""
+    if unit_s:
+        # si ya termina con la unidad (con o sin espacio), no la repitas
+        if not (t.endswith(unit_s) or t.endswith(u" " + unit_s)):
+            return (t + u" " + unit_s).strip()
+    return t
+
+
 class InfolabsaResultsWithState(BrowserView):
     """
     Renderiza la tabla 'cool' usando templates/results_with_state.pt
@@ -1070,7 +1113,7 @@ class InfolabsaResultsWithState(BrowserView):
             except Exception:
                 pass
 
-        # 1) los demás caminos que ya tenías
+        # 1) los demás caminos
         try:
             rr = self._get(a, "getResultsRange")
             if isinstance(rr, dict):
@@ -1236,6 +1279,16 @@ class InfolabsaResultsWithState(BrowserView):
         # NUEVO: exponer ref_eq si existe (para plantillas que lo lean)
         ref_eq = self._extract_ref_eq(a)
 
+        # ---------------- NUEVO: campos bonitos para informe ----------------
+        ref_src_label = _pretty_src(ref_src, debug=bool(self.request.get('debug_refsrc')))
+        reference_range_with_unit = _format_ref_text_with_unit(ref_text, unit)
+
+        # Aliases útiles para plantillas de informe
+        state_icon = estado_symbol
+        state_label = estado_text
+        state_class = estado_class
+        alert_simple = alerts
+
         return {
             # Display
             'name': name,
@@ -1247,12 +1300,14 @@ class InfolabsaResultsWithState(BrowserView):
             'ref_low': low,
             'ref_high': high,
             'ref_src': ref_src or u'',
-            'ref_eq': ref_eq,  # <--- añadido (no rompe nada existente)
+            'ref_src_label': ref_src_label,                # <-- NUEVO (no muestra 'not_found')
+            'ref_eq': ref_eq,
 
             # Alias por compatibilidad con plantillas
             'reference_range': (ref_text or u''),
+            'reference_range_with_unit': reference_range_with_unit,  # <-- NUEVO (ideal para informe)
             'range_text': (ref_text or u''),
-            'range': (ref_text or u''),  # <- MUY usado en algunos templates
+            'range': (ref_text or u''),  # <- MUY usado
 
             'reference_low': low,
             'reference_high': high,
@@ -1268,11 +1323,18 @@ class InfolabsaResultsWithState(BrowserView):
             'status': wf_state,
             'status_text': wf_state,
 
+            # Aliases de estado para informes
+            'state_icon': state_icon,     # <-- NUEVO
+            'state_label': state_label,   # <-- NUEVO
+            'state_class': state_class,   # <-- NUEVO
+            'estado': estado_text,        # <-- NUEVO
+
             # Alertas combinadas
             'alert_classes': alert_classes,
             'alert_text': alerts,
             'alert_title': alert_title,
-            'alerts': alerts,  # <- alias directo que suelen usar las columnas
+            'alerts': alerts,
+            'alert': alert_simple,        # <-- NUEVO (alias directo)
         }
 
     def rows(self):
