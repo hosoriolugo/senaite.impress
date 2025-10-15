@@ -44,7 +44,7 @@ def _to_num(x):
         return None
 
 
-# ------------------------- NUEVOS HELPERS SUAVES (no-disruptivos) -------------------------
+# ------------------------- helpers de presentación -------------------------
 
 def _pretty_src(ref_src, debug=False):
     """Mapea el origen técnico a una etiqueta amable; oculta 'not_found' para usuario."""
@@ -53,7 +53,7 @@ def _pretty_src(ref_src, debug=False):
     s = _to_unicode(ref_src or u"").strip().lower()
     if s in (u"not_found", u"unknown", u""):
         return u"" if not debug else u"origen: " + _to_unicode(ref_src)
-    mapita = {
+    mapa = {
         u"patient.pipeline": u"ajustado por edad/género",
         u"linked.dx": u"especificación dinámica",
         u"linked.at": u"especificación",
@@ -71,19 +71,17 @@ def _pretty_src(ref_src, debug=False):
         u"service": u"servicio",
         u"service.refvalues": u"valores de referencia",
     }
-    return mapita.get(s, u"" if not debug else u"origen: " + _to_unicode(ref_src))
+    return mapa.get(s, u"" if not debug else u"origen: " + _to_unicode(ref_src))
 
 
 def _format_ref_text_with_unit(ref_text, unit):
     """Devuelve el rango con unidad, sin duplicar ni dejar espacios raros."""
     t = _to_unicode(ref_text or u"").strip()
-    unit_s = _to_unicode(unit or u"").strip()
+    u_ = _to_unicode(unit or u"").strip()
     if not t:
         return u""
-    if unit_s:
-        # si ya termina con la unidad (con o sin espacio), no la repitas
-        if not (t.endswith(unit_s) or t.endswith(u" " + unit_s)):
-            return (t + u" " + unit_s).strip()
+    if u_ and not (t.endswith(u_) or t.endswith(u" " + u_)):
+        return (t + u" " + u_).strip()
     return t
 
 
@@ -198,20 +196,13 @@ class InfolabsaResultsWithState(BrowserView):
             return self._u(rr), None, None
         return u"", None, None
 
-    # ---------- NUEVO: formateador compatible con “Especificación” ----------
+    # ---------- formateador ResultsRange ----------
     def _format_results_range(self, results_range):
-        """
-        Devuelve (text, lo, hi, eq) a partir de un dict “ResultsRange” heterogéneo.
-        - rangecomment/comment tiene prioridad
-        - si hay 'result'/'value' => '=valor'
-        - si hay límites, arma 'min – max' respetando hidemin/hidemax
-        """
         if not isinstance(results_range, dict):
             return u"", None, None, None
 
         u_ = self._u
 
-        # 1) Comentario
         comment = (results_range.get("rangecomment")
                    or results_range.get("comment")
                    or results_range.get("RangeComment"))
@@ -224,13 +215,11 @@ class InfolabsaResultsWithState(BrowserView):
                   or results_range.get("UpperLimit"))
             return u_(comment), lo, hi, None
 
-        # 2) Igualdad
         eq_val = (results_range.get("result") or results_range.get("value")
                   or results_range.get("Result") or results_range.get("Value"))
         if eq_val not in (None, u"", ""):
             return u"=" + u_(eq_val), None, None, u_(eq_val)
 
-        # 3) Intervalo + ocultamiento
         lo = (results_range.get("min") or results_range.get("Min")
               or results_range.get("lower") or results_range.get("Lower")
               or results_range.get("LowerLimit"))
@@ -248,17 +237,8 @@ class InfolabsaResultsWithState(BrowserView):
         text = self._first_text_from_lo_hi(lo_txt, hi_txt)
         return text, lo, hi, None
 
-    # ---------- NUEVO: helper que llama al pipeline de senaite.patient ----------
+    # ---------- pipeline senaite.patient ----------
     def _get_patient_results_range(self, a):
-        """
-        Intenta obtener el mismo ResultsRange que usa la UI de análisis:
-        - api.get_results_range(a)  (si existe)
-        - api.getResultsRangeFor(a) (algunas ramas lo exponen así)
-        - a.getPatientResultsRange() / a.getDynamicResultsRange() / a.getFinalResultsRange()
-        - a.getResultsRange()  <-- añadido como parte del pipeline “patient”
-        Devuelve (text, lo, hi) o (u"", None, None).
-        """
-        # 1) API central (senaite.patient)
         if api:
             for fname in ("get_results_range", "getResultsRangeFor"):
                 try:
@@ -272,7 +252,6 @@ class InfolabsaResultsWithState(BrowserView):
                 except Exception:
                     pass
 
-        # 2) Métodos “patient-like” en el análisis
         for mname in ("getPatientResultsRange", "getDynamicResultsRange", "getFinalResultsRange"):
             try:
                 rr = getattr(a, mname)()
@@ -283,7 +262,6 @@ class InfolabsaResultsWithState(BrowserView):
             except Exception:
                 pass
 
-        # 3) (NUEVO) getResultsRange parcha­do en Analysis
         try:
             rr = getattr(a, "getResultsRange", None)
             rr = rr() if callable(rr) else None
@@ -296,9 +274,8 @@ class InfolabsaResultsWithState(BrowserView):
 
         return u"", None, None
 
-    # ---------- NUEVO (UI-like): helpers para leer la Spec enlazada ----------
+    # ---------- helpers para spec enlazada ----------
     def _age_days(self, patient, ar):
-        # Usa DOB si es posible
         try:
             if patient:
                 for fn in ("getBirthDate", "getDateOfBirth"):
@@ -313,7 +290,6 @@ class InfolabsaResultsWithState(BrowserView):
                         return (today - dob).days
         except Exception:
             pass
-        # Fallback a years -> days (aprox)
         yrs = self._age_years(patient, ar)
         try:
             if yrs is not None:
@@ -335,7 +311,6 @@ class InfolabsaResultsWithState(BrowserView):
         return u""
 
     def _patient_gender_MF(self, patient, ar):
-        # Normaliza a 'M'/'F' o None
         for obj, attr in ((patient, "getGender"), (patient, "getSex"), (ar, "getGender"), (ar, "getSex")):
             if obj and hasattr(obj, attr):
                 try:
@@ -352,11 +327,9 @@ class InfolabsaResultsWithState(BrowserView):
         return None
 
     def _get_aspec(self, analysis):
-        # Intenta recuperar el AnalysisSpec hijo
         fn = getattr(analysis, "getAnalysisSpec", None)
         if callable(fn):
             try:
-                # Algunos exponen arg 'create', otros no
                 try:
                     return fn(create=False)
                 except TypeError:
@@ -372,8 +345,6 @@ class InfolabsaResultsWithState(BrowserView):
         return None
 
     def _current_spec_linked(self, analysis):
-        """Devuelve ('dx'|'at'|None, obj) igual que la UI: directo o vía AnalysisSpec."""
-        # Directo en Analysis
         for kind, getter in (("dx", "getDynamicAnalysisSpec"), ("at", "getSpecification")):
             fn = getattr(analysis, getter, None)
             if callable(fn):
@@ -383,7 +354,6 @@ class InfolabsaResultsWithState(BrowserView):
                         return kind, obj
                 except Exception:
                     pass
-        # Vía hijo AnalysisSpec
         aspec = self._get_aspec(analysis)
         if aspec:
             for kind, getter in (("dx", "getDynamicAnalysisSpec"), ("at", "getSpecification")):
@@ -412,16 +382,14 @@ class InfolabsaResultsWithState(BrowserView):
         return []
 
     def _resolve_dx_row_for_analysis(self, dx, analysis, patient, ar):
-        """Elige la fila DX correcta según Keyword + género + edad(días) + filtros opcionales."""
         rows = self._rows_from_dx(dx)
         if not rows:
             return None
 
         kw = self._analysis_keyword(analysis).strip().upper()
-        gender_MF = self._patient_gender_MF(patient, ar)  # 'M'/'F'/None
+        gender_MF = self._patient_gender_MF(patient, ar)
         age_days = self._age_days(patient, ar)
 
-        # UIDs de contexto
         client_uid = None
         if ar and getattr(ar, "aq_parent", None) and hasattr(ar.aq_parent, "UID"):
             try:
@@ -441,19 +409,16 @@ class InfolabsaResultsWithState(BrowserView):
 
         candidates = []
         for r in rows:
-            # Keyword
             r_kw = N(r.get("Keyword") or r.get("keyword") or r.get("service_keyword"))
             if not r_kw or r_kw != kw:
                 continue
 
-            # Género
             r_gender = r.get("gender")
             if r_gender:
                 r_gender = N(r_gender)
                 if gender_MF and r_gender not in (gender_MF, u"*", u"ANY", u"ALL"):
                     continue
 
-            # Edad (min/max en días o años)
             ok_age = True
             if age_days is not None:
                 amin = _to_num(r.get("age_min_days") or r.get("age_min"))
@@ -465,7 +430,6 @@ class InfolabsaResultsWithState(BrowserView):
             if not ok_age:
                 continue
 
-            # Filtros opcionales por UID
             def match_uid(field, given):
                 rv = r.get(field) or r.get(field.capitalize()) or r.get(field.replace("_uid", "").title()+"UID")
                 if not rv or not given:
@@ -500,7 +464,6 @@ class InfolabsaResultsWithState(BrowserView):
         }
 
     def _dict_from_at(self, spec_at):
-        """Adapta un AT clásico: intenta getters comunes."""
         getv = lambda o, n: getattr(o, "get" + n, lambda: None)()
         return {
             "unit": self._u(getv(spec_at, "Unit") or u"") or None,
@@ -516,10 +479,10 @@ class InfolabsaResultsWithState(BrowserView):
         }
 
     def _compute_from_linked_spec(self, a):
-        """Usa la Spec enlazada (DX/AT) exactamente como hace la UI."""
         kind, obj = self._current_spec_linked(a)
         if not obj:
             return u"", None, None, None
+
         ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
 
         if kind == "dx":
@@ -553,15 +516,13 @@ class InfolabsaResultsWithState(BrowserView):
 
         return u"", None, None, None
 
-    # ---------- NUEVO: rangos por edad/género desde Service.getReferenceRanges ----------
+    # ---------- rangos por edad/género desde Service.getReferenceRanges ----------
     def _age_years(self, patient, ar):
-        # Usa patient.getAge() o DOB; fallback al AR si lo trae
         try:
             if patient and hasattr(patient, "getAge"):
                 age = patient.getAge()
                 if hasattr(age, "years"):
                     return int(age.years)
-                # Python 2 long
                 try:
                     long  # noqa
                 except Exception:
@@ -570,7 +531,6 @@ class InfolabsaResultsWithState(BrowserView):
                     return int(age)
         except Exception:
             pass
-        # DOB (si api existe)
         try:
             if api and patient:
                 for fn in ("getDateOfBirth", "getBirthDate"):
@@ -581,7 +541,6 @@ class InfolabsaResultsWithState(BrowserView):
                         return max(0, int(years))
         except Exception:
             pass
-        # Edad desde AR
         try:
             if ar and hasattr(ar, "getAge"):
                 age = ar.getAge()
@@ -617,7 +576,6 @@ class InfolabsaResultsWithState(BrowserView):
         return None
 
     def _extract_service_reference_ranges_by_age_gender(self, a):
-        """Service.getReferenceRanges() con filtro por edad/género."""
         svc = self._get_service(a)
         if not svc:
             return None, None, None
@@ -654,7 +612,7 @@ class InfolabsaResultsWithState(BrowserView):
                     return txt, lo, hi
         return None, None, None
 
-    # ---------- 1) DINÁMICAS ----------
+    # ---------- 1) dinÁMICAS ----------
     def _extract_dynamic_specs_minmax(self, a, keyword):
         try:
             ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
@@ -727,7 +685,6 @@ class InfolabsaResultsWithState(BrowserView):
     def _extract_specs_minmax_for_analysis(self, a):
         try:
             service = self._get_service(a)
-            # NUEVO: intenta keyword también desde el análisis si el servicio no lo da
             keyword = (getattr(service, "getKeyword", lambda: None)() if service else None) \
                       or self._get(a, "getKeyword") \
                       or self._get(a, "getServiceKeyword")
@@ -809,7 +766,7 @@ class InfolabsaResultsWithState(BrowserView):
             pass
         return None, None, None
 
-    # ---------- 3) REFERENCE DEFINITIONS (tu versión corregida) ----------
+    # ---------- 3) REFERENCE DEFINITIONS ----------
     def _extract_refdef_minmax(self, a):
         try:
             service = self._get_service(a)
@@ -913,7 +870,7 @@ class InfolabsaResultsWithState(BrowserView):
             logger.exception("[impress] _extract_refdef_minmax error: %s", e)
             return None, None, None
 
-    # ---------- 4) LÍMITES del ANÁLISIS o del SERVICIO ----------
+    # ---------- 4) límites del análisis o del servicio ----------
     def _extract_analysis_or_service_minmax(self, a):
         try:
             lo, hi = self._get_low_high_candidates(a)
@@ -965,11 +922,8 @@ class InfolabsaResultsWithState(BrowserView):
             pass
         return None, None, None
 
-    # ---------- PRIORIDAD para SENAITE 2.6 (ajustada para igualar “Especificación”) ----------
+    # ---------- prioridad SENAITE 2.6 ----------
     def _compute_ref_range(self, a):
-        """Devuelve (ref_text, low, high, src) usando prioridad razonable en 2.6"""
-
-        # NUEVO (top priority): usar el pipeline real de senaite.patient
         try:
             text_p, lo_p, hi_p = self._get_patient_results_range(a)
             if lo_p is not None or hi_p is not None or (text_p and text_p != u""):
@@ -977,7 +931,6 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             pass
 
-        # NUEVO (exact match con la UI): usar la Spec enlazada (DX/AT) si existe
         try:
             txt_l, lo_l, hi_l, src_l = self._compute_from_linked_spec(a)
             if lo_l is not None or hi_l is not None or (txt_l and txt_l != u""):
@@ -985,12 +938,10 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             pass
 
-        # 0) Service.getReferenceRanges() por edad/género (muy usado)
         txt_ag, lo_ag, hi_ag = self._extract_service_reference_ranges_by_age_gender(a)
         if lo_ag is not None or hi_ag is not None:
             return (self._first_text_from_lo_hi(lo_ag, hi_ag), lo_ag, hi_ag, u"svc.refranges")
 
-        # 1) Analysis.getResultsRange() canónico (formateo completo)
         try:
             results_range = self._get(a, "getResultsRange")
             if results_range and isinstance(results_range, dict):
@@ -1000,7 +951,6 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             pass
 
-        # 2) Analysis.getSpecification() -> getResultsRange()
         try:
             spec = self._get(a, "getSpecification")
             if spec:
@@ -1017,7 +967,6 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             pass
 
-        # 3) Service.getResultsRange() (formateo completo)
         try:
             service = self._get_service(a)
             if service:
@@ -1029,14 +978,12 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             pass
 
-        # 4) AR.getSpecification(keyword) (formateo completo)
         try:
             ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
             if ar:
                 ar_spec = self._get(ar, "getSpecification")
                 if ar_spec:
                     service = self._get_service(a)
-                    # NUEVO: keyword desde analysis si el service no ayuda
                     keyword = (self._get(service, "getKeyword") if service else None) \
                               or self._get(a, "getKeyword") \
                               or self._get(a, "getServiceKeyword")
@@ -1049,7 +996,6 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             pass
 
-        # 5) dynamic/spec/refdef/analysis/service/refvalues (tus caminos)
         service = self._get_service(a)
         kw = (self._get(service, "getKeyword") if service else None) \
              or self._get(a, "getKeyword") \
@@ -1080,7 +1026,6 @@ class InfolabsaResultsWithState(BrowserView):
             txt = self._first_text_from_lo_hi(sv_lo, sv_hi)
             return txt, sv_lo, sv_hi, sv_src
 
-        # Nada encontrado
         try:
             keyword = ((self._get(service, "getKeyword") if service else None)
                        or self._get(a, "getKeyword") or "UNKNOWN")
@@ -1091,9 +1036,8 @@ class InfolabsaResultsWithState(BrowserView):
             pass
         return u"", None, None, u"not_found"
 
-    # ---------- NUEVO: extraer 'result' (=) si existe, para exponer ref_eq ----------
+    # ---------- ref_eq (=) si existe ----------
     def _extract_ref_eq(self, a):
-        # 0) pipeline “patient” primero (api / patient-like / a.getResultsRange)
         try:
             if api and hasattr(api, "get_results_range"):
                 rr = api.get_results_range(a)
@@ -1113,7 +1057,6 @@ class InfolabsaResultsWithState(BrowserView):
             except Exception:
                 pass
 
-        # 1) los demás caminos
         try:
             rr = self._get(a, "getResultsRange")
             if isinstance(rr, dict):
@@ -1158,7 +1101,6 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ---------- estado de workflow del análisis ----------
     def _workflow_state(self, a):
-        # Prefiere api si está disponible
         if api:
             try:
                 st = api.get_workflow_status_of(a)
@@ -1166,7 +1108,6 @@ class InfolabsaResultsWithState(BrowserView):
                     return self._u(st)
             except Exception:
                 pass
-        # Fallback: review_state en catalog or attribute
         for name in ("review_state", "getReviewState", "workflow_state"):
             v = self._get(a, name)
             if v:
@@ -1216,7 +1157,6 @@ class InfolabsaResultsWithState(BrowserView):
         alert_text = u''
         alert_title = u''
 
-        # Delta flag si existe
         if delta_flag:
             try:
                 alert_classes = u'al-delta'
@@ -1227,11 +1167,9 @@ class InfolabsaResultsWithState(BrowserView):
             except Exception:
                 pass
 
-        # Si ya es crítico, añade la palabra "Crítico" a alert_text
         if is_critical:
             alert_text = (alert_text + (u'; ' if alert_text else u'') + u'Crítico').strip('; ')
 
-        # Si está fuera de rango y no hubo delta/crit, también deja una alerta textual
         if not alert_text and estado_text == u'Fuera de rango':
             alert_text = u'Fuera de rango'
 
@@ -1248,16 +1186,14 @@ class InfolabsaResultsWithState(BrowserView):
         result = self._get_result(a)
         unit = self._get_unit(a)
 
-        # USAR LA PRIORIDAD ACTUALIZADA
+        # Prioridad actualizada para rangos
         ref_text, low, high, ref_src = self._compute_ref_range(a)
 
-        # (Diagnóstico opcional) Ver de dónde salió el rango en runtime
         try:
             logger.info("[impress] RefRange SRC=%s → %s (lo=%s hi=%s)", ref_src, ref_text or u"", low, high)
         except Exception:
             pass
 
-        # Estado (workflow del análisis)
         wf_state = self._workflow_state(a) or u''
 
         is_critical = bool(self._get(a, 'getCritical', False) or self._get(a, 'isCritical', False))
@@ -1269,21 +1205,20 @@ class InfolabsaResultsWithState(BrowserView):
         estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title = \
             self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
 
-        # Unifica alertas en una sola salida visible
         alerts = alert_text or u'—'
 
-        # Si no hay texto de rango pero sí low/high, constrúyelo
         if not ref_text and (low is not None or high is not None):
             ref_text = self._first_text_from_lo_hi(low, high)
 
-        # NUEVO: exponer ref_eq si existe (para plantillas que lo lean)
         ref_eq = self._extract_ref_eq(a)
 
-        # ---------------- NUEVO: campos bonitos para informe ----------------
+        # --- NUEVO: saneo visual de origen y rango con unidad ---
         ref_src_label = _pretty_src(ref_src, debug=bool(self.request.get('debug_refsrc')))
+        # ref_src visible SIN 'not_found'
+        ref_src_display = ref_src_label  # <- usar este en plantillas si antes usaban ref_src
         reference_range_with_unit = _format_ref_text_with_unit(ref_text, unit)
 
-        # Aliases útiles para plantillas de informe
+        # Aliases para plantillas (estado/alertas visibles)
         state_icon = estado_symbol
         state_label = estado_text
         state_class = estado_class
@@ -1299,15 +1234,16 @@ class InfolabsaResultsWithState(BrowserView):
             'ref_range': ref_text or u'',
             'ref_low': low,
             'ref_high': high,
-            'ref_src': ref_src or u'',
-            'ref_src_label': ref_src_label,                # <-- NUEVO (no muestra 'not_found')
+            'ref_src_raw': ref_src or u'',     # <- valor crudo (por compatibilidad)
+            'ref_src': ref_src_display or u'', # <- saneado para mostrar (sin 'not_found')
+            'ref_src_label': ref_src_label,    # <- etiqueta amable
             'ref_eq': ref_eq,
 
             # Alias por compatibilidad con plantillas
             'reference_range': (ref_text or u''),
-            'reference_range_with_unit': reference_range_with_unit,  # <-- NUEVO (ideal para informe)
+            'reference_range_with_unit': reference_range_with_unit,  # rango + unidad
             'range_text': (ref_text or u''),
-            'range': (ref_text or u''),  # <- MUY usado
+            'range': (ref_text or u''),
 
             'reference_low': low,
             'reference_high': high,
@@ -1317,24 +1253,24 @@ class InfolabsaResultsWithState(BrowserView):
             'estado_symbol': estado_symbol,
             'estado_text': estado_text,
 
-            # Estado de workflow
+            # Estado de workflow (NO tocado: mantiene avisos/temporal)
             'state': wf_state,
             'state_text': wf_state,
             'status': wf_state,
             'status_text': wf_state,
 
-            # Aliases de estado para informes
-            'state_icon': state_icon,     # <-- NUEVO
-            'state_label': state_label,   # <-- NUEVO
-            'state_class': state_class,   # <-- NUEVO
-            'estado': estado_text,        # <-- NUEVO
+            # Aliases de estado para informes (facilita dibujar)
+            'state_icon': state_icon,
+            'state_label': state_label,
+            'state_class': state_class,
+            'estado': estado_text,
 
             # Alertas combinadas
             'alert_classes': alert_classes,
             'alert_text': alerts,
             'alert_title': alert_title,
             'alerts': alerts,
-            'alert': alert_simple,        # <-- NUEVO (alias directo)
+            'alert': alert_simple,
         }
 
     def rows(self):
