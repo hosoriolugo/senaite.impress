@@ -40,10 +40,8 @@
 
           <!-- ===== RANGO DE REFERENCIA ===== -->
           <td>
-            <!-- Nota: todo el cálculo está dentro de un único tal:define para evitar llamadas repetidas -->
             <tal:ref define="
               json modules/json;
-              datetime modules/datetime;
 
               _is_seq python:lambda x: isinstance(x, (list, tuple));
               _as_dict python:lambda it: ((hasattr(it, 'get') and it) or (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or {});
@@ -86,6 +84,7 @@
               unit_raw python:(r.get('unit') or u'');
               unit_norm python:_norm(unit_raw);
 
+              /* === Género del paciente === */
               patient_gender_raw python:(
                 (hasattr(context,'getGender') and context.getGender()) or
                 (hasattr(context,'getSex') and context.getSex()) or
@@ -101,6 +100,7 @@
                 unicode(patient_gender_raw or u'')
               );
 
+              /* === Fechas y edad en días SIN modules/datetime === */
               dob_raw python:(
                 (hasattr(context,'getDateOfBirth') and context.getDateOfBirth()) or
                 (hasattr(context,'getBirthDate') and context.getBirthDate()) or
@@ -116,12 +116,17 @@
                 (hasattr(context,'getDateVerified') and context.getDateVerified()) or
                 None
               );
-              dob_dt python:(dob_raw and (dob_raw if hasattr(dob_raw,'year') else (dob_raw[0] if isinstance(dob_raw,tuple) else None)));
+
+              _tt python:lambda d: ((d and hasattr(d,'timeTime') and d.timeTime()) or (d and hasattr(d,'time')) and d.time() or None);
+              _days python:lambda secs: (secs is not None and int(secs/86400.0) or None);
+
+              dob_secs python:_tt(dob_raw);
+              rec_secs python:_tt(rec_dt);
               age_days python:(
-                (dob_dt and rec_dt) and ( (rec_dt - dob_dt).days if hasattr(rec_dt,'__sub__') else None ) or
-                None
+                (dob_secs is not None and rec_secs is not None) and _days(rec_secs - dob_secs) or None
               );
 
+              /* === Filtros como specs.py: keyword + género + unidad + edad === */
               recs_kw python:[ d for d in recs if (_norm(d.get('keyword')) == kw or not d.get('keyword')) ];
 
               recs_kw_gender python:[
@@ -274,7 +279,7 @@
 
     var cells = container.querySelectorAll('table tbody td, table tbody td.text-center span');
     var wrap = function(html, re, cls){
-      return html.replace(re, function(m){ return '<span class="'+cls+'">'+m+'</span>'; });
+      return html.replace(re, function(m){ return '<span class=&quot;'+cls+'&quot;>'+m+'</span>'; });
     };
     for (var j=0;j<cells.length;j++){
       var el = cells[j];
