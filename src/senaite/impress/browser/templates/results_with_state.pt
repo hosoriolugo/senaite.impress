@@ -45,6 +45,7 @@
               _is_seq python:lambda x: isinstance(x, (list, tuple));
               _as_dict python:lambda it: ((hasattr(it, 'get') and it) or (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or {});
               _call python:lambda f: (callable(f) and f() or f);
+              _norm python:lambda s: (unicode(s or u'').strip().lower());
 
               obj python:(hasattr(a,'getObject') and a.getObject() or None);
 
@@ -73,26 +74,37 @@
 
               rr_raw_best python:(rr_brain or rr_obj or rr_svc or None);
 
+              /* Acepta JSON que empiece con '[' o con '{' */
               rr_parsed python:(
                 (isinstance(rr_raw_best, basestring) and rr_raw_best.strip().startswith(u'[') and json.loads(rr_raw_best)) or
+                (isinstance(rr_raw_best, basestring) and rr_raw_best.strip().startswith(u'{') and json.loads(rr_raw_best)) or
                 rr_raw_best
               );
 
-              recs python:[ _as_dict(item) for item in (rr_parsed if _is_seq(rr_parsed) else [rr_parsed]) if item ];
+              /* Si vino un dict plano con min/max, úsalo tal cual; si vino lista, mapea a dicts */
+              recs_raw  python:( rr_parsed if _is_seq(rr_parsed) else ([rr_parsed] if rr_parsed else []) );
+              recs      python:[ _as_dict(item) for item in recs_raw if item ];
 
-              kw python:(
+              /* keyword normalizada; acepta getKeyword() o el nombre mostrado */
+              kw_raw python:(
                 (hasattr(a,'getKeyword') and _call(a.getKeyword)) or
                 r.get('name') or
-                None
+                u''
               );
+              kw python:_norm(kw_raw);
 
-              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
+              /* Busca por 'keyword' o 'Keyword' normalizados; si no hay match, usa el primero */
+              rec_sel_list python:(
+                [d for d in recs if (_norm(d.get('keyword') or d.get('Keyword'))==kw)] or
+                (recs[:1] if recs else [])
+              );
               rec python:(rec_sel_list and rec_sel_list[0] or {});
 
+              /* 1) Lo que ya calculó row(a); 2) fallback a dict/JSON */
               rr_min python:( r.get('ref_low')  if (r.get('ref_low')  not in (None, u'', '')) else rec.get('min') );
               rr_max python:( r.get('ref_high') if (r.get('ref_high') not in (None, u'', '')) else rec.get('max') );
               rr_eq  python:( r.get('ref_eq')   if (r.get('ref_eq')   not in (None, u'', '')) else rec.get('result') );
-              rr_src python:( r.get('ref_src') or rec.get('keyword') or u'' );
+              rr_src python:( r.get('ref_src') or rec.get('keyword') or rec.get('Keyword') or u'' );
 
               rr_text python:(
                 r.get('ref_range') or
