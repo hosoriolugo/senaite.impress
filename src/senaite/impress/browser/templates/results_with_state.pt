@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <tal:results i18n:domain="senaite.impress">
 <div id="results-with-state">
 
@@ -38,24 +39,23 @@
           <td tal:content="python:r['result']">—</td>
           <td tal:content="python:r['unit']">—</td>
 
-          <!-- ===== RANGO DE REFERENCIA ===== -->
+          <!-- ===== RANGO DE REFERENCIA (con fallback a Objeto y Servicio) ===== -->
           <td>
             <tal:ref define="
               json modules/json;
-
               _is_seq python:lambda x: isinstance(x, (list, tuple));
               _as_dict python:lambda it: ((hasattr(it, 'get') and it) or (_is_seq(it) and len(it) and _is_seq(it[0]) and (len(it[0])==2) and dict(it)) or {});
-              _norm python:lambda s: (unicode(s or u'').strip().lower());
-
-              rr_min0 python:r.get('ref_low');
-              rr_max0 python:r.get('ref_high');
-              rr_eq0  python:r.get('ref_eq');
-              rr_txt0 python:( r.get('ref_range') or r.get('range') or u'' );
 
               obj python:(hasattr(a,'getObject') and a.getObject() or None);
 
-              rr_from_a python:((hasattr(a,'getReferenceResults') and a.getReferenceResults()) or None);
-              rr_from_obj python:(obj and hasattr(obj,'getReferenceResults') and obj.getReferenceResults() or None);
+              rr_brain python:(
+                (hasattr(a,'getReferenceResults') and a.getReferenceResults()) or
+                None
+              );
+              rr_obj   python:(
+                obj and hasattr(obj,'getReferenceResults') and obj.getReferenceResults() or
+                None
+              );
 
               svc_uid python:(
                 (hasattr(a,'getServiceUID') and a.getServiceUID()) or
@@ -63,115 +63,41 @@
                 None
               );
               svc_brains python:(svc_uid and context.portal_catalog(UID=svc_uid) or []);
-              svc_obj python:(svc_brains and svc_brains[0].getObject() or None);
-              rr_from_svc python:(svc_obj and hasattr(svc_obj,'getReferenceResults') and svc_obj.getReferenceResults() or None);
+              svc_brain  python:(svc_brains and svc_brains[0] or None);
+              svc_obj    python:(svc_brain and svc_brain.getObject() or None);
+              rr_svc python:(
+                (svc_brain and hasattr(svc_brain,'getReferenceResults') and svc_brain.getReferenceResults()) or
+                (svc_obj and hasattr(svc_obj,'getReferenceResults') and svc_obj.getReferenceResults()) or
+                None
+              );
 
-              rr_raw_best python:(rr_from_a or rr_from_obj or rr_from_svc or None);
+              rr_raw_best python:(rr_brain or rr_obj or rr_svc or None);
 
               rr_parsed python:(
                 (isinstance(rr_raw_best, basestring) and rr_raw_best.strip().startswith(u'[') and json.loads(rr_raw_best)) or
                 rr_raw_best
               );
+
               recs python:[ _as_dict(item) for item in (rr_parsed if _is_seq(rr_parsed) else [rr_parsed]) if item ];
 
-              kw_raw python:(
+              kw python:(
                 (hasattr(a,'getKeyword') and a.getKeyword()) or
                 r.get('name') or
-                u''
-              );
-              kw python:_norm(kw_raw);
-
-              unit_raw python:(r.get('unit') or u'');
-              unit_norm python:_norm(unit_raw);
-
-              /* === Género del paciente === */
-              patient_gender_raw python:(
-                (hasattr(context,'getGender') and context.getGender()) or
-                (hasattr(context,'getSex') and context.getSex()) or
-                (hasattr(context,'getPatient') and context.getPatient() and (
-                  (hasattr(context.getPatient(),'getGender') and context.getPatient().getGender()) or
-                  (hasattr(context.getPatient(),'getSex') and context.getPatient().getSex())
-                )) or
-                u''
-              );
-              patient_gender python:(
-                (_norm(patient_gender_raw) in (u'm', u'male')) and u'M' or
-                (_norm(patient_gender_raw) in (u'f', u'female')) and u'F' or
-                unicode(patient_gender_raw or u'')
-              );
-
-              /* === Fechas y edad en días SIN modules/datetime === */
-              dob_raw python:(
-                (hasattr(context,'getDateOfBirth') and context.getDateOfBirth()) or
-                (hasattr(context,'getBirthDate') and context.getBirthDate()) or
-                (hasattr(context,'getPatient') and context.getPatient() and (
-                  (hasattr(context.getPatient(),'getDateOfBirth') and context.getPatient().getDateOfBirth()) or
-                  (hasattr(context.getPatient(),'getBirthDate') and context.getPatient().getBirthDate())
-                )) or
-                None
-              );
-              rec_dt python:(
-                (hasattr(context,'getDateReceived') and context.getDateReceived()) or
-                (hasattr(context,'getReceptionDate') and context.getReceptionDate()) or
-                (hasattr(context,'getDateVerified') and context.getDateVerified()) or
                 None
               );
 
-              _tt python:lambda d: ((d and hasattr(d,'timeTime') and d.timeTime()) or (d and hasattr(d,'time')) and d.time() or None);
-              _days python:lambda secs: (secs is not None and int(secs/86400.0) or None);
+              rec_sel_list python:([d for d in recs if (d.get('keyword')==kw)] or (recs[:1] if recs else []));
+              rec python:(rec_sel_list and rec_sel_list[0] or {});
 
-              dob_secs python:_tt(dob_raw);
-              rec_secs python:_tt(rec_dt);
-              age_days python:(
-                (dob_secs is not None and rec_secs is not None) and _days(rec_secs - dob_secs) or None
-              );
-
-              /* === Filtros como specs.py: keyword + género + unidad + edad === */
-              recs_kw python:[ d for d in recs if (_norm(d.get('keyword')) == kw or not d.get('keyword')) ];
-
-              recs_kw_gender python:[
-                d for d in recs_kw
-                if (not d.get('gender') or unicode(d.get('gender'))==unicode(patient_gender))
-              ];
-
-              recs_kw_gender_unit python:[
-                d for d in recs_kw_gender
-                if (not d.get('unit') or _norm(d.get('unit'))==unit_norm)
-              ];
-
-              def_in_age python:lambda d,days: (
-                (days is None) or
-                (
-                  (d.get('age_min_days') in (None,u'', '')) and (d.get('age_max_days') in (None,u'', ''))
-                ) or
-                (
-                  ( (d.get('age_min_days') in (None,u'', '')) or (int(d.get('age_min_days')) <= int(days)) ) and
-                  ( (d.get('age_max_days') in (None,u'', '')) or (int(d.get('age_max_days')) >= int(days)) )
-                )
-              );
-
-              recs_final python:[
-                d for d in recs_kw_gender_unit
-                if def_in_age(d, age_days)
-              ];
-
-              rec python:(recs_final and recs_final[0] or (recs_kw_gender_unit and recs_kw_gender_unit[0] or (recs_kw and recs_kw[0] or {})));
-
-              rr_min_fallback python:( rec.get('min') if (rec.get('min') not in (None,u'', '')) else rec.get('low') );
-              rr_max_fallback python:( rec.get('max') if (rec.get('max') not in (None,u'', '')) else rec.get('high') );
-              rr_eq_fallback  python:( rec.get('result') if (rec.get('result') not in (None,u'', '')) else rec.get('eq') );
-
-              rr_min python:( rr_min0 if (rr_min0 not in (None, u'', '')) else rr_min_fallback );
-              rr_max python:( rr_max0 if (rr_max0 not in (None, u'', '')) else rr_max_fallback );
-              rr_eq  python:( rr_eq0  if (rr_eq0  not in (None, u'', '')) else rr_eq_fallback );
+              rr_min python:( r.get('ref_low')  if (r.get('ref_low')  not in (None, u'', '')) else rec.get('min') );
+              rr_max python:( r.get('ref_high') if (r.get('ref_high') not in (None, u'', '')) else rec.get('max') );
+              rr_eq  python:( r.get('ref_eq')   if (r.get('ref_eq')   not in (None, u'', '')) else rec.get('result') );
               rr_src python:( r.get('ref_src') or rec.get('keyword') or u'' );
 
               rr_text python:(
-                (rr_txt0 and unicode(rr_txt0)) or
+                r.get('ref_range') or
                 ((rr_eq  not in (None,u'', '')) and (u'='+unicode(rr_eq))) or
                 ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or
-                ((rr_min not in (None,u'', '')) and (u'≥'+unicode(rr_min))) or
-                ((rr_max not in (None,u'', '')) and (u'≤'+unicode(rr_max))) or
                 u'—'
               )
             ">
@@ -190,7 +116,7 @@
           </td>
           <!-- ===== FIN RANGO ===== -->
 
-          <!-- ===== ESTADO ===== -->
+          <!-- ===== ESTADO (fallback a state_title/review_state) ===== -->
           <td class="text-center">
             <tal:est define="
               est_sym  python: r.get('estado_symbol') or u'—';
@@ -214,7 +140,7 @@
           </td>
           <!-- ===== FIN ESTADO ===== -->
 
-          <!-- ===== ALERTAS ===== -->
+          <!-- ===== ALERTAS (igual que tenías) ===== -->
           <td class="text-center">
             <tal:al define="
               _tofloat python:lambda v: ((isinstance(v,(int,float)) and float(v)) or ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None);
@@ -279,7 +205,7 @@
 
     var cells = container.querySelectorAll('table tbody td, table tbody td.text-center span');
     var wrap = function(html, re, cls){
-      return html.replace(re, function(m){ return '<span class=&quot;'+cls+'&quot;>'+m+'</span>'; });
+      return html.replace(re, function(m){ return '<span class="'+cls+'">'+m+'</span>'; });
     };
     for (var j=0;j<cells.length;j++){
       var el = cells[j];
