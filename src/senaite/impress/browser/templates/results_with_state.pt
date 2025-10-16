@@ -75,7 +75,7 @@
           <!-- Unidad: marcamos la celda como .unit para excluirla del colorizer -->
           <td class="unit" tal:content="python:r.get('unit') or u''">—</td>
 
-          <!-- ===== RANGO DE REFERENCIA (usa ResultsRange del Analysis como en ± Especificaciones) ===== -->
+          <!-- ===== RANGO DE REFERENCIA ===== -->
           <td>
             <tal:ref define="
               obj      python:(hasattr(a,'getObject') and a.getObject() or None);
@@ -149,20 +149,71 @@
           <!-- ===== ALERTAS ===== -->
           <td class="text-center">
             <tal:al define="
-              _tofloat python:lambda v: ((isinstance(v,(int,float)) and float(v)) or ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None);
-              res_val python:_tofloat(r.get('result'));
-              min_v   python:(r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else None);
-              max_v   python:(r.get('ref_high') if r.get('ref_high') not in (None,u'','') else None);
-              has_rng python:((min_v not in (None,)) or (max_v not in (None,)));
-              out_low python:((res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)));
-              out_hi  python:((res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)));
-              out_rng python:(out_low or out_hi);
-              base_txt   python:(r.get('alert_text') or u'');
-              base_title python:(r.get('alert_title') or u'');
-              base_cls   python:(r.get('alert_classes') or u'');
-              txt  python:(base_txt or (out_rng and u'Fuera de rango') or (has_rng and u'—') or u'—');
-              ttl  python:(base_title or (out_low and u'Resultado por debajo del mínimo') or (out_hi and u'Resultado por encima del máximo') or u'');
-              cls  python:(base_cls or (out_rng and u'fr-alert') or u'')
+              _tofloat    python:lambda v: ((isinstance(v,(int,float)) and float(v)) or ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None);
+
+              res_val     python:_tofloat(r.get('result'));
+              res_txt_raw python:unicode(r.get('result') or u'').strip();
+              res_txt     python:res_txt_raw.lower();
+
+              min_v       python:(r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else None);
+              max_v       python:(r.get('ref_high') if r.get('ref_high') not in (None,u'','') else None);
+              has_rng     python:((min_v not in (None,)) or (max_v not in (None,)));
+
+              out_low     python:((res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)));
+              out_hi      python:((res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)));
+              out_rng     python:(out_low or out_hi);
+
+              eq_txt      python:unicode(r.get('ref_eq') or u'').strip().lower();
+              rng_txt     python:unicode(r.get('ref_range') or r.get('range') or u'').strip().lower();
+
+              pos_set     python:(u'positivo', u'pos', u'reactivo', u'reactive', u'positive', u'detectado', u'detected');
+              neg_set     python:(u'negativo', u'neg', u'no reactivo', u'non reactive', u'negative', u'no detectado', u'not detected');
+
+              expects_neg python:((eq_txt in neg_set) or (eq_txt==u'' and (rng_txt.find(u'negativo')!=-1 or rng_txt.find(u'no reactivo')!=-1 or rng_txt.find(u'no detectado')!=-1)));
+              expects_pos python:((eq_txt in pos_set) or (eq_txt==u'' and (rng_txt.find(u'positivo')!=-1 or rng_txt.find(u'reactivo')!=-1 or rng_txt.find(u'detectado')!=-1)));
+
+              is_textual  python:((res_val is None) and (res_txt_raw not in (None, u'')));
+
+              out_qual    python:(
+                                is_textual and (
+                                  (expects_neg and (res_txt in pos_set)) or
+                                  (expects_pos and (res_txt in neg_set)) or
+                                  (eq_txt not in (u'',) and not ( (res_txt==eq_txt) or ((res_txt in pos_set) and (eq_txt in pos_set)) or ((res_txt in neg_set) and (eq_txt in neg_set)) ))
+                                )
+                              );
+
+              qual_msg    python:(
+                                (expects_neg and (res_txt in pos_set) and u'Reactivo (se esperaba No reactivo)') or
+                                (expects_pos and (res_txt in neg_set) and u'No reactivo (se esperaba Reactivo)') or
+                                (eq_txt and u'No esperado: '+res_txt_raw+u' (se esperaba '+unicode(r.get('ref_eq'))+u')') or
+                                u'Fuera de rango'
+                              );
+
+              base_txt    python:(r.get('alert_text') or u'');
+              base_title  python:(r.get('alert_title') or u'');
+              base_cls    python:(r.get('alert_classes') or u'');
+
+              is_crit     python:(r.get('estado_class')==u'al-critical');
+
+              txt         python:( base_txt
+                                   or (is_crit and u'Crítico')
+                                   or (out_rng and u'Fuera de rango')
+                                   or (out_qual and qual_msg)
+                                   or (has_rng and u'—')
+                                   or u'—' );
+
+              ttl         python:( base_title
+                                   or (is_crit and u'Valor crítico según criterios del laboratorio')
+                                   or (out_low and u'Resultado por debajo del mínimo')
+                                   or (out_hi  and u'Resultado por encima del máximo')
+                                   or (out_qual and u'Resultado cualitativo discordante con lo esperado')
+                                   or u'' );
+
+              cls         python:( base_cls
+                                   or (is_crit and u'al-critical')
+                                   or (out_rng and u'fr-alert')
+                                   or (out_qual and u'fr-alert')
+                                   or u'' )
             ">
               <span tal:attributes="class python:cls; title python:ttl"
                     tal:content="python:txt">—</span>
@@ -221,13 +272,13 @@
     // Excluir la columna de unidades (.unit)
     var cells = container.querySelectorAll('table tbody td:not(.unit), table tbody td.text-center span');
 
-    // Coincidencias "sueltas" para H/HH/L/LL (evita mg/L, mmol/L, etc.)
-    var reHigh = /(^|\s)(HH|H|↑)(?=\s|$)/g;
-    var reLow  = /(^|\s)(LL|L|↓)(?=\s|$)/g;
+    // Coincidencias sueltas para H/HH/L/LL (evita mg/L, mmol/L, etc.)
+    var reHigh = /(^|\\s)(HH|H|↑)(?=\\s|$)/g;
+    var reLow  = /(^|\\s)(LL|L|↓)(?=\\s|$)/g;
 
     var wrap = function(html, re, cls){
       return html.replace(re, function(_, pre, flag){
-        return pre + '<span class="'+cls+'">'+flag+'</span>';
+        return pre + '<span class=\"'+cls+'\">'+flag+'</span>';
       });
     };
 
@@ -240,8 +291,8 @@
       var n = html;
       n = wrap(n, reHigh, 'fr-alert');
       n = wrap(n, reLow,  'al-delta');
-      n = n.replace(/(⚠|❗)/g, '<span class="al-critical">$1</span>');
-      n = n.replace(/(▲|▼|Δ)/g, '<span class="al-delta">$1</span>');
+      n = n.replace(/(⚠|❗)/g, '<span class=\"al-critical\">$1<\\/span>');
+      n = n.replace(/(▲|▼|Δ)/g, '<span class=\"al-delta\">$1<\\/span>');
 
       if (n !== html) el.innerHTML = n;
     }
