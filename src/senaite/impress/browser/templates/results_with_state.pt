@@ -151,20 +151,33 @@
             <tal:al define="
               _tofloat    python:lambda v: ((isinstance(v,(int,float)) and float(v)) or ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None);
 
+              # Resultado en numérico/texto
               res_val     python:_tofloat(r.get('result'));
               res_txt_raw python:unicode(r.get('result') or u'').strip();
               res_txt     python:res_txt_raw.lower();
 
-              min_v       python:(r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else None);
-              max_v       python:(r.get('ref_high') if r.get('ref_high') not in (None,u'','') else None);
+              # === Fallback del rango desde el objeto si no viene en la fila ===
+              obj         python:(hasattr(a,'getObject') and a.getObject() or None);
+              rr          python:(obj and hasattr(obj,'getResultsRange') and obj.getResultsRange() or None);
+              rr_min_r    python:(rr and (rr.get('min') or rr.get('low') or rr.get('min_value')) or None);
+              rr_max_r    python:(rr and (rr.get('max') or rr.get('high') or rr.get('max_value')) or None);
+              rr_eq_r     python:(rr and (rr.get('target') or rr.get('result') or rr.get('eq')) or None);
+
+              min_v_raw   python:(r.get('ref_low')  if r.get('ref_low')  not in (None,u'','') else rr_min_r);
+              max_v_raw   python:(r.get('ref_high') if r.get('ref_high') not in (None,u'','') else rr_max_r);
+              eq_txt_raw  python:(r.get('ref_eq')   if r.get('ref_eq')   not in (None,u'','') else rr_eq_r);
+
+              min_v       python:(min_v_raw if min_v_raw not in (None,u'','') else None);
+              max_v       python:(max_v_raw if max_v_raw not in (None,u'','') else None);
               has_rng     python:((min_v not in (None,)) or (max_v not in (None,)));
 
               out_low     python:((res_val is not None) and (min_v is not None) and (res_val < _tofloat(min_v)));
               out_hi      python:((res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)));
               out_rng     python:(out_low or out_hi);
 
-              eq_txt      python:unicode(r.get('ref_eq') or u'').strip().lower();
-              rng_txt     python:unicode(r.get('ref_range') or r.get('range') or u'').strip().lower();
+              # === Cualitativos (positivo/negativo, reactivo/no reactivo, detectado/no detectado) ===
+              eq_txt      python:unicode(eq_txt_raw or u'').strip().lower();
+              rng_txt     python:unicode(r.get('ref_range') or r.get('range') or (rr and rr.get('text') or u'')).strip().lower();
 
               pos_set     python:(u'positivo', u'pos', u'reactivo', u'reactive', u'positive', u'detectado', u'detected');
               neg_set     python:(u'negativo', u'neg', u'no reactivo', u'non reactive', u'negative', u'no detectado', u'not detected');
@@ -185,14 +198,16 @@
               qual_msg    python:(
                                 (expects_neg and (res_txt in pos_set) and u'Reactivo (se esperaba No reactivo)') or
                                 (expects_pos and (res_txt in neg_set) and u'No reactivo (se esperaba Reactivo)') or
-                                (eq_txt and u'No esperado: '+res_txt_raw+u' (se esperaba '+unicode(r.get('ref_eq'))+u')') or
+                                (eq_txt and u'No esperado: '+res_txt_raw+u' (se esperaba '+unicode(eq_txt_raw)+u')') or
                                 u'Fuera de rango'
                               );
 
+              # Backend puede forzar mensaje/clase
               base_txt    python:(r.get('alert_text') or u'');
               base_title  python:(r.get('alert_title') or u'');
               base_cls    python:(r.get('alert_classes') or u'');
 
+              # Crítico si el backend marcó esa clase (desde estado)
               is_crit     python:(r.get('estado_class')==u'al-critical');
 
               txt         python:( base_txt
@@ -273,12 +288,12 @@
     var cells = container.querySelectorAll('table tbody td:not(.unit), table tbody td.text-center span');
 
     // Coincidencias sueltas para H/HH/L/LL (evita mg/L, mmol/L, etc.)
-    var reHigh = /(^|\\s)(HH|H|↑)(?=\\s|$)/g;
-    var reLow  = /(^|\\s)(LL|L|↓)(?=\\s|$)/g;
+    var reHigh = /(^|\s)(HH|H|↑)(?=\s|$)/g;
+    var reLow  = /(^|\s)(LL|L|↓)(?=\s|$)/g;
 
     var wrap = function(html, re, cls){
       return html.replace(re, function(_, pre, flag){
-        return pre + '<span class=\"'+cls+'\">'+flag+'</span>';
+        return pre + '<span class="'+cls+'">'+flag+'</span>';
       });
     };
 
@@ -291,8 +306,8 @@
       var n = html;
       n = wrap(n, reHigh, 'fr-alert');
       n = wrap(n, reLow,  'al-delta');
-      n = n.replace(/(⚠|❗)/g, '<span class=\"al-critical\">$1<\\/span>');
-      n = n.replace(/(▲|▼|Δ)/g, '<span class=\"al-delta\">$1<\\/span>');
+      n = n.replace(/(⚠|❗)/g, '<span class="al-critical">$1</span>');
+      n = n.replace(/(▲|▼|Δ)/g, '<span class="al-delta">$1</span>');
 
       if (n !== html) el.innerHTML = n;
     }
