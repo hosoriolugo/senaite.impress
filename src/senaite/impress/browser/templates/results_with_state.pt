@@ -202,12 +202,11 @@
 
               qual_msg    python:(
                                 (expects_neg and (res_txt in pos_set) and u'Reactivo (se esperaba No reactivo)') or
-                                (expects_pos and (res_txt in neg_set) and u'No reactivo (se esperaba Reactivo)') or
+                                (expects_pos and (res_txt in neg_set) and u'No reactivo ( se esperaba Reactivo)') or
                                 (eq_txt and u'No esperado: '+res_txt_raw+u' (se esperaba '+_s(eq_txt_raw)+u')') or
                                 u'Fuera de rango'
                               );
 
-              /* --- limpieza de base_*: ignora vacío, '-' y '—' --- */
               _nz         python:lambda s: ((s not in (None, u'')) and (_s(s) not in (u'', u'-', u'\u2014')) and _s(s) or u'');
 
               base_txt    python:_nz(r.get('alert_text'));
@@ -216,11 +215,9 @@
 
               is_crit     python:(r.get('estado_class')==u'al-critical');
 
-              /* iconos */
-              ic_warn     python:u'\u26A0';  /* ⚠ */
-              ic_crit     python:u'\u2757';  /* ❗ */
+              ic_warn     python:u'\u26A0';
+              ic_crit     python:u'\u2757';
 
-              /* Texto final con iconos si aplica */
               txt         python:( base_txt
                                    or (is_crit and (ic_crit+u' Cr\u00edtico'))
                                    or (out_rng and (ic_warn+u' Fuera de rango'))
