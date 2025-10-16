@@ -67,7 +67,7 @@
   </thead>
   <tbody>
     <tal:loop repeat="a view/analyses">
-      <!-- Helpers robustos para unicode/numéricos en TODO el row -->
+      <!-- Helpers unicode/numéricos seguros para TODO el row -->
       <tal:row define="
         r        python:view.row(a);
         re       modules/re;
@@ -80,7 +80,7 @@
           <td tal:content="python:r['name']">Análisis</td>
           <td tal:content="python:r['result']">—</td>
 
-          <!-- Unidad: marcamos la celda como .unit para excluirla del colorizer -->
+          <!-- Unidad: excluida del colorizer -->
           <td class="unit" tal:content="python:r.get('unit') or u''">—</td>
 
           <!-- ===== RANGO DE REFERENCIA ===== -->
@@ -136,7 +136,7 @@
               wf_cls  python: (
                 (norm in (u'published', u'verified', u'valid', u'verificado', u'publicado', u'aprobado')) and 'wf-ok' or
                 (norm in (u'pending', u'to be verified', u'draft', u'pendiente', u'en progreso', u'por verificar')) and 'wf-pending' or
-                (norm in (u'invalid', u'rejected', u'cancelled', u'retracted', u'inválido', u'rechazado', u'cancelado', u'retraído')) and 'wf-bad' or
+                (norm in (u'invalid', u'rejected', u'cancelled', u'retracted', u'inv\u00e1lido', u'rechazado', u'cancelado', u'retra\u00eddo')) and 'wf-bad' or
                 'wf-na'
               );
               wf_icon python: (
@@ -157,12 +157,10 @@
           <!-- ===== ALERTAS ===== -->
           <td class="text-center">
             <tal:al define="
-              # Resultado en numérico/texto (robusto a utf-8)
               res_val     python:_tofloat(r.get('result'));
               res_txt_raw python:_s(r.get('result'));
               res_txt     python:res_txt_raw.lower();
 
-              # === Fallback del rango desde el objeto si no viene en la fila ===
               obj         python:(hasattr(a,'getObject') and a.getObject() or None);
               rr          python:(obj and hasattr(obj,'getResultsRange') and obj.getResultsRange() or None);
               rr_min_r    python:(rr and (rr.get('min') or rr.get('low') or rr.get('min_value')) or None);
@@ -181,7 +179,6 @@
               out_hi      python:((res_val is not None) and (max_v is not None) and (res_val > _tofloat(max_v)));
               out_rng     python:(out_low or out_hi);
 
-              # === Cualitativos (positivo/negativo, reactivo/no reactivo, detectado/no detectado) ===
               eq_txt      python:_s(eq_txt_raw).lower();
               rng_txt     python:_s(r.get('ref_range') or r.get('range') or (rr and rr.get('text') or u'')).lower();
 
@@ -208,25 +205,23 @@
                                 u'Fuera de rango'
                               );
 
-              # Backend puede forzar mensaje/clase
               base_txt    python:(r.get('alert_text') or u'');
               base_title  python:(r.get('alert_title') or u'');
               base_cls    python:(r.get('alert_classes') or u'');
 
-              # Crítico si el backend marcó esa clase (desde estado)
               is_crit     python:(r.get('estado_class')==u'al-critical');
 
               txt         python:( base_txt
-                                   or (is_crit and u'Crítico')
+                                   or (is_crit and u'Cr\u00edtico')
                                    or (out_rng and u'Fuera de rango')
                                    or (out_qual and qual_msg)
-                                   or (has_rng and u'—')
-                                   or u'—' );
+                                   or (has_rng and u'\u2014')
+                                   or u'\u2014' );
 
               ttl         python:( base_title
-                                   or (is_crit and u'Valor crítico según criterios del laboratorio')
-                                   or (out_low and u'Resultado por debajo del mínimo')
-                                   or (out_hi  and u'Resultado por encima del máximo')
+                                   or (is_crit and u'Valor cr\u00edtico seg\u00fan criterios del laboratorio')
+                                   or (out_low and u'Resultado por debajo del m\u00ednimo')
+                                   or (out_hi  and u'Resultado por encima del m\u00e1ximo')
                                    or (out_qual and u'Resultado cualitativo discordante con lo esperado')
                                    or u'' );
 
@@ -281,7 +276,6 @@
   if (!root) return;
 
   var colorize = function(container){
-    // Pintar símbolos clínicos (✓/⚠/❗) donde corresponda
     var est = container.querySelectorAll('td.text-center span');
     for (var i=0;i<est.length;i++){
       var t = (est[i].textContent || '').trim();
@@ -290,10 +284,7 @@
       if (t.indexOf('⚠') !== -1) est[i].classList.add('fr-alert');
     }
 
-    // Excluir la columna de unidades (.unit)
     var cells = container.querySelectorAll('table tbody td:not(.unit), table tbody td.text-center span');
-
-    // Coincidencias sueltas para H/HH/L/LL (evita mg/L, mmol/L, etc.)
     var reHigh = /(^|\s)(HH|H|↑)(?=\s|$)/g;
     var reLow  = /(^|\s)(LL|L|↓)(?=\s|$)/g;
 
