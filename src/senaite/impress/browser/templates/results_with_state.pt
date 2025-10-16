@@ -67,7 +67,15 @@
   </thead>
   <tbody>
     <tal:loop repeat="a view/analyses">
-      <tal:row define="r python:view.row(a)">
+      <!-- Helpers robustos para unicode/numéricos en TODO el row -->
+      <tal:row define="
+        r        python:view.row(a);
+        re       modules/re;
+        _u       python:lambda s: ((s is None) and u'') or ((hasattr(s,'decode') and isinstance(s,str)) and s.decode('utf-8','ignore') or (hasattr(s,'strip') and s) or unicode(s));
+        _s       python:lambda s: _u(s).strip();
+        _isnum   python:lambda s: bool(re.match(u'^[+-]?\\d+(?:[\\.,]\\d+)?$', _s(s)));
+        _tofloat python:lambda v: ((isinstance(v,(int,float)) and float(v)) or (_isnum(v) and float(_s(v).replace(',','.'))) or None)
+      ">
         <tr>
           <td tal:content="python:r['name']">Análisis</td>
           <td tal:content="python:r['result']">—</td>
@@ -97,11 +105,11 @@
               rr_src   python:( r.get('ref_src') or rr_src_r or u'' );
 
               rr_text  python:(
-                (rr_txt0 and unicode(rr_txt0)) or
-                ((rr_eq  not in (None,u'', '')) and (u'='+unicode(rr_eq))) or
-                ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (unicode(rr_min)+u'–'+unicode(rr_max))) or
-                ((rr_min not in (None,u'', '')) and (u'≥'+unicode(rr_min))) or
-                ((rr_max not in (None,u'', '')) and (u'≤'+unicode(rr_max))) or
+                (_s(rr_txt0)) or
+                ((rr_eq  not in (None,u'', '')) and (u'='+_s(rr_eq))) or
+                ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (_s(rr_min)+u'–'+_s(rr_max))) or
+                ((rr_min not in (None,u'', '')) and (u'≥'+_s(rr_min))) or
+                ((rr_max not in (None,u'', '')) and (u'≤'+_s(rr_max))) or
                 u'—'
               )
             ">
@@ -124,7 +132,7 @@
           <td class="text-center">
             <tal:wf define="
               wf_txt  python: (r.get('state') or r.get('status') or u'—');
-              norm    python: wf_txt and unicode(wf_txt).strip().lower() or u'';
+              norm    python: _s(wf_txt).lower();
               wf_cls  python: (
                 (norm in (u'published', u'verified', u'valid', u'verificado', u'publicado', u'aprobado')) and 'wf-ok' or
                 (norm in (u'pending', u'to be verified', u'draft', u'pendiente', u'en progreso', u'por verificar')) and 'wf-pending' or
@@ -149,11 +157,9 @@
           <!-- ===== ALERTAS ===== -->
           <td class="text-center">
             <tal:al define="
-              _tofloat    python:lambda v: ((isinstance(v,(int,float)) and float(v)) or ((v not in (None,u'', '')) and float(unicode(v).replace(',','.'))) or None);
-
-              # Resultado en numérico/texto
+              # Resultado en numérico/texto (robusto a utf-8)
               res_val     python:_tofloat(r.get('result'));
-              res_txt_raw python:unicode(r.get('result') or u'').strip();
+              res_txt_raw python:_s(r.get('result'));
               res_txt     python:res_txt_raw.lower();
 
               # === Fallback del rango desde el objeto si no viene en la fila ===
@@ -176,8 +182,8 @@
               out_rng     python:(out_low or out_hi);
 
               # === Cualitativos (positivo/negativo, reactivo/no reactivo, detectado/no detectado) ===
-              eq_txt      python:unicode(eq_txt_raw or u'').strip().lower();
-              rng_txt     python:unicode(r.get('ref_range') or r.get('range') or (rr and rr.get('text') or u'')).strip().lower();
+              eq_txt      python:_s(eq_txt_raw).lower();
+              rng_txt     python:_s(r.get('ref_range') or r.get('range') or (rr and rr.get('text') or u'')).lower();
 
               pos_set     python:(u'positivo', u'pos', u'reactivo', u'reactive', u'positive', u'detectado', u'detected');
               neg_set     python:(u'negativo', u'neg', u'no reactivo', u'non reactive', u'negative', u'no detectado', u'not detected');
@@ -198,7 +204,7 @@
               qual_msg    python:(
                                 (expects_neg and (res_txt in pos_set) and u'Reactivo (se esperaba No reactivo)') or
                                 (expects_pos and (res_txt in neg_set) and u'No reactivo (se esperaba Reactivo)') or
-                                (eq_txt and u'No esperado: '+res_txt_raw+u' (se esperaba '+unicode(eq_txt_raw)+u')') or
+                                (eq_txt and u'No esperado: '+res_txt_raw+u' (se esperaba '+_s(eq_txt_raw)+u')') or
                                 u'Fuera de rango'
                               );
 
