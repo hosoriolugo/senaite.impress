@@ -67,13 +67,15 @@
   </thead>
   <tbody>
     <tal:loop repeat="a view/analyses">
-      <!-- Helpers unicode/numéricos seguros para TODO el row -->
+      <!-- Helpers seguros (sin imports, sin acentos en expresiones Python) -->
       <tal:row define="
         r        python:view.row(a);
-        re       modules/re;
         _u       python:lambda s: ((s is None) and u'') or ((hasattr(s,'decode') and isinstance(s,str)) and s.decode('utf-8','ignore') or (hasattr(s,'strip') and s) or unicode(s));
         _s       python:lambda s: _u(s).strip();
-        _isnum   python:lambda s: bool(re.match(u'^[+-]?\\d+(?:[\\.,]\\d+)?$', _s(s)));
+        _hasdig  python:lambda s: any([(c.isdigit() and True or False) for c in _s(s)]);
+        _allowed python:u'+-0123456789.,';
+        _okchars python:lambda s: all([(c in _allowed) or c.isspace() for c in _s(s)]);
+        _isnum   python:lambda s: (s not in (None, u'')) and _hasdig(s) and _okchars(s);
         _tofloat python:lambda v: ((isinstance(v,(int,float)) and float(v)) or (_isnum(v) and float(_s(v).replace(',','.'))) or None)
       ">
         <tr>
@@ -107,10 +109,10 @@
               rr_text  python:(
                 (_s(rr_txt0)) or
                 ((rr_eq  not in (None,u'', '')) and (u'='+_s(rr_eq))) or
-                ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (_s(rr_min)+u'–'+_s(rr_max))) or
-                ((rr_min not in (None,u'', '')) and (u'≥'+_s(rr_min))) or
-                ((rr_max not in (None,u'', '')) and (u'≤'+_s(rr_max))) or
-                u'—'
+                ((rr_min not in (None,u'', '')) and (rr_max not in (None,u'', '')) and (_s(rr_min)+u'\u2013'+_s(rr_max))) or
+                ((rr_min not in (None,u'', '')) and (u'\u2265'+_s(rr_min))) or
+                ((rr_max not in (None,u'', '')) and (u'\u2264'+_s(rr_max))) or
+                u'\u2014'
               )
             ">
               <span class="ref-range"
@@ -131,7 +133,7 @@
           <!-- ===== ESTADO (Workflow profesional) ===== -->
           <td class="text-center">
             <tal:wf define="
-              wf_txt  python: (r.get('state') or r.get('status') or u'—');
+              wf_txt  python: (r.get('state') or r.get('status') or u'\u2014');
               norm    python: _s(wf_txt).lower();
               wf_cls  python: (
                 (norm in (u'published', u'verified', u'valid', u'verificado', u'publicado', u'aprobado')) and 'wf-ok' or
@@ -140,15 +142,15 @@
                 'wf-na'
               );
               wf_icon python: (
-                (wf_cls=='wf-ok') and u'✓' or
-                (wf_cls=='wf-pending') and u'…' or
-                (wf_cls=='wf-bad') and u'✖' or
-                u'•'
+                (wf_cls=='wf-ok') and u'\u2713' or
+                (wf_cls=='wf-pending') and u'\u2026' or
+                (wf_cls=='wf-bad') and u'\u2716' or
+                u'\u2022'
               )
             ">
               <span tal:attributes="class python:u'state-chip ' + wf_cls" title="Estado del análisis (workflow)">
                 <span tal:content="python:wf_icon">•</span>
-                <span tal:content="python:wf_txt or u'—'">—</span>
+                <span tal:content="python:wf_txt or u'\u2014'">—</span>
               </span>
             </tal:wf>
           </td>
