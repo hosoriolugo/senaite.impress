@@ -3,17 +3,52 @@
 
 <!-- ===== Estilos para resaltar signos/leyendas ===== -->
 <style>
-  /* Colores semánticos y accesibles */
+  /* Colores semánticos y accesibles (clínicos) */
   .flag-ok       { color:#198754 !important; font-weight:700; } /* ✓ en rango (verde) */
   .fr-alert      { color:#d9534f !important; font-weight:700; } /* ⚠ fuera de rango (rojo) */
   .al-critical   { color:#d63384 !important; font-weight:800; } /* ❗ crítico (magenta) */
   .al-delta      { color:#fd7e14 !important; font-weight:700; } /* ▲/▼ delta (naranja) */
 
-  /* Por si el backend usa clases de estado */
+  /* Por si el backend usa clases de estado clínico (las conservamos) */
   .estado-ok     { color:#198754; font-weight:700; }
   .estado-warn   { color:#d9534f; font-weight:700; }
   .estado-crit   { color:#d63384; font-weight:800; }
   .estado-na     { color:#6c757d; }
+
+  /* ====== Chip de ESTADO (workflow) profesional ====== */
+  .state-chip {
+    display: inline-flex;
+    gap: .35em;
+    align-items: center;
+    padding: .15rem .4rem;
+    border-radius: .375rem;
+    line-height: 1.1;
+    font-weight: 600;
+    font-size: 0.95em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  /* Paleta para workflow (mapear desde texto) */
+  .wf-ok {
+    color: #155724;
+    background: #d4edda;
+    border-color: #c3e6cb;
+  }
+  .wf-pending {
+    color: #856404;
+    background: #fff3cd;
+    border-color: #ffeeba;
+  }
+  .wf-bad {
+    color: #721c24;
+    background: #f8d7da;
+    border-color: #f5c6cb;
+  }
+  .wf-na {
+    color: #495057;
+    background: #e9ecef;
+    border-color: #dee2e6;
+  }
 
   /* Permite que los rangos largos hagan wrap */
   #results-with-state table.table tbody td { white-space: normal; word-break: break-word; }
@@ -36,7 +71,9 @@
         <tr>
           <td tal:content="python:r['name']">Análisis</td>
           <td tal:content="python:r['result']">—</td>
-          <td tal:content="python:r['unit']">—</td>
+
+          <!-- Unidad: marcamos la celda como .unit para excluirla del colorizer -->
+          <td class="unit" tal:content="python:r.get('unit') or u''">—</td>
 
           <!-- ===== RANGO DE REFERENCIA (usa ResultsRange del Analysis como en ± Especificaciones) ===== -->
           <td>
@@ -83,27 +120,29 @@
           </td>
           <!-- ===== FIN RANGO ===== -->
 
-          <!-- ===== ESTADO (fallback a state_title/review_state) ===== -->
+          <!-- ===== ESTADO (Workflow profesional) ===== -->
           <td class="text-center">
-            <tal:est define="
-              est_sym  python: r.get('estado_symbol') or u'—';
-              est_txt0 python: r.get('estado_text') or u'';
-              est_txt  python: est_txt0 or
-                               (hasattr(a,'state_title') and a.state_title) or
-                               (hasattr(a,'review_state') and a.review_state) or u'—';
-              est_cls  python: r.get('estado_class') or
-                               ((est_txt.lower().strip() in (u'aprobado', u'verificado', u'valid', u'published')) and 'estado-ok' or
-                                (est_txt.lower().strip() in (u'pendiente', u'draft', u'to be verified')) and 'estado-na' or
-                                (u'estado-na'))
+            <tal:wf define="
+              wf_txt  python: (r.get('state') or r.get('status') or u'—');
+              norm    python: wf_txt and unicode(wf_txt).strip().lower() or u'';
+              wf_cls  python: (
+                (norm in (u'published', u'verified', u'valid', u'verificado', u'publicado', u'aprobado')) and 'wf-ok' or
+                (norm in (u'pending', u'to be verified', u'draft', u'pendiente', u'en progreso', u'por verificar')) and 'wf-pending' or
+                (norm in (u'invalid', u'rejected', u'cancelled', u'retracted', u'inválido', u'rechazado', u'cancelado', u'retraído')) and 'wf-bad' or
+                'wf-na'
+              );
+              wf_icon python: (
+                (wf_cls=='wf-ok') and u'✓' or
+                (wf_cls=='wf-pending') and u'…' or
+                (wf_cls=='wf-bad') and u'✖' or
+                u'•'
+              )
             ">
-              <span tal:attributes="class python:est_cls">
-                <span tal:condition="python:est_sym==u'⚠'" class="fr-alert">⚠</span>
-                <span tal:condition="python:est_sym==u'✓'" class="flag-ok">✓</span>
-                <span tal:condition="python:est_sym==u'❗'" class="al-critical">❗</span>
-                <span tal:condition="python:est_sym in (None, u'', u'—')">—</span>
-                <span tal:content="python:est_txt">Estado</span>
+              <span tal:attributes="class python:u'state-chip ' + wf_cls" title="Estado del análisis (workflow)">
+                <span tal:content="python:wf_icon">•</span>
+                <span tal:content="python:wf_txt or u'—'">—</span>
               </span>
-            </tal:est>
+            </tal:wf>
           </td>
           <!-- ===== FIN ESTADO ===== -->
 
@@ -136,13 +175,21 @@
   </tbody>
 </table>
 
-<!-- Leyendas -->
+<!-- Leyendas (clínicas) -->
 <div class="mt-1 text-muted" style="font-size: 90%;">
   <span class="flag-ok" i18n:translate="">✓ En rango</span> ·
   <span class="fr-alert" i18n:translate="">⚠ Fuera de rango</span> ·
   <span class="al-critical" i18n:translate="">❗ Crítico</span> ·
   <span class="al-delta" i18n:translate="">▲/▼ Δ fuera de límite</span> ·
   <span i18n:translate="">— No aplica</span>
+</div>
+
+<!-- (Opcional) Leyenda breve de workflow -->
+<div class="mt-1 text-muted" style="font-size: 90%; margin-top:4px;">
+  <span class="state-chip wf-ok">✓ Publicado/Verificado</span>
+  <span class="state-chip wf-pending">… Pendiente</span>
+  <span class="state-chip wf-bad">✖ Rechazado/Inválido</span>
+  <span class="state-chip wf-na">• N/A</span>
 </div>
 
 <!-- Guía para pacientes (técnica y clara) -->
@@ -155,13 +202,14 @@
   <div>— <strong>No aplica</strong>: Análisis sin intervalo de referencia o de naturaleza cualitativa.</div>
 </div>
 
-<!-- Refuerzo: colorea símbolos SOLO dentro de este bloque y sin tocar '!' genérico -->
+<!-- Refuerzo: colorea símbolos SOLO dentro de este bloque (excluye .unit) -->
 <script type="text/javascript">
 (function(){
   var root = document.getElementById('results-with-state');
   if (!root) return;
 
   var colorize = function(container){
+    // Pintar símbolos clínicos (✓/⚠/❗) donde corresponda
     var est = container.querySelectorAll('td.text-center span');
     for (var i=0;i<est.length;i++){
       var t = (est[i].textContent || '').trim();
@@ -170,10 +218,19 @@
       if (t.indexOf('⚠') !== -1) est[i].classList.add('fr-alert');
     }
 
-    var cells = container.querySelectorAll('table tbody td, table tbody td.text-center span');
+    // Excluir la columna de unidades (.unit)
+    var cells = container.querySelectorAll('table tbody td:not(.unit), table tbody td.text-center span');
+
+    // Coincidencias "sueltas" para H/HH/L/LL (evita mg/L, mmol/L, etc.)
+    var reHigh = /(^|\s)(HH|H|↑)(?=\s|$)/g;
+    var reLow  = /(^|\s)(LL|L|↓)(?=\s|$)/g;
+
     var wrap = function(html, re, cls){
-      return html.replace(re, function(m){ return '<span class="'+cls+'">'+m+'</span>'; });
+      return html.replace(re, function(_, pre, flag){
+        return pre + '<span class="'+cls+'">'+flag+'</span>';
+      });
     };
+
     for (var j=0;j<cells.length;j++){
       var el = cells[j];
       var html = el.innerHTML;
@@ -181,10 +238,10 @@
       if (html.indexOf('<!--') !== -1) continue;
 
       var n = html;
-      n = wrap(n, /(\bHH\b|\bH\b|↑)/g, 'fr-alert');
-      n = wrap(n, /(\bLL\b|\bL\b|↓)/g, 'al-delta');
-      n = wrap(n, /(⚠|❗)/g, 'al-critical');
-      n = wrap(n, /(▲|▼|Δ)/g, 'al-delta');
+      n = wrap(n, reHigh, 'fr-alert');
+      n = wrap(n, reLow,  'al-delta');
+      n = n.replace(/(⚠|❗)/g, '<span class="al-critical">$1</span>');
+      n = n.replace(/(▲|▼|Δ)/g, '<span class="al-delta">$1</span>');
 
       if (n !== html) el.innerHTML = n;
     }
