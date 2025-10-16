@@ -207,16 +207,24 @@
                                 u'Fuera de rango'
                               );
 
-              base_txt    python:(r.get('alert_text') or u'');
-              base_title  python:(r.get('alert_title') or u'');
-              base_cls    python:(r.get('alert_classes') or u'');
+              /* --- limpieza de base_*: ignora vacío, '-' y '—' --- */
+              _nz         python:lambda s: ((s not in (None, u'')) and (_s(s) not in (u'', u'-', u'\u2014')) and _s(s) or u'');
+
+              base_txt    python:_nz(r.get('alert_text'));
+              base_title  python:_nz(r.get('alert_title'));
+              base_cls    python:_nz(r.get('alert_classes'));
 
               is_crit     python:(r.get('estado_class')==u'al-critical');
 
+              /* iconos */
+              ic_warn     python:u'\u26A0';  /* ⚠ */
+              ic_crit     python:u'\u2757';  /* ❗ */
+
+              /* Texto final con iconos si aplica */
               txt         python:( base_txt
-                                   or (is_crit and u'Cr\u00edtico')
-                                   or (out_rng and u'Fuera de rango')
-                                   or (out_qual and qual_msg)
+                                   or (is_crit and (ic_crit+u' Cr\u00edtico'))
+                                   or (out_rng and (ic_warn+u' Fuera de rango'))
+                                   or (out_qual and (ic_warn+u' '+qual_msg))
                                    or (has_rng and u'\u2014')
                                    or u'\u2014' );
 
