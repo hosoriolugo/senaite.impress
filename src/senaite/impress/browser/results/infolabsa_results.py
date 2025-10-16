@@ -85,6 +85,22 @@ def _format_ref_text_with_unit(ref_text, unit):
     return t
 
 
+def _sanitize_unit_for_flags(unit):
+    """
+    Evita que 'L'/'H' en la unidad se confundan con banderas visuales (Low/High).
+    Insertamos un “word joiner” U+2060 después de L/H cuando forman parte de la unidad.
+    No altera cálculos; solo presentación.
+    """
+    if not unit:
+        return unit
+    u = _to_unicode(unit)
+    # Casos típicos: /L, /H, por si hay equipos que marcan H (high) en unidades raras
+    u = u.replace(u"/L", u"/L\u2060").replace(u"/H", u"/H\u2060")
+    # También “por L” y variantes con espacios finos
+    u = u.replace(u" L", u" L\u2060")
+    return u
+
+
 class InfolabsaResultsWithState(BrowserView):
     """
     Renderiza la tabla 'cool' usando templates/results_with_state.pt
@@ -338,10 +354,13 @@ class InfolabsaResultsWithState(BrowserView):
                 pass
         try:
             schema = getattr(analysis, "Schema", lambda: None)()
-            if schema and "AnalysisSpec" in schema:
-                return schema["AnalysisSpec"].get(analysis)
         except Exception:
-            pass
+            schema = None
+        if schema and "AnalysisSpec" in schema:
+            try:
+                return schema["AnalysisSpec"].get(analysis)
+            except Exception:
+                pass
         return None
 
     def _current_spec_linked(self, analysis):
@@ -1114,6 +1133,37 @@ class InfolabsaResultsWithState(BrowserView):
                 return self._u(v)
         return u""
 
+    def _workflow_viz(self, wf_state):
+        """
+        Mapea el estado interno a etiqueta/icono/clase UI.
+        No cambia texto fuente; solo la presentación.
+        """
+        s = (self._u(wf_state) or u"").strip().lower()
+        # Etiqueta, Icono, Clase
+        mapping = {
+            # preliminares / recepción / asignación
+            "to_be_verified": (u"Preliminar", u"○", u"wf-pre"),
+            "assigned":       (u"Preliminar", u"○", u"wf-pre"),
+            "sample_received":(u"Preliminar", u"○", u"wf-pre"),
+            # verificado
+            "verified":       (u"Validado",   u"✓", u"wf-ok"),
+            # publicado/final
+            "published":      (u"Final",      u"■", u"wf-final"),
+            "final":          (u"Final",      u"■", u"wf-final"),
+            # en proceso / acciones pendientes
+            "retest":         (u"En proceso", u"…", u"wf-proc"),
+            "attachment_due": (u"En proceso", u"…", u"wf-proc"),
+            "awaiting":       (u"En proceso", u"…", u"wf-proc"),
+            # retractado
+            "retracted":      (u"Retractado", u"↩︎", u"wf-ret"),
+            # cancelado / inválido / rechazado
+            "cancelled":      (u"Anulado",    u"×", u"wf-cancel"),
+            "rejected":       (u"Anulado",    u"×", u"wf-cancel"),
+            "invalid":        (u"Anulado",    u"×", u"wf-cancel"),
+        }
+        # default
+        return mapping.get(s, (wf_state or u"", u"•", u"wf-unk"))
+
     # ------------------------- data extraction -------------------------
     def analyses(self):
         ctx = self.context
@@ -1173,7 +1223,49 @@ class InfolabsaResultsWithState(BrowserView):
         if not alert_text and estado_text == u'Fuera de rango':
             alert_text = u'Fuera de rango'
 
+        # Anexar (sin romper) alertas adicionales si el análisis trae flags conocidos
+        extra = self._extra_alerts_from_flags(value)
+        if extra:
+            alert_text = (alert_text + (u'; ' if alert_text else u'') + extra).strip('; ')
+
         return estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title
+
+    def _extra_alerts_from_flags(self, value):
+        """
+        Gancho suave para sumar alertas tipo ND/LOQ/LOD, sin interferir con lo existente.
+        Si no aplica, retorna ''.
+        """
+        txt = self._u(value or u"").strip().upper()
+        if not txt:
+            return u""
+        # Casos típicos de guías: ND (no detectable), <LOQ, <LOD
+        if txt in (u"ND", u"NO DETECTABLE"):
+            return u"ND"
+        if txt.startswith(u"<LOQ") or u" LOQ" in txt:
+            return u"<LOQ"
+        if txt.startswith(u"<LOD") or u" LOD" in txt:
+            return u"<LOD"
+        return u""
+
+    # --------- tendencia (solo bandera de pintado) ----------
+    def _trend_points(self, a):
+        """
+        Intenta recuperar puntos históricos de tendencia.
+        No imponemos formato; retornamos una lista cualquiera si existe.
+        """
+        for name in ("getTrendData", "getHistoricalResults", "getResultsHistory", "getTrendPoints"):
+            fn = getattr(a, name, None)
+            if callable(fn):
+                try:
+                    pts = fn()
+                    if pts:
+                        try:
+                            return list(pts)
+                        except Exception:
+                            return pts
+                except Exception:
+                    pass
+        return []
 
     def row(self, a):
         name = (
@@ -1184,7 +1276,9 @@ class InfolabsaResultsWithState(BrowserView):
         )
 
         result = self._get_result(a)
-        unit = self._get_unit(a)
+
+        unit_raw = self._get_unit(a)
+        unit = _sanitize_unit_for_flags(unit_raw)  # <- evita “L” naranja en mg/L
 
         # Prioridad actualizada para rangos
         ref_text, low, high, ref_src = self._compute_ref_range(a)
@@ -1195,6 +1289,7 @@ class InfolabsaResultsWithState(BrowserView):
             pass
 
         wf_state = self._workflow_state(a) or u''
+        wf_label, wf_icon, wf_class = self._workflow_viz(wf_state)  # <- Estado profesional de workflow
 
         is_critical = bool(self._get(a, 'getCritical', False) or self._get(a, 'isCritical', False))
         try:
@@ -1212,57 +1307,57 @@ class InfolabsaResultsWithState(BrowserView):
 
         ref_eq = self._extract_ref_eq(a)
 
-        # --- NUEVO: saneo visual de origen y rango con unidad ---
+        # --- saneo visual de origen y rango con unidad ---
         ref_src_label = _pretty_src(ref_src, debug=bool(self.request.get('debug_refsrc')))
-        # ref_src visible SIN 'not_found'
-        ref_src_display = ref_src_label  # <- usar este en plantillas si antes usaban ref_src
+        ref_src_display = ref_src_label
         reference_range_with_unit = _format_ref_text_with_unit(ref_text, unit)
 
-        # Aliases para plantillas (estado/alertas visibles)
-        state_icon = estado_symbol
-        state_label = estado_text
-        state_class = estado_class
-        alert_simple = alerts
+        # Tendencia: solo permitir gráfico si hay 2+ puntos
+        tpoints = self._trend_points(a)
+        can_plot_trend = bool(tpoints and len(tpoints) >= 2)
 
         return {
             # Display
             'name': name,
             'result': result,
-            'unit': unit,
+            'unit': unit,           # <- segura para pintar
+            'unit_raw': unit_raw,   # <- original por si se necesita
 
             # Rango de referencia
             'ref_range': ref_text or u'',
             'ref_low': low,
             'ref_high': high,
-            'ref_src_raw': ref_src or u'',     # <- valor crudo (por compatibilidad)
-            'ref_src': ref_src_display or u'', # <- saneado para mostrar (sin 'not_found')
-            'ref_src_label': ref_src_label,    # <- etiqueta amable
+            'ref_src_raw': ref_src or u'',
+            'ref_src': ref_src_display or u'',
+            'ref_src_label': ref_src_label,
             'ref_eq': ref_eq,
 
             # Alias por compatibilidad con plantillas
             'reference_range': (ref_text or u''),
-            'reference_range_with_unit': reference_range_with_unit,  # rango + unidad
+            'reference_range_with_unit': reference_range_with_unit,
             'range_text': (ref_text or u''),
             'range': (ref_text or u''),
 
             'reference_low': low,
             'reference_high': high,
 
-            # Estado “clínico” (en/fora de rango)
+            # Estado clínico (rango)
             'estado_class': estado_class,
             'estado_symbol': estado_symbol,
             'estado_text': estado_text,
 
-            # Estado de workflow (NO tocado: mantiene avisos/temporal)
-            'state': wf_state,
+            # Estado de workflow (para columna Estado)
+            'state': wf_state,            # crudo
             'state_text': wf_state,
             'status': wf_state,
             'status_text': wf_state,
 
-            # Aliases de estado para informes (facilita dibujar)
-            'state_icon': state_icon,
-            'state_label': state_label,
-            'state_class': state_class,
+            # Etiquetas “bonitas” del workflow (usar estas en la columna Estado)
+            'state_label': wf_label,
+            'state_icon': wf_icon,
+            'state_class': wf_class,
+
+            # Alias histórico (si alguna plantilla usa 'estado' para mostrar algo)
             'estado': estado_text,
 
             # Alertas combinadas
@@ -1270,7 +1365,11 @@ class InfolabsaResultsWithState(BrowserView):
             'alert_text': alerts,
             'alert_title': alert_title,
             'alerts': alerts,
-            'alert': alert_simple,
+            'alert': alerts,
+
+            # Tendencia
+            'trend_points': tpoints,
+            'can_plot_trend': can_plot_trend,
         }
 
     def rows(self):
