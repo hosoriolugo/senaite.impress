@@ -217,11 +217,21 @@
 
               ic_warn     python:u'\u26A0';
               ic_crit     python:u'\u2757';
+              ic_ok       python:u'\u2713';
+
+              is_ok_num   python:((res_val is not None) and has_rng and (not out_rng));
+              is_ok_qual  python:(is_textual and (
+                                  (expects_neg and (res_txt in neg_set)) or
+                                  (expects_pos and (res_txt in pos_set)) or
+                                  (eq_txt not in (u'',) and ((res_txt==eq_txt) or ((res_txt in pos_set) and (eq_txt in pos_set)) or ((res_txt in neg_set) and (eq_txt in neg_set))))
+                                ));
+              is_ok       python:(is_ok_num or is_ok_qual);
 
               txt         python:( base_txt
                                    or (is_crit and (ic_crit+u' Cr\u00edtico'))
                                    or (out_rng and (ic_warn+u' Fuera de rango'))
                                    or (out_qual and (ic_warn+u' '+qual_msg))
+                                   or (is_ok and (ic_ok+u' En rango'))
                                    or (has_rng and u'\u2014')
                                    or u'\u2014' );
 
@@ -230,12 +240,14 @@
                                    or (out_low and u'Resultado por debajo del m\u00ednimo')
                                    or (out_hi  and u'Resultado por encima del m\u00e1ximo')
                                    or (out_qual and u'Resultado cualitativo discordante con lo esperado')
+                                   or (is_ok and u'Resultado dentro del rango o esperado')
                                    or u'' );
 
               cls         python:( base_cls
                                    or (is_crit and u'al-critical')
                                    or (out_rng and u'fr-alert')
                                    or (out_qual and u'fr-alert')
+                                   or (is_ok and u'flag-ok')
                                    or u'' )
             ">
               <span tal:attributes="class python:cls; title python:ttl"
