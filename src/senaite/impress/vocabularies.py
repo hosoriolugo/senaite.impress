@@ -34,19 +34,30 @@ class TemplateVocabulary(object):
         finder = getUtility(ITemplateFinder)
         templates = finder.get_templates()
 
-        # --- AJUSTE: remapear SOLO el título visible para la plantilla INFOLABSA ---
-        # Mantiene el token/valor interno (no rompe configuraciones existentes).
-        remap_display = {
-            u"senaite.impress:Infolabsa.pt": u"infolabsa.pdf:INFOLABSA.pt",
-            u"senaite.impress:INFOLABSA.pt": u"infolabsa.pdf:INFOLABSA.pt",
-        }
+        def _display_title(name, title):
+            """Devuelve el título que se mostrará en la UI.
+            - Usa 'title' del registry si existe; en caso contrario, usa 'name'.
+            - Para TODAS las plantillas con prefijo 'senaite.impress:',
+              muestra 'infolabsa.pdf:' como prefijo visible (solo display).
+            """
+            shown = title or name
+            if isinstance(name, (str, unicode)):
+                if name.startswith(u"senaite.impress:"):
+                    # Mantiene el nombre del archivo tal cual, cambia solo el prefijo visible
+                    after = name.split(u":", 1)[1]
+                    return u"infolabsa.pdf:" + after
+            return shown
+
         items = []
         for t in templates:
-            # Por compatibilidad con versiones, asumimos que t[0] es el token/nombre canónico
-            token = t[0]
-            title = remap_display.get(token, token)  # cambiar solo lo que se muestra
-            items.append(SimpleTerm(token, token, title))
-        # --- FIN AJUSTE ---
+            # Convención: t puede ser (name,), (name, title) o (name, title, path)
+            name = t[0]
+            title = None
+            if len(t) > 1 and t[1]:
+                title = t[1]
+            # No tocamos el token/valor interno; solo el label mostrado.
+            display = _display_title(name, title)
+            items.append(SimpleTerm(name, name, display))
 
         return SimpleVocabulary(items)
 
