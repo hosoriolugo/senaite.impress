@@ -81,6 +81,25 @@ CSS = Template("""/** Paper Format CSS **/
 }
 """)
 
+# ---------------------------------------------------------------------------
+# AYUDA: nombre de plantilla "bonito" para mostrar en UI/PDF (no cambia token)
+try:
+    basestring
+except NameError:  # py3 compat si aplica
+    basestring = str
+
+def _display_template_name(name):
+    """Devuelve un nombre visible para la plantilla sin cambiar el token técnico.
+    Si el token empieza con 'senaite.impress:', lo muestra como 'infolabsa.pdf:...'
+    """
+    try:
+        if isinstance(name, basestring) and name.startswith(u"senaite.impress:"):
+            return u"infolabsa.pdf:" + name.split(u":", 1)[1]
+        return name
+    except Exception:
+        return name
+# ---------------------------------------------------------------------------
+
 
 class PublishView(BrowserView):
     """Publish View Controller
@@ -326,6 +345,10 @@ class PublishView(BrowserView):
         options = kw
         # pass through the calculated dimensions to the template
         options.update(self.calculate_dimensions(paperformat, orientation))
+        # ---- NUEVO: exponer nombre de plantilla "bonito" para UI/PDF
+        token = self.request.get("template")  # token técnico seleccionado
+        options["template_display"] = _display_template_name(token)
+        # ----
         template = self.read_template(template, view, **options)
         return view.render(template, **options)
 
@@ -338,7 +361,10 @@ class PublishView(BrowserView):
         options = kw
         # pass through the calculated dimensions to the template
         options.update(self.calculate_dimensions(paperformat, orientation))
-
+        # ---- NUEVO: exponer nombre de plantilla "bonito" para UI/PDF
+        token = self.request.get("template")
+        options["template_display"] = _display_template_name(token)
+        # ----
         template = self.read_template(template, view, **options)
         return view.render(template, **options)
 
