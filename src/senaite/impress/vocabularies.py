@@ -33,7 +33,21 @@ class TemplateVocabulary(object):
     def __call__(self, context):
         finder = getUtility(ITemplateFinder)
         templates = finder.get_templates()
-        items = [SimpleTerm(t[0], t[0], t[0]) for t in templates]
+
+        # --- AJUSTE: remapear SOLO el título visible para la plantilla INFOLABSA ---
+        # Mantiene el token/valor interno (no rompe configuraciones existentes).
+        remap_display = {
+            u"senaite.impress:Infolabsa.pt": u"infolabsa.pdf:INFOLABSA.pt",
+            u"senaite.impress:INFOLABSA.pt": u"infolabsa.pdf:INFOLABSA.pt",
+        }
+        items = []
+        for t in templates:
+            # Por compatibilidad con versiones, asumimos que t[0] es el token/nombre canónico
+            token = t[0]
+            title = remap_display.get(token, token)  # cambiar solo lo que se muestra
+            items.append(SimpleTerm(token, token, title))
+        # --- FIN AJUSTE ---
+
         return SimpleVocabulary(items)
 
 TemplateVocabularyFactory = TemplateVocabulary()  # noqa
