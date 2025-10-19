@@ -15,71 +15,105 @@
     <!-- ===================== CUSTOM OVERRIDES: SPINNER EN AZUL ===================== -->
     <style type="text/css">
       /* Azul “salud/laboratorio” (ajústalo si quieres) */
-      :root {
-        --impress-blue: #0d6efd; /* Bootstrap Primary */
-      }
+      :root { --impress-blue: #0d6efd; /* Bootstrap Primary */ }
 
-      /* Font Awesome spinner (fa-spin, fa-spinner) */
-      .fa-spinner, .fa-circle-notch, .fa-sync, .fa-cog, .fa-gear {
-        color: var(--impress-blue) !important;
-      }
+      /* --- Reglas globales existentes (se mantienen) --- */
+      .fa-spinner, .fa-circle-notch, .fa-sync, .fa-cog, .fa-gear { color: var(--impress-blue) !important; }
       .fa-spin { color: var(--impress-blue) !important; }
-
-      /* Bootstrap spinners */
-      .spinner-border, .spinner-grow {
-        color: var(--impress-blue) !important;
-        border-color: var(--impress-blue) !important;
-      }
+      .spinner-border, .spinner-grow { color: var(--impress-blue) !important; border-color: var(--impress-blue) !important; }
       .spinner-border {
         border-top-color: var(--impress-blue) !important;
         border-right-color: var(--impress-blue) !important;
         border-bottom-color: var(--impress-blue) !important;
         border-left-color: var(--impress-blue) !important;
       }
+      .text-danger { color: var(--impress-blue) !important; }
+      .impress-spinner, .impress-loading, .report-loading, .loading { color: var(--impress-blue) !important; }
 
-      /* A veces el bundle usa .text-danger (rojo) para el loader: lo suavizamos a azul */
-      .text-danger {
+      /* --- Refuerzo con mayor especificidad DENTRO del controlador React --- */
+      #publish_controller .text-danger,
+      #publish_controller .spinner-border,
+      #publish_controller .spinner-grow,
+      #publish_controller .fa,
+      #publish_controller .fa-spinner,
+      #publish_controller .fa-circle-notch,
+      #publish_controller .fa-sync,
+      #publish_controller .fa-cog,
+      #publish_controller .fa-gear,
+      #publish_controller .impress-spinner,
+      #publish_controller .impress-loading,
+      #publish_controller .report-loading,
+      #publish_controller .loading {
         color: var(--impress-blue) !important;
+        border-color: var(--impress-blue) !important;
       }
-
-      /* Si el contenedor del spinner tiene clase específica, la reforzamos */
-      .impress-spinner, .impress-loading, .report-loading, .loading {
-        color: var(--impress-blue) !important;
+      #publish_controller .spinner-border {
+        border-top-color: var(--impress-blue) !important;
+        border-right-color: var(--impress-blue) !important;
+        border-bottom-color: var(--impress-blue) !important;
+        border-left-color: var(--impress-blue) !important;
+      }
+      /* Por si algún theme usa SVG para el spinner */
+      #publish_controller svg,
+      #publish_controller svg * {
+        fill: var(--impress-blue) !important;
+        stroke: var(--impress-blue) !important;
       }
     </style>
     <!-- =================== /CUSTOM OVERRIDES: SPINNER EN AZUL ====================== -->
 
-    <!-- =================== CUSTOM OVERRIDES: TRADUCCIÓN SPINNER =================== -->
+    <!-- =================== CUSTOM OVERRIDES: TRADUCCIÓN + RENOMBRE =================== -->
     <script type="text/javascript">
       (function () {
-        // Diccionario de traducciones de mensajes habituales del publish controller
-        // Agrega/ajusta entradas si ves otros textos.
+        // --- Renombrado de token técnico a nombre visible ---
+        function prettyTemplateName(text) {
+          if (!text || typeof text !== "string") return text;
+          if (text.indexOf("senaite.impress:") === 0) {
+            return "infolabsa.pdf:" + text.split(":").slice(1).join(":");
+          }
+          return text;
+        }
+
+        // --- Normaliza elipsis HTML a "..." ASCII para evitar &#8230; en la UI ---
+        function normalizeEllipsis(str) {
+          if (!str) return str;
+          return str.replace(/&#8230;|&hellip;/gi, "...");
+        }
+
+        // --- Diccionario de traducciones (usa "..." ASCII) ---
         var DICTIONARY = [
           // Preview/render
-          {en: /rendering preview/i, es: "Generando vista previa…"},
-          {en: /loading preview/i,  es: "Cargando vista previa…"},
-          {en: /generating preview/i, es: "Generando vista previa…"},
+          {en: /rendering preview/i,  es: "Generando vista previa..."},
+          {en: /loading preview/i,    es: "Cargando vista previa..."},
+          {en: /generating preview/i, es: "Generando vista previa..."},
           // PDF
-          {en: /generating pdf/i,   es: "Generando PDF…"},
-          {en: /creating pdf/i,     es: "Creando PDF…"},
-          {en: /building pdf/i,     es: "Construyendo PDF…"},
+          {en: /generating pdf/i,     es: "Generando PDF..."},
+          {en: /creating pdf/i,       es: "Creando PDF..."},
+          {en: /building pdf/i,       es: "Construyendo PDF..."},
           // Save / Email
-          {en: /saving reports/i,   es: "Guardando reportes…"},
-          {en: /sending emails?/i,  es: "Enviando correos…"},
+          {en: /saving reports/i,     es: "Guardando reportes..."},
+          {en: /sending emails?/i,    es: "Enviando correos..."},
           // General
-          {en: /please wait/i,      es: "Por favor, espera…"},
-          {en: /loading/i,          es: "Cargando…"},
-          {en: /processing/i,       es: "Procesando…"}
+          {en: /please wait/i,        es: "Por favor, espera..."},
+          {en: /loading/i,            es: "Cargando..."},
+          {en: /processing/i,         es: "Procesando..."}
         ];
+
+        function translateString(str) {
+          if (!str) return str;
+          var s = normalizeEllipsis(str);
+          s = prettyTemplateName(s);
+          for (var i = 0; i < DICTIONARY.length; i++) {
+            s = s.replace(DICTIONARY[i].en, DICTIONARY[i].es);
+          }
+          return s;
+        }
 
         function translateTextNode(node) {
           if (!node || node.nodeType !== Node.TEXT_NODE) return;
-          var text = node.nodeValue;
-          var replaced = text;
-          for (var i = 0; i < DICTIONARY.length; i++) {
-            replaced = replaced.replace(DICTIONARY[i].en, DICTIONARY[i].es);
-          }
-          if (replaced !== text) node.nodeValue = replaced;
+          var oldText = node.nodeValue;
+          var newText = translateString(oldText);
+          if (newText !== oldText) node.nodeValue = newText;
         }
 
         function walkAndTranslate(root) {
@@ -88,56 +122,83 @@
             translateTextNode(root);
             return;
           }
-          var walker = document.createTreeWalker(
-            root,
-            NodeFilter.SHOW_TEXT,
-            null,
-            false
-          );
+          // Traduce title/aria-label en elementos
+          if (root.nodeType === Node.ELEMENT_NODE) {
+            ["title","aria-label"].forEach(function(attr){
+              if (root.hasAttribute && root.hasAttribute(attr)) {
+                var val = root.getAttribute(attr);
+                var newVal = translateString(val);
+                if (newVal !== val) root.setAttribute(attr, newVal);
+              }
+            });
+          }
+          var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
           var n;
           while ((n = walker.nextNode())) translateTextNode(n);
         }
 
-        function setupObserver() {
-          var host = document.getElementById("publish_controller");
-          if (!host) {
-            // Reintenta cuando cargue el DOM
-            return void window.addEventListener("DOMContentLoaded", setupObserver);
+        function fixTemplateLabels(host) {
+          // Opciones de select, badges, chips, labels, etc.
+          var nodes = host.querySelectorAll("option, .badge, .chip, .label, .tag, [class*='template']");
+          for (var i = 0; i < nodes.length; i++) {
+            var t = nodes[i].textContent;
+            var nt = translateString(t);
+            if (nt !== t) nodes[i].textContent = nt;
           }
+        }
 
-          // Traduce lo ya presente
-          walkAndTranslate(host);
-
-          // Observa nuevos nodos/actualizaciones (React va pintando dinámicamente)
-          var mo = new MutationObserver(function (mutations) {
-            for (var i = 0; i < mutations.length; i++) {
-              var m = mutations[i];
-              if (m.type === "childList") {
-                for (var j = 0; j < m.addedNodes.length; j++) {
-                  walkAndTranslate(m.addedNodes[j]);
-                }
-              } else if (m.type === "characterData") {
-                translateTextNode(m.target);
+        function onMutations(mutations) {
+          for (var i = 0; i < mutations.length; i++) {
+            var m = mutations[i];
+            if (m.type === "childList") {
+              for (var j = 0; j < m.addedNodes.length; j++) {
+                var node = m.addedNodes[j];
+                walkAndTranslate(node);
+                if (node.nodeType === Node.ELEMENT_NODE) fixTemplateLabels(node);
+              }
+            } else if (m.type === "characterData") {
+              translateTextNode(m.target);
+            } else if (m.type === "attributes") {
+              if (m.attributeName === "title" || m.attributeName === "aria-label") {
+                var el = m.target;
+                var val = el.getAttribute(m.attributeName);
+                var newVal = translateString(val);
+                if (newVal !== val) el.setAttribute(m.attributeName, newVal);
               }
             }
-          });
+          }
+        }
 
+        function setup() {
+          var host = document.getElementById("publish_controller");
+          if (!host) {
+            if (document.readyState === "loading") {
+              return document.addEventListener("DOMContentLoaded", setup);
+            }
+            return; // no host, no-op
+          }
+          // Traduce lo ya renderizado
+          walkAndTranslate(host);
+          fixTemplateLabels(host);
+
+          // Observa las mutaciones que React vaya introduciendo
+          var mo = new MutationObserver(onMutations);
           mo.observe(host, {
             childList: true,
             characterData: true,
+            attributes: true,
             subtree: true
           });
         }
 
-        // Arranca lo antes posible
         if (document.readyState === "loading") {
-          document.addEventListener("DOMContentLoaded", setupObserver);
+          document.addEventListener("DOMContentLoaded", setup);
         } else {
-          setupObserver();
+          setup();
         }
       })();
     </script>
-    <!-- ================= /CUSTOM OVERRIDES: TRADUCCIÓN SPINNER ==================== -->
+    <!-- ================= /CUSTOM OVERRIDES: TRADUCCIÓN + RENOMBRE ================== -->
 
     <!-- /END -->
 
