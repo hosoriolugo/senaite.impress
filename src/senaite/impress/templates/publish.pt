@@ -12,31 +12,52 @@
     <!-- SENANITE IMPRESS Custom HTML head (after impress core resources)  -->
     <div tal:replace="structure provider:senaite.impress.publishcustomhead" />
 
-    <!-- ===== Spinner color (CSS “suave”; mantenemos) ===== -->
+    <!-- ===== Spinner color (CSS “suave”; mantenemos/ajustado) ===== -->
     <style>
       :root { --impress-blue: #0d6efd; }
+
+      /* Recolorea SOLO spinners conocidos dentro del publish controller */
       #publish_controller .spinner-border,
       #publish_controller .spinner-grow,
       #publish_controller .fa-spinner,
       #publish_controller .fa-circle-notch,
       #publish_controller .fa-sync,
       #publish_controller .fa-cog,
-      #publish_controller .fa-gear,
-      #publish_controller [role="status"],
-      #publish_controller [aria-busy="true"] {
+      #publish_controller .fa-gear {
         color: var(--impress-blue);
       }
-      #publish_controller .text-danger,
-      #publish_controller [class*="text-danger"] { /* puede que no sea suficiente contra inline */
+
+      /* Cuando el rojo entra por text-danger */
+      #publish_controller .spinner-border.text-danger,
+      #publish_controller .spinner-grow.text-danger,
+      #publish_controller .fa-spinner.text-danger,
+      #publish_controller .fa-circle-notch.text-danger,
+      #publish_controller .text-danger .spinner-border,
+      #publish_controller .text-danger .spinner-grow,
+      #publish_controller .text-danger .fa-spinner,
+      #publish_controller .text-danger .fa-circle-notch {
         color: var(--impress-blue) !important;
       }
-      #publish_controller svg,
-      #publish_controller svg * {
+
+      /* SVG internos (FA en modo SVG) */
+      #publish_controller .spinner-border svg,
+      #publish_controller .spinner-border svg *,
+      #publish_controller .spinner-grow svg,
+      #publish_controller .spinner-grow svg *,
+      #publish_controller .fa-spinner svg,
+      #publish_controller .fa-spinner svg * {
         stroke: var(--impress-blue);
         fill: var(--impress-blue);
       }
 
-      /* ===== Cobertura de variantes lds-* y folding (heredan currentColor o usan bg/border) ===== */
+      /* Bootstrap spinner-border usa bordes */
+      #publish_controller .spinner-border,
+      #publish_controller .spinner-border.text-danger {
+        border-color: var(--impress-blue) !important;
+        border-top-color: var(--impress-blue) !important;
+      }
+
+      /* ===== Variantes lds-* y folding (por si las usa el bundle) ===== */
       #publish_controller .lds-dual-ring:after { border-color: currentColor transparent currentColor transparent !important; }
       #publish_controller .lds-ripple div { border-color: currentColor !important; }
       #publish_controller .lds-spinner div:after { background: currentColor !important; }
@@ -220,8 +241,7 @@
         var HOST = document.getElementById('publish_controller') || document;
         var SPINNER_SEL = [
           '.spinner-border','.spinner-grow','.fa-spinner','.fa-circle-notch','.fa-sync','.fa-cog','.fa-gear',
-          '.impress-loading','.report-loading','.loading','[aria-busy="true"]',
-          '.loading-overlay','.overlay','.modal-backdrop'
+          '.impress-loading','.report-loading','.loading'
         ].join(',');
         function hideSpinners(){
           var reportReady = !!HOST.querySelector('.report');
@@ -301,8 +321,7 @@
         var HOST = document.getElementById('publish_controller') || document;
         var SELECTOR = [
           '.spinner-border','.spinner-grow',
-          '.fa-spinner','.fa-circle-notch','.fa-sync','.fa-cog','.fa-gear',
-          '[role="status"]','[aria-busy="true"]'
+          '.fa-spinner','.fa-circle-notch','.fa-sync','.fa-cog','.fa-gear'
         ].join(',');
 
         function paint(el){
@@ -350,140 +369,35 @@
     </script>
     <!-- ====== /BLUE FIX “DURO” ====== -->
 
-    <!-- ======== SPINNER LIMS COOL OVERLAY (azul), no reemplaza: sólo superpone durante carga ======== -->
-    <style>
-      /* Overlay centrado, ligero y accesible */
-      #impressCoolSpinner {
-        position: fixed; inset: 0; display: grid; place-items: center;
-        background: rgba(255,255,255,.6); z-index: 9999;
-      }
-      #impressCoolSpinner[hidden] { display: none !important; }
-      #impressCoolSpinner .sr-only { position: absolute; left: -9999px; }
-      #impressCoolSpinner svg { width: 84px; height: 84px; color: var(--impress-blue); }
-    </style>
-
-    <div id="impressCoolSpinner" role="status" aria-live="polite" aria-busy="true" hidden>
-      <span class="sr-only">Generando vista previa…</span>
-      <!-- Matraz/burbujas SVG (toma color de currentColor) -->
-      <svg viewBox="0 0 128 128" fill="none">
-        <!-- Círculo de fondo (trazo giratorio) -->
-        <circle cx="64" cy="64" r="48" stroke="currentColor" stroke-width="6" stroke-linecap="round"
-                stroke-dasharray="60 240">
-          <animateTransform attributeName="transform" type="rotate" from="0 64 64" to="360 64 64" dur="1.2s" repeatCount="indefinite"/>
-        </circle>
-        <!-- Matraz -->
-        <g transform="translate(0,2)" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
-          <path d="M78 22 v22 l16 28 a28 28 0 1 1 -60 0 l16-28 V22" fill="none"/>
-          <!-- Líquido -->
-          <path d="M42 84 q22 10 44 0 q-2 22 -22 22 q-20 0 -22 -22z" fill="currentColor" opacity="0.15"/>
-        </g>
-        <!-- Burbujas -->
-        <circle cx="64" cy="56" r="5" fill="currentColor">
-          <animate attributeName="cy" values="70;56;70" dur="1.6s" repeatCount="indefinite"/>
-          <animate attributeName="opacity" values="0.2;1;0.2" dur="1.6s" repeatCount="indefinite"/>
-        </circle>
-        <circle cx="52" cy="62" r="4" fill="currentColor">
-          <animate attributeName="cy" values="76;62;76" dur="1.3s" repeatCount="indefinite" begin="0.2s"/>
-          <animate attributeName="opacity" values="0.2;1;0.2" dur="1.3s" repeatCount="indefinite" begin="0.2s"/>
-        </circle>
-        <circle cx="76" cy="60" r="3.5" fill="currentColor">
-          <animate attributeName="cy" values="78;60;78" dur="1.1s" repeatCount="indefinite" begin="0.35s"/>
-          <animate attributeName="opacity" values="0.2;1;0.2" dur="1.1s" repeatCount="indefinite" begin="0.35s"/>
-        </circle>
-      </svg>
-    </div>
-
-    <script>
-      (function(){
-        var host = document.getElementById('publish_controller') || document;
-        var cool = document.getElementById('impressCoolSpinner');
-        function show(){ if (cool) cool.hidden = false; }
-        function hide(){
-          if (!cool || cool.hidden) return;
-          cool.setAttribute('aria-busy','false');
-          cool.hidden = true;
-        }
-
-        // Mostrar al entrar (pequeño delay para evitar parpadeo si carga ultra-rápida)
-        setTimeout(show, 0);
-
-        // Ocultar en cuanto aparezca la preview .report
-        var mo = new MutationObserver(function(muts){
-          for (var i=0;i<muts.length;i++){
-            var m = muts[i];
-            if (m.type==='childList') {
-              for (var j=0;j<m.addedNodes.length;j++){
-                var n = m.addedNodes[j];
-                if (n.nodeType===1 && (n.matches?.('.report') || n.querySelector?.('.report'))) {
-                  hide();
-                  return;
-                }
-              }
-            }
-          }
-        });
-        mo.observe(host, {subtree:true, childList:true});
-
-        // También enganchar XHR/fetch de la preview
-        var _open = XMLHttpRequest && XMLHttpRequest.prototype.open;
-        var _send = XMLHttpRequest && XMLHttpRequest.prototype.send;
-        if (_open && _send) {
-          XMLHttpRequest.prototype.open = function(method, url){
-            this.__isPreview = /\/ajax_publish\/load_preview\b/.test(url||'');
-            return _open.apply(this, arguments);
-          };
-          XMLHttpRequest.prototype.send = function(){
-            if (this.__isPreview) {
-              this.addEventListener('load', function(){
-                if (this.status>=200 && this.status<300) hide();
-              });
-            }
-            return _send.apply(this, arguments);
-          };
-        }
-        if (window.fetch) {
-          var _fetch = window.fetch;
-          window.fetch = function(){
-            var args = Array.prototype.slice.call(arguments);
-            var url = (args[0] && args[0].url) || args[0] || '';
-            var isPreview = /\/ajax_publish\/load_preview\b/.test(url);
-            return _fetch.apply(this, args).then(function(res){
-              if (isPreview && res && res.ok) hide();
-              return res;
-            });
-          };
-        }
-      })();
-    </script>
-    <!-- ======== /SPINNER LIMS COOL OVERLAY ======== -->
-
   </body>
 
 <!-- ==== OVERRIDE GLOBAL PARA SPINNERS (publish screen) ==== -->
 <style>
   :root { --impress-blue: #0d6efd; }
 
-  /* 1) Alcance ampliado: body y #publish_controller */
+  /* Alcance ampliado: SOLO spinners conocidos (no roles genéricos) */
   body .spinner-border,
   body .spinner-grow,
   body .fa-spinner,
   body .fa-circle-notch,
   body .fa-sync,
   body .fa-cog,
-  body .fa-gear,
-  body [role="status"],
-  body [aria-busy="true"] {
+  body .fa-gear {
     color: var(--impress-blue) !important;
   }
 
-  /* 2) Si algún bundle mete .text-danger en el propio spinner */
+  /* text-danger directo o heredado */
   body .text-danger.fa-spinner,
   body .text-danger.spinner-border,
-  body .text-danger.spinner-grow {
+  body .text-danger.spinner-grow,
+  body .text-danger .spinner-border,
+  body .text-danger .spinner-grow,
+  body .text-danger .fa-spinner,
+  body .text-danger .fa-circle-notch {
     color: var(--impress-blue) !important;
   }
 
-  /* 3) SVG (FA en modo SVG o loaders SVG) */
+  /* SVG (FA en modo SVG) */
   body .spinner-border svg,
   body .spinner-border svg *,
   body .spinner-grow svg,
@@ -494,7 +408,13 @@
     stroke: var(--impress-blue) !important;
   }
 
-  /* 4) Variantes lds-* y folding GLOBAL por si aparecen fuera del controller */
+  /* Bordes de spinner-border */
+  body .spinner-border {
+    border-color: var(--impress-blue) !important;
+    border-top-color: var(--impress-blue) !important;
+  }
+
+  /* Variantes lds-* y folding GLOBAL por si aparecen fuera del controller */
   body .lds-dual-ring:after { border-color: currentColor transparent currentColor transparent !important; }
   body .lds-ripple div { border-color: currentColor !important; }
   body .lds-spinner div:after { background: currentColor !important; }
@@ -511,8 +431,7 @@
 
   var SELECTOR = [
     '.spinner-border','.spinner-grow',
-    '.fa-spinner','.fa-circle-notch','.fa-sync','.fa-cog','.fa-gear',
-    '[role="status"]','[aria-busy="true"]'
+    '.fa-spinner','.fa-circle-notch','.fa-sync','.fa-cog','.fa-gear'
   ].join(',');
 
   function paint(el) {
