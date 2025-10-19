@@ -64,7 +64,7 @@
     </style>
     <!-- =================== /CUSTOM OVERRIDES: SPINNER EN AZUL ====================== -->
 
-    <!-- =================== CUSTOM OVERRIDES: TRADUCCIÓN + RENOMBRE =================== -->
+    <!-- =================== CUSTOM OVERRIDES: TRADUCCIÓN + RENOMBRE (SEGURO) =================== -->
     <script type="text/javascript">
       (function () {
         // --- Renombrado de token técnico a nombre visible ---
@@ -83,7 +83,6 @@
         }
 
         // --- Diccionario de traducciones (usa "..." ASCII) ---
-        // Primero casos específicos visibles para el usuario
         var DICTIONARY = [
           // ESPECÍFICO solicitado (loading reports)
           {en: /(loading\s*reports?)/i,        es: "Cargando informe de laboratorio..."},
@@ -105,24 +104,24 @@
           // Save / Email / Publish
           {en: /saving reports?/i,             es: "Guardando reportes..."},
           {en: /save reports?/i,               es: "Guardar reportes"},
-          {en: /save/i,                        es: "Guardar"},
+          {en: /\bsave\b/i,                    es: "Guardar"},
           {en: /send(ing)? emails?/i,          es: "Enviando correos..."},
           {en: /send by email/i,               es: "Enviar por correo"},
           {en: /email reports?/i,              es: "Enviar por correo"},
-          {en: /email/i,                       es: "Correo"},
+          {en: /\bemail\b/i,                   es: "Correo"},
           {en: /publish/i,                     es: "Publicar"},
           {en: /republish/i,                   es: "Republicar"},
           {en: /unpublish/i,                   es: "Despublicar"},
 
-          // Actions / Buttons comunes en la barra
+          // Acciones / Botones comunes
           {en: /download(?: pdf)?/i,           es: "Descargar PDF"},
-          {en: /download/i,                    es: "Descargar"},
+          {en: /\bdownload\b/i,                es: "Descargar"},
           {en: /print/i,                       es: "Imprimir"},
           {en: /preview/i,                     es: "Vista previa"},
           {en: /close/i,                       es: "Cerrar"},
           {en: /cancel/i,                      es: "Cancelar"},
           {en: /apply/i,                       es: "Aplicar"},
-          {en: /ok/i,                          es: "Aceptar"},
+          {en: /\bok\b/i,                      es: "Aceptar"},
           {en: /confirm/i,                     es: "Confirmar"},
           {en: /retry|try again/i,             es: "Reintentar"},
           {en: /refresh|reload/i,              es: "Recargar"},
@@ -136,112 +135,85 @@
 
         function translateString(str) {
           if (!str) return str;
-          var s = normalizeEllipsis(str);
-          s = prettyTemplateName(s);
+          var s = prettyTemplateName(normalizeEllipsis(str));
           for (var i = 0; i < DICTIONARY.length; i++) {
             s = s.replace(DICTIONARY[i].en, DICTIONARY[i].es);
           }
           return s;
         }
 
-        function translateTextNode(node) {
-          if (!node || node.nodeType !== Node.TEXT_NODE) return;
-          var oldText = node.nodeValue;
-          var newText = translateString(oldText);
-          if (newText !== oldText) node.nodeValue = newText;
+        // ---- traducción no intrusiva (sin tocar value/placeholder) ----
+        var MARK = "data-i18n-done";
+        var SAFE_ATTRS = ["title","aria-label","aria-title","data-original-title"]; // ⚠️ SIN value/placeholder
+
+        function translateElement(el) {
+          if (!el || el.nodeType !== 1) return;
+          if (el.hasAttribute(MARK)) return;
+
+          // atributos “seguros”
+          for (var i=0;i<SAFE_ATTRS.length;i++){
+            var a = SAFE_ATTRS[i];
+            if (el.hasAttribute(a)) {
+              var v = el.getAttribute(a);
+              var nv = translateString(v);
+              if (nv !== v) el.setAttribute(a, nv);
+            }
+          }
+
+          // sólo nodos de texto directos (no inputs controlados)
+          if (!/^(INPUT|TEXTAREA|SELECT)$/i.test(el.tagName)) {
+            for (var j=0;j<el.childNodes.length;j++){
+              var n = el.childNodes[j];
+              if (n.nodeType === 3) {
+                var oldT = n.nodeValue;
+                var newT = translateString(oldT);
+                if (newT !== oldT) n.nodeValue = newT;
+              }
+            }
+          }
+          el.setAttribute(MARK, "1");
         }
 
-        // Aplica traducción a atributos típicos de botones/inputs
-        function translateElementAttributes(el) {
-          if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
-          ["title","aria-label","aria-title","data-original-title","placeholder","value"].forEach(function(attr){
-            if (el.hasAttribute && el.hasAttribute(attr)) {
-              var val = el.getAttribute(attr);
-              var newVal = translateString(val);
-              if (newVal !== val) el.setAttribute(attr, newVal);
+        function walk(root){
+          if (!root) return;
+          if (root.nodeType === 1) translateElement(root);
+          var q = root.querySelectorAll && root.querySelectorAll("*:not(["+MARK+"])");
+          if (!q) return;
+          for (var i=0;i<q.length;i++) translateElement(q[i]);
+        }
+
+        // Observer con “candado” para evitar bucles de render
+        var mo, locked = false;
+        function withLock(fn){ if (locked) return; locked = true; try { fn(); } finally { locked = false; } }
+        function onMutations(muts){
+          if (locked) return;
+          withLock(function(){
+            for (var i=0;i<muts.length;i++){
+              var m = muts[i];
+              if (m.type === "childList") {
+                for (var j=0;j<m.addedNodes.length;j++){
+                  var n = m.addedNodes[j];
+                  if (n.nodeType === 1) walk(n);
+                }
+              } else if (m.type === "attributes") {
+                if (SAFE_ATTRS.indexOf(m.attributeName)!==-1) translateElement(m.target);
+              }
             }
           });
-          // Si es <button> con texto directo
-          if (/^(BUTTON|A|SPAN|DIV)$/i.test(el.tagName) && el.childNodes && el.childNodes.length) {
-            // solo traduce nodos de texto directos (no toca iconos)
-            for (var i=0;i<el.childNodes.length;i++){
-              var n = el.childNodes[i];
-              if (n.nodeType === Node.TEXT_NODE) translateTextNode(n);
-            }
-          }
-        }
-
-        function walkAndTranslate(root) {
-          if (!root) return;
-          if (root.nodeType === Node.TEXT_NODE) {
-            translateTextNode(root);
-            return;
-          }
-          if (root.nodeType === Node.ELEMENT_NODE) {
-            translateElementAttributes(root);
-          }
-          var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
-          var n; while ((n = walker.nextNode())) translateTextNode(n);
-        }
-
-        function fixTemplateLabels(host) {
-          // Opciones de select, badges, chips, labels, tags, botones
-          var nodes = host.querySelectorAll("option, .badge, .chip, .label, .tag, [class*='template'], button, a, [role='button'], input, [title], [aria-label]");
-          for (var i = 0; i < nodes.length; i++) {
-            walkAndTranslate(nodes[i]);
-          }
-        }
-
-        function onMutations(mutations) {
-          for (var i = 0; i < mutations.length; i++) {
-            var m = mutations[i];
-            if (m.type === "childList") {
-              for (var j = 0; j < m.addedNodes.length; j++) {
-                var node = m.addedNodes[j];
-                walkAndTranslate(node);
-                if (node.nodeType === Node.ELEMENT_NODE) fixTemplateLabels(node);
-              }
-            } else if (m.type === "characterData") {
-              translateTextNode(m.target);
-            } else if (m.type === "attributes") {
-              if (m.attributeName === "title" || m.attributeName === "aria-label" || m.attributeName === "placeholder" || m.attributeName === "value") {
-                var el = m.target;
-                translateElementAttributes(el);
-              }
-            }
-          }
         }
 
         function setup() {
-          var host = document.getElementById("publish_controller");
-          if (!host) {
-            if (document.readyState === "loading") {
-              return document.addEventListener("DOMContentLoaded", setup);
-            }
-            return; // no host, no-op
-          }
-          // Traduce lo ya renderizado
-          walkAndTranslate(host);
-          fixTemplateLabels(host);
-
-          // Observa las mutaciones que React vaya introduciendo
-          var mo = new MutationObserver(onMutations);
-          mo.observe(host, {
-            childList: true,
-            characterData: true,
-            attributes: true,
-            subtree: true
-          });
+          var host = document.getElementById("publish_controller") || document;
+          walk(host);
+          mo = new MutationObserver(onMutations);
+          mo.observe(host, {subtree:true, childList:true, attributes:true, attributeFilter: SAFE_ATTRS});
         }
 
-        if (document.readyState === "loading") {
-          document.addEventListener("DOMContentLoaded", setup);
-        } else {
-          setup();
-        }
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup);
+        else setup();
       })();
     </script>
-    <!-- ================= /CUSTOM OVERRIDES: TRADUCCIÓN + RENOMBRE ================== -->
+    <!-- ================= /CUSTOM OVERRIDES: TRADUCCIÓN + RENOMBRE (SEGURO) ================== -->
 
     <!-- /END -->
 
@@ -396,32 +368,86 @@
       })();
     </script>
 
-    <!-- Apaga loaders sobrantes si la vista previa ya está en el DOM -->
+    <!-- Apaga loaders/overlays cuando llega la vista previa (seguro, enganchando red y DOM) -->
     <script>
       (function(){
         var HOST = document.getElementById('publish_controller') || document;
-        function closeLeftoverLoaders(scope){
-          var root = scope || HOST;
-          var hasPreview = !!(root.querySelector && root.querySelector('.report'));
-          if(!hasPreview) return;
-          var leftovers = root.querySelectorAll('.impress-loading, .report-loading, .loading, [aria-busy="true"]');
-          leftovers.forEach(function(n){
+
+        // selectores ampliados (incluye overlays frecuentes)
+        var SPINNER_SEL = [
+          '.spinner-border','.spinner-grow','.fa-spinner','.fa-circle-notch','.fa-sync','.fa-cog','.fa-gear',
+          '.impress-loading','.report-loading','.loading','[aria-busy="true"]',
+          '.loading-overlay','.overlay','.modal-backdrop'
+        ].join(',');
+
+        function hideSpinners(){
+          var reportReady = !!HOST.querySelector('.report');
+          if (!reportReady) return;
+          var nodes = HOST.querySelectorAll(SPINNER_SEL);
+          for (var i=0;i<nodes.length;i++){
+            var n = nodes[i];
             n.setAttribute('aria-busy','false');
             n.style.display = 'none';
             n.classList.remove('impress-loading','report-loading','loading','text-danger','btn-danger');
-          });
+          }
         }
-        setTimeout(closeLeftoverLoaders, 0);
-        setTimeout(closeLeftoverLoaders, 300);
-        setTimeout(closeLeftoverLoaders, 1000);
+
+        // 1) Si la preview ya está, apaga
+        setTimeout(hideSpinners, 0);
+        setTimeout(hideSpinners, 300);
+        setTimeout(hideSpinners, 1000);
+
+        // 2) Apaga cuando detectemos que carga la preview por red (XHR/fetch)
+        function hookXHR(){
+          if (!window.XMLHttpRequest) return;
+          var _open = XMLHttpRequest.prototype.open;
+          var _send = XMLHttpRequest.prototype.send;
+          XMLHttpRequest.prototype.open = function(method, url){
+            this.__isPreview = /\/ajax_publish\/load_preview\b/.test(url || '');
+            return _open.apply(this, arguments);
+          };
+          XMLHttpRequest.prototype.send = function(){
+            if (this.__isPreview) {
+              this.addEventListener('load', function(){
+                if (this.status>=200 && this.status<300) {
+                  setTimeout(hideSpinners, 0);
+                  setTimeout(hideSpinners, 150);
+                }
+              });
+            }
+            return _send.apply(this, arguments);
+          };
+        }
+
+        function hookFetch(){
+          if (!window.fetch) return;
+          var _fetch = window.fetch;
+          window.fetch = function(){
+            var args = Array.prototype.slice.call(arguments);
+            var url = (args[0] && args[0].url) || args[0] || '';
+            var isPreview = /\/ajax_publish\/load_preview\b/.test(url);
+            return _fetch.apply(this, args).then(function(res){
+              if (isPreview && res && res.ok) {
+                setTimeout(hideSpinners, 0);
+                setTimeout(hideSpinners, 150);
+              }
+              return res;
+            });
+          };
+        }
+
+        hookXHR();
+        hookFetch();
+
+        // 3) Por si la .report entra por DOM sin enganchar red
         new MutationObserver(function(muts){
-          for(var i=0;i<muts.length;i++){
+          for (var i=0;i<muts.length;i++){
             var m = muts[i];
-            if(m.type==='childList'){
-              for(var j=0;j<m.addedNodes.length;j++){
-                var node = m.addedNodes[j];
-                if(node.nodeType===1 && (node.matches?.('.report') || node.querySelector?.('.report'))){
-                  closeLeftoverLoaders(HOST);
+            if (m.type==='childList') {
+              for (var j=0;j<m.addedNodes.length;j++){
+                var n = m.addedNodes[j];
+                if (n.nodeType===1 && (n.matches?.('.report') || n.querySelector?.('.report'))) {
+                  hideSpinners();
                   return;
                 }
               }
