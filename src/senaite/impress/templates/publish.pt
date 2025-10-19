@@ -43,7 +43,9 @@
       #publish_controller .impress-spinner,
       #publish_controller .impress-loading,
       #publish_controller .report-loading,
-      #publish_controller .loading {
+      #publish_controller .loading,
+      #publish_controller [role="status"],
+      #publish_controller [aria-busy="true"] {
         color: var(--impress-blue) !important;
         border-color: var(--impress-blue) !important;
       }
@@ -84,7 +86,7 @@
         // Colocamos primero el caso específico "Loading/Cargando Report(s)"
         var DICTIONARY = [
           // ESPECÍFICO solicitado
-          {en: /(loading\s*reports?)/i,      es: "Cargando informe de laboratorio..."},
+          {en: /(loading\s*reports?)/i,       es: "Cargando informe de laboratorio..."},
           {en: /(cargando\s*report(?:es)?)/i, es: "Cargando informe de laboratorio..."},
 
           // Preview/render
@@ -249,69 +251,110 @@
       body .container .card .fa-circle-notch,
       body .container .card .fa-sync,
       body .container .card .fa-cog,
-      body .container .card .fa-gear {
+      body .container .card .fa-gear,
+      body .container .card [role="status"],
+      body .container .card [aria-busy="true"] {
         color: var(--impress-blue) !important;
         border-color: var(--impress-blue) !important;
         border-top-color: var(--impress-blue) !important;
         border-right-color: var(--impress-blue) !important;
         border-bottom-color: var(--impress-blue) !important;
         border-left-color: var(--impress-blue) !important;
+        fill: var(--impress-blue) !important;
+        stroke: var(--impress-blue) !important;
       }
-      body .container .card .text-danger {
+      body .container .card .text-danger,
+      body .container .card [class*="text-danger"] {
         color: var(--impress-blue) !important;
+      }
+      body .container .card svg,
+      body .container .card svg * {
+        fill: var(--impress-blue) !important;
+        stroke: var(--impress-blue) !important;
       }
     </style>
 
-    <!-- Refuerzo dinámico: si React reinyecta 'text-danger', lo neutralizamos -->
+    <!-- Refuerzo dinámico: si React reinyecta 'text-danger' o spinners nuevos, los azuleamos -->
     <script>
       (function(){
         var BLUE = '#0d6efd';
-        function blueify(node){
-          if(!node || node.nodeType!==1) return;
-          if(
-            node.classList.contains('spinner-border') ||
-            node.classList.contains('spinner-grow') ||
-            node.classList.contains('fa-spinner') ||
-            node.classList.contains('fa-circle-notch') ||
-            node.classList.contains('fa-sync') ||
-            node.classList.contains('fa-cog') ||
-            node.classList.contains('fa-gear')
-          ){
-            node.classList.remove('text-danger','btn-danger');
-            node.classList.add('text-primary');
-            node.style.setProperty('color', BLUE, 'important');
-            node.style.setProperty('border-color', BLUE, 'important');
-            node.style.setProperty('border-top-color', BLUE, 'important');
-            node.style.setProperty('border-right-color', BLUE, 'important');
-            node.style.setProperty('border-bottom-color', BLUE, 'important');
-            node.style.setProperty('border-left-color', BLUE, 'important');
+        var SELECTOR =
+          '.spinner-border, .spinner-grow, .fa-spinner, .fa-circle-notch, .fa-sync, .fa-cog, .fa-gear, [role="status"], [aria-busy="true"]';
+
+        function blueify(el){
+          if(!el || el.nodeType!==1) return;
+
+          // Quita clases que fuerzan rojo
+          if (el.classList) {
+            el.classList.remove('text-danger','btn-danger');
+            el.classList.add('text-primary');
+          }
+
+          // Estilos inline (ganan por prioridad)
+          el.style.setProperty('color', BLUE, 'important');
+          el.style.setProperty('border-color', BLUE, 'important');
+          el.style.setProperty('border-top-color', BLUE, 'important');
+          el.style.setProperty('border-right-color', BLUE, 'important');
+          el.style.setProperty('border-bottom-color', BLUE, 'important');
+          el.style.setProperty('border-left-color', BLUE, 'important');
+
+          // SVG internos
+          var svgs = el.querySelectorAll && el.querySelectorAll('svg, svg *');
+          if (svgs && svgs.length) {
+            for (var i = 0; i < svgs.length; i++) {
+              svgs[i].style.setProperty('fill', BLUE, 'important');
+              svgs[i].style.setProperty('stroke', BLUE, 'important');
+            }
           }
         }
+
         function scan(root){
           if(!root) return;
+          if(root.matches && root.matches(SELECTOR)) blueify(root);
           if(root.querySelectorAll){
-            var q = root.querySelectorAll(
-              '.spinner-border, .spinner-grow, .fa-spinner, .fa-circle-notch, .fa-sync, .fa-cog, .fa-gear'
-            );
+            var q = root.querySelectorAll(SELECTOR + ', .text-danger, [class*="text-danger"]');
             for(var i=0;i<q.length;i++) blueify(q[i]);
           }
-          blueify(root);
         }
+
+        // Mantener nuestro <style> final como el último del <head> (por si entran bundles tarde)
+        var FINAL_STYLE_ID = 'infolabsa-spinner-override-final';
+        function pinStyleAsLast(){
+          var s = document.getElementById(FINAL_STYLE_ID);
+          if(!s) return;
+          var head = document.head || document.getElementsByTagName('head')[0];
+          if (s.parentNode !== head || head.lastChild !== s) head.appendChild(s);
+        }
+
         function init(){
+          pinStyleAsLast();
+          var headMO = new MutationObserver(pinStyleAsLast);
+          headMO.observe(document.head || document.documentElement, {childList:true, subtree:true});
+
           var host = document.getElementById('publish_controller') || document;
           scan(host);
+
+          // Observa mutaciones en el controlador React
           var mo = new MutationObserver(function(muts){
             for(var i=0;i<muts.length;i++){
               var m = muts[i];
               if(m.type==='childList'){
                 for(var j=0;j<m.addedNodes.length;j++) scan(m.addedNodes[j]);
               } else if(m.type==='attributes'){
-                blueify(m.target);
+                if (m.attributeName === 'class' || m.attributeName === 'style' || m.attributeName === 'aria-busy' || m.attributeName === 'role') {
+                  blueify(m.target);
+                }
               }
             }
           });
-          mo.observe(host, {subtree:true, childList:true, attributes:true, attributeFilter:['class']});
+          mo.observe(host, {subtree:true, childList:true, attributes:true, attributeFilter:['class','style','aria-busy','role']});
+
+          // Reintentos cortos por si algún bundle parchea en siguientes ticks
+          setTimeout(function(){ scan(host); pinStyleAsLast(); }, 0);
+          setTimeout(function(){ scan(host); pinStyleAsLast(); }, 50);
+          setTimeout(function(){ scan(host); pinStyleAsLast(); }, 250);
         }
+
         if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init);
         else init();
       })();
