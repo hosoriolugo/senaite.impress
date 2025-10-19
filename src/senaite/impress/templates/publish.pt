@@ -12,6 +12,31 @@
     <!-- SENANITE IMPRESS Custom HTML head (after impress core resources)  -->
     <div tal:replace="structure provider:senaite.impress.publishcustomhead" />
 
+    <!-- ===== Spinner color (solo CSS, seguro) ===== -->
+    <style>
+      :root { --impress-blue: #0d6efd; } /* puedes ajustar este tono */
+      /* Alcance limitado al controlador React para no afectar otras vistas */
+      #publish_controller .spinner-border,
+      #publish_controller .spinner-grow,
+      #publish_controller .fa-spinner,
+      #publish_controller .fa-circle-notch,
+      #publish_controller .fa-sync,
+      #publish_controller .fa-cog,
+      #publish_controller .fa-gear,
+      #publish_controller [role="status"],
+      #publish_controller [aria-busy="true"] {
+        color: var(--impress-blue);
+      }
+      /* (Opcional) si tu theme usa SVG para loaders */
+      #publish_controller svg,
+      #publish_controller svg * {
+        stroke: var(--impress-blue);
+        fill: var(--impress-blue);
+      }
+      /* Nota: No tocamos border-color; Bootstrap ya usa currentColor en spinner-border */
+    </style>
+    <!-- ============================================ -->
+
     <!-- =================== CUSTOM OVERRIDES: TRADUCCIÓN + RENOMBRE (SEGURO) =================== -->
     <script type="text/javascript">
       (function () {
@@ -312,4 +337,3 @@
     <!-- ====== /APAGADO DE LOADERS ====== -->
   </body>
 </html>
-
