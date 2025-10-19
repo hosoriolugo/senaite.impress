@@ -1,25 +1,16 @@
-#
-# Translators:
-# Pau Soliva <psoliva@naralabs.com>, 2019
-# Leonardo J. Caballero G. <leonardocaballero@gmail.com>, 2020
-# Jordi Puiggené <jpuiggene@naralabs.com>, 2024
-#
 msgid ""
 msgstr ""
-"Project-Id-Version: PACKAGE VERSION\n"
+"Project-Id-Version: senaite.impress\n"
 "POT-Creation-Date: 2024-01-03 09:08+0000\n"
-"PO-Revision-Date: 2018-06-06 17:12+0000\n"
+"PO-Revision-Date: 2025-10-19 00:00+0000\n"
 "Last-Translator: Jordi Puiggené <jpuiggene@naralabs.com>, 2024\n"
-"Language-Team: Spanish (https://app.transifex.com/senaite/teams/87187/es/)\n"
+"Language-Team: Spanish <https://app.transifex.com/senaite/teams/87187/es/>\n"
+"Language: es\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=n == 1 ? 0 : n != 0 && n % 1000000 == 0 ? 1 : 2;\n"
-"Language-Code: en\n"
-"Language-Name: English\n"
-"Preferred-Encodings: utf-8 latin1\n"
-"Domain: DOMAIN\n"
-"Language: es\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"Domain: senaite.impress\n"
 
 #: senaite/impress/controlpanel.py:51
 msgid "Active templates"
@@ -161,7 +152,7 @@ msgstr "Informes generados para: {}, "
 
 #: senaite/impress/configure.zcml:175
 msgid "HTML to PDF report engine for SENAITE"
-msgstr "Motor de informes HTML a PDF para INFOLASA"
+msgstr "Motor de informes HTML a PDF para INFOLABSA"
 
 #: senaite/impress/browser/publish/content.py:60
 msgid "ID"
@@ -260,11 +251,11 @@ msgstr "Muestra el HTML en crudo en la vista de previsualización"
 #: senaite/impress/configure.zcml:175
 #: senaite/impress/templates/publish.pt:9
 msgid "SENAITE IMPRESS"
-msgstr "INFOLABSA IMPRESS"
+msgstr "INFOLABSA PDF"
 
 #: senaite/impress/controlpanel.py:154
 msgid "SENAITE IMPRESS Settings"
-msgstr "Configuración de INFOLABSA IMPRESS"
+msgstr "Configuración de INFOLABSA PDF"
 
 #: senaite/impress/analysisrequest/templates/summary.pt:29
 msgid "Sample ID"
@@ -342,3 +333,47 @@ msgstr "Estado"
 #: senaite/impress/browser/publish/content.py:100
 msgid "Workflow State ID"
 msgstr "Identificador de estado"
+
+# ——— Sitio / Apariencia (DX Registry: senaitesetup.py usa senaite.impress) ———
+#: src/senaite/core/content/senaitesetup.py
+msgid "Site Logo"
+msgstr "Logo del sitio"
+
+#: src/senaite/core/content/senaitesetup.py
+msgid "This shows a custom logo on your SENAITE site."
+msgstr "Muestra un logo personalizado en su sitio INFOLABSA."
+
+#: src/senaite/core/content/senaitesetup.py
+msgid "Site Logo CSS"
+msgstr "CSS del logo del sitio"
+
+#: src/senaite/core/content/senaitesetup.py
+msgid "Add custom CSS rules for the Logo, e.g. height:15px; width:150px;"
+msgstr "Agregue reglas CSS personalizadas para el logo (p. ej., height:15px; width:150px;)."
+
+#: src/senaite/core/content/senaitesetup.py
+msgid "Immediate results entry"
+msgstr "Captura inmediata de resultados"
+
+#: src/senaite/core/content/senaitesetup.py
+msgid "description_senaitesetup_immediateresultsentry"
+msgstr "Permite introducir resultados inmediatamente después de crear la muestra; por ejemplo, registrar resultados de campo al instante o resultados de laboratorio cuando la recepción automática de muestras está activada."
+
+#: src/senaite/core/content/senaitesetup.py
+msgid "title_senaitesetup_publication_email_text"
+msgstr "Texto del correo de publicación"
+
+#: src/senaite/core/content/senaitesetup.py
+msgid "description_senaitesetup_publication_email_text"
+msgstr "Defina el cuerpo del correo que se usará por defecto al enviar reportes de resultados a los destinatarios seleccionados. Puede usar palabras reservadas: $client_name, $recipients, $lab_name, $lab_address."
+
+#: src/senaite/core/content/senaitesetup.py
+msgid "title_senaitesetup_always_cc_responsibles_in_report_emails"
+msgstr "Enviar siempre correo de publicación a los responsables"
+
+#: src/senaite/core/content/senaitesetup.py
+msgid "description_senaitesetup_always_cc_responsibles_in_report_emails"
+msgstr "Cuando se selecciona, las personas responsables de todos los departamentos del laboratorio involucrados recibirán correos de publicación."
+
+msgid "Default"
+msgstr "Por defecto"
