@@ -38,6 +38,25 @@ from zope.component import getMultiAdapter
 from zope.interface import implements
 from zope.publisher.interfaces import IPublishTraverse
 
+# ---------------------------------------------------------------------------
+# Helper: nombre de plantilla "bonito" para mostrar/guardar (sin cambiar token)
+try:
+    basestring
+except NameError:  # compat py3 si aplica
+    basestring = str
+
+def _display_template_name(name):
+    """Devuelve un nombre visible para la plantilla sin cambiar el token técnico.
+    Si el token empieza con 'senaite.impress:', lo muestra como 'infolabsa.pdf:...'
+    """
+    try:
+        if isinstance(name, basestring) and name.startswith(u"senaite.impress:"):
+            return u"infolabsa.pdf:" + name.split(u":", 1)[1]
+        return name
+    except Exception:
+        return name
+# ---------------------------------------------------------------------------
+
 
 class AjaxPublishView(PublishView):
     """Publish View with Ajax exposed methods
@@ -174,10 +193,15 @@ class AjaxPublishView(PublishView):
                 continue
             custom_actions.append(adapter.get_action_data())
 
+        default_template = self.get_default_template()
+
         config = {
             "format": self.get_default_paperformat(),
             "orientation": self.get_default_orientation(),
-            "template": self.get_default_template(),
+            "template": default_template,
+            # ---- NUEVO: nombre visible para la UI (no rompe estructura)
+            "template_display": _display_template_name(default_template),
+            # -------------------------------------------------------------
             "reload_after_reorder": self.get_reload_after_reorder(),
             "allow_save": self.get_allow_publish_save(),
             "allow_email": self.get_allow_publish_email(),
@@ -267,13 +291,16 @@ class AjaxPublishView(PublishView):
             # convert the bs4.Tag back to pure HTML
             html = publisher.to_html(html)
             # wrap the report
+            # ---- NUEVO: pasamos el nombre "bonito" al ReportWrapper ----
+            display_template = _display_template_name(template)
             report = getMultiAdapter((html,
                                       map(self.to_model, uids),
-                                      template,
+                                      display_template,   # << aquí el display
                                       paperformat,
                                       orientation,
                                       None,
                                       publisher), interface=IReportWrapper)
+            # ----------------------------------------------------------------
 
             # BBB: inject contained UIDs into metadata
             metadata = report.get_metadata(
