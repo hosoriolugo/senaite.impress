@@ -13,8 +13,9 @@
     <div tal:replace="structure provider:senaite.impress.publishcustomhead" />
 
     <!-- ===== Spinner color (solo CSS, seguro) ===== -->
-    <style>
+    <style id="infolabsa-spinner-color">
       :root { --impress-blue: #0d6efd; } /* puedes ajustar este tono */
+
       /* Alcance limitado al controlador React para no afectar otras vistas */
       #publish_controller .spinner-border,
       #publish_controller .spinner-grow,
@@ -25,15 +26,28 @@
       #publish_controller .fa-gear,
       #publish_controller [role="status"],
       #publish_controller [aria-busy="true"] {
-        color: var(--impress-blue);
+        color: var(--impress-blue) !important;
       }
-      /* (Opcional) si tu theme usa SVG para loaders */
+
+      /* Muchos themes fuerzan rojo via .text-danger */
+      #publish_controller .text-danger,
+      #publish_controller [class*="text-danger"] {
+        color: var(--impress-blue) !important;
+      }
+
+      /* Si tu loader usa SVG (FA en modo SVG) */
       #publish_controller svg,
       #publish_controller svg * {
-        stroke: var(--impress-blue);
-        fill: var(--impress-blue);
+        stroke: var(--impress-blue) !important;
+        fill: var(--impress-blue) !important;
       }
-      /* Nota: No tocamos border-color; Bootstrap ya usa currentColor en spinner-border */
+
+      /* Bootstrap spinner-border usa currentColor; reforzamos bordes */
+      #publish_controller .spinner-border {
+        border-color: var(--impress-blue) !important;
+        /* si tu theme abre un hueco con right-color, puedes mantener transparente:
+           border-right-color: transparent !important; */
+      }
     </style>
     <!-- ============================================ -->
 
