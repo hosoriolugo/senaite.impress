@@ -83,27 +83,55 @@
         }
 
         // --- Diccionario de traducciones (usa "..." ASCII) ---
-        // Colocamos primero el caso específico "Loading/Cargando Report(s)"
+        // Primero casos específicos visibles para el usuario
         var DICTIONARY = [
-          // ESPECÍFICO solicitado
-          {en: /(loading\s*reports?)/i,       es: "Cargando informe de laboratorio..."},
-          {en: /(cargando\s*report(?:es)?)/i, es: "Cargando informe de laboratorio..."},
+          // ESPECÍFICO solicitado (loading reports)
+          {en: /(loading\s*reports?)/i,        es: "Cargando informe de laboratorio..."},
+          {en: /(cargando\s*report(?:es)?)/i,  es: "Cargando informe de laboratorio..."},
 
           // Preview/render
-          {en: /rendering preview/i,  es: "Generando vista previa..."},
-          {en: /loading preview/i,    es: "Cargando vista previa..."},
-          {en: /generating preview/i, es: "Generando vista previa..."},
-          // PDF
-          {en: /generating pdf/i,     es: "Generando PDF..."},
-          {en: /creating pdf/i,       es: "Creando PDF..."},
-          {en: /building pdf/i,       es: "Construyendo PDF..."},
-          // Save / Email
-          {en: /saving reports/i,     es: "Guardando reportes..."},
-          {en: /sending emails?/i,    es: "Enviando correos..."},
+          {en: /rendering preview/i,           es: "Generando vista previa..."},
+          {en: /loading preview/i,             es: "Cargando vista previa..."},
+          {en: /generating preview/i,          es: "Generando vista previa..."},
+
+          // PDF / Report building
+          {en: /generating pdf/i,              es: "Generando PDF..."},
+          {en: /creating pdf/i,                es: "Creando PDF..."},
+          {en: /building pdf/i,                es: "Construyendo PDF..."},
+          {en: /creating report/i,             es: "Creando informe..."},
+          {en: /building report/i,             es: "Construyendo informe..."},
+          {en: /preparing report/i,            es: "Preparando informe..."},
+
+          // Save / Email / Publish
+          {en: /saving reports?/i,             es: "Guardando reportes..."},
+          {en: /save reports?/i,               es: "Guardar reportes"},
+          {en: /save/i,                        es: "Guardar"},
+          {en: /send(ing)? emails?/i,          es: "Enviando correos..."},
+          {en: /send by email/i,               es: "Enviar por correo"},
+          {en: /email reports?/i,              es: "Enviar por correo"},
+          {en: /email/i,                       es: "Correo"},
+          {en: /publish/i,                     es: "Publicar"},
+          {en: /republish/i,                   es: "Republicar"},
+          {en: /unpublish/i,                   es: "Despublicar"},
+
+          // Actions / Buttons comunes en la barra
+          {en: /download(?: pdf)?/i,           es: "Descargar PDF"},
+          {en: /download/i,                    es: "Descargar"},
+          {en: /print/i,                       es: "Imprimir"},
+          {en: /preview/i,                     es: "Vista previa"},
+          {en: /close/i,                       es: "Cerrar"},
+          {en: /cancel/i,                      es: "Cancelar"},
+          {en: /apply/i,                       es: "Aplicar"},
+          {en: /ok/i,                          es: "Aceptar"},
+          {en: /confirm/i,                     es: "Confirmar"},
+          {en: /retry|try again/i,             es: "Reintentar"},
+          {en: /refresh|reload/i,              es: "Recargar"},
+          {en: /open/i,                        es: "Abrir"},
+
           // General
-          {en: /please wait/i,        es: "Por favor, espera..."},
-          {en: /loading/i,            es: "Cargando..."},
-          {en: /processing/i,         es: "Procesando..."}
+          {en: /please wait/i,                 es: "Por favor, espera..."},
+          {en: /loading/i,                     es: "Cargando..."},
+          {en: /processing/i,                  es: "Procesando..."}
         ];
 
         function translateString(str) {
@@ -123,34 +151,44 @@
           if (newText !== oldText) node.nodeValue = newText;
         }
 
+        // Aplica traducción a atributos típicos de botones/inputs
+        function translateElementAttributes(el) {
+          if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
+          ["title","aria-label","aria-title","data-original-title","placeholder","value"].forEach(function(attr){
+            if (el.hasAttribute && el.hasAttribute(attr)) {
+              var val = el.getAttribute(attr);
+              var newVal = translateString(val);
+              if (newVal !== val) el.setAttribute(attr, newVal);
+            }
+          });
+          // Si es <button> con texto directo
+          if (/^(BUTTON|A|SPAN|DIV)$/i.test(el.tagName) && el.childNodes && el.childNodes.length) {
+            // solo traduce nodos de texto directos (no toca iconos)
+            for (var i=0;i<el.childNodes.length;i++){
+              var n = el.childNodes[i];
+              if (n.nodeType === Node.TEXT_NODE) translateTextNode(n);
+            }
+          }
+        }
+
         function walkAndTranslate(root) {
           if (!root) return;
           if (root.nodeType === Node.TEXT_NODE) {
             translateTextNode(root);
             return;
           }
-          // Traduce title/aria-label en elementos
           if (root.nodeType === Node.ELEMENT_NODE) {
-            ["title","aria-label"].forEach(function(attr){
-              if (root.hasAttribute && root.hasAttribute(attr)) {
-                var val = root.getAttribute(attr);
-                var newVal = translateString(val);
-                if (newVal !== val) root.setAttribute(attr, newVal);
-              }
-            });
+            translateElementAttributes(root);
           }
           var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
-          var n;
-          while ((n = walker.nextNode())) translateTextNode(n);
+          var n; while ((n = walker.nextNode())) translateTextNode(n);
         }
 
         function fixTemplateLabels(host) {
-          // Opciones de select, badges, chips, labels, etc.
-          var nodes = host.querySelectorAll("option, .badge, .chip, .label, .tag, [class*='template']");
+          // Opciones de select, badges, chips, labels, tags, botones
+          var nodes = host.querySelectorAll("option, .badge, .chip, .label, .tag, [class*='template'], button, a, [role='button'], input, [title], [aria-label]");
           for (var i = 0; i < nodes.length; i++) {
-            var t = nodes[i].textContent;
-            var nt = translateString(t);
-            if (nt !== t) nodes[i].textContent = nt;
+            walkAndTranslate(nodes[i]);
           }
         }
 
@@ -166,11 +204,9 @@
             } else if (m.type === "characterData") {
               translateTextNode(m.target);
             } else if (m.type === "attributes") {
-              if (m.attributeName === "title" || m.attributeName === "aria-label") {
+              if (m.attributeName === "title" || m.attributeName === "aria-label" || m.attributeName === "placeholder" || m.attributeName === "value") {
                 var el = m.target;
-                var val = el.getAttribute(m.attributeName);
-                var newVal = translateString(val);
-                if (newVal !== val) el.setAttribute(m.attributeName, newVal);
+                translateElementAttributes(el);
               }
             }
           }
@@ -357,6 +393,41 @@
 
         if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init);
         else init();
+      })();
+    </script>
+
+    <!-- Apaga loaders sobrantes si la vista previa ya está en el DOM -->
+    <script>
+      (function(){
+        var HOST = document.getElementById('publish_controller') || document;
+        function closeLeftoverLoaders(scope){
+          var root = scope || HOST;
+          var hasPreview = !!(root.querySelector && root.querySelector('.report'));
+          if(!hasPreview) return;
+          var leftovers = root.querySelectorAll('.impress-loading, .report-loading, .loading, [aria-busy="true"]');
+          leftovers.forEach(function(n){
+            n.setAttribute('aria-busy','false');
+            n.style.display = 'none';
+            n.classList.remove('impress-loading','report-loading','loading','text-danger','btn-danger');
+          });
+        }
+        setTimeout(closeLeftoverLoaders, 0);
+        setTimeout(closeLeftoverLoaders, 300);
+        setTimeout(closeLeftoverLoaders, 1000);
+        new MutationObserver(function(muts){
+          for(var i=0;i<muts.length;i++){
+            var m = muts[i];
+            if(m.type==='childList'){
+              for(var j=0;j<m.addedNodes.length;j++){
+                var node = m.addedNodes[j];
+                if(node.nodeType===1 && (node.matches?.('.report') || node.querySelector?.('.report'))){
+                  closeLeftoverLoaders(HOST);
+                  return;
+                }
+              }
+            }
+          }
+        }).observe(HOST, {subtree:true, childList:true});
       })();
     </script>
     <!-- ====== /OVERRIDE FINAL ====== -->
