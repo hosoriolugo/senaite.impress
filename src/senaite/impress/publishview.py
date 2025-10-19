@@ -81,8 +81,7 @@ CSS = Template("""/** Paper Format CSS **/
 }
 """)
 
-# ---------------------------------------------------------------------------
-# AYUDA: nombre de plantilla "bonito" para mostrar en UI/PDF (no cambia token)
+# -------- Display helper: nombre “bonito” de plantilla (no cambia token) ----
 try:
     basestring
 except NameError:  # py3 compat si aplica
@@ -190,10 +189,13 @@ class PublishView(BrowserView):
 
         # wrap the reports for further processing
         reports = []
+        # **AQUÍ EL CAMBIO CLAVE**:
+        # pasar el nombre "bonito" como 'template' al ReportWrapper (metadatos/UI)
+        display_template = _display_template_name(template)
         for html, collection in html_collections:
             report = getMultiAdapter((html,
                                       collection,
-                                      template,
+                                      display_template,   # <— en vez del token técnico
                                       paperformat,
                                       orientation,
                                       report_options,
@@ -345,10 +347,10 @@ class PublishView(BrowserView):
         options = kw
         # pass through the calculated dimensions to the template
         options.update(self.calculate_dimensions(paperformat, orientation))
-        # ---- NUEVO: exponer nombre de plantilla "bonito" para UI/PDF
-        token = self.request.get("template")  # token técnico seleccionado
+        # exponer nombre de plantilla “bonito” para UI/PTs que lo usen
+        token = self.request.get("template")
         options["template_display"] = _display_template_name(token)
-        # ----
+
         template = self.read_template(template, view, **options)
         return view.render(template, **options)
 
@@ -361,10 +363,10 @@ class PublishView(BrowserView):
         options = kw
         # pass through the calculated dimensions to the template
         options.update(self.calculate_dimensions(paperformat, orientation))
-        # ---- NUEVO: exponer nombre de plantilla "bonito" para UI/PDF
+        # exponer nombre de plantilla “bonito” para UI/PTs que lo usen
         token = self.request.get("template")
         options["template_display"] = _display_template_name(token)
-        # ----
+
         template = self.read_template(template, view, **options)
         return view.render(template, **options)
 
