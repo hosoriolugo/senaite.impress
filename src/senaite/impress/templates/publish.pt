@@ -341,4 +341,142 @@
     </script>
     <!-- ====== /BLUE FIX “DURO” ====== -->
   </body>
+<!-- ==== OVERRIDE GLOBAL PARA SPINNERS (publish screen) ==== -->
+<style>
+  :root { --impress-blue: #0d6efd; }
+
+  /* 1) Alcance ampliado: body y #publish_controller */
+  body .spinner-border,
+  body .spinner-grow,
+  body .fa-spinner,
+  body .fa-circle-notch,
+  body .fa-sync,
+  body .fa-cog,
+  body .fa-gear,
+  body [role="status"],
+  body [aria-busy="true"] {
+    color: var(--impress-blue) !important;
+  }
+
+  /* 2) Si algún bundle mete .text-danger en el propio spinner */
+  body .text-danger.fa-spinner,
+  body .text-danger.spinner-border,
+  body .text-danger.spinner-grow {
+    color: var(--impress-blue) !important;
+  }
+
+  /* 3) SVG (FA en modo SVG o loaders SVG) */
+  body .spinner-border svg,
+  body .spinner-border svg *,
+  body .spinner-grow svg,
+  body .spinner-grow svg *,
+  body .fa-spinner svg,
+  body .fa-spinner svg * {
+    fill: var(--impress-blue) !important;
+    stroke: var(--impress-blue) !important;
+  }
+</style>
+
+<script>
+(function () {
+  var BLUE = getComputedStyle(document.documentElement)
+               .getPropertyValue('--impress-blue').trim() || '#0d6efd';
+
+  // Selectores amplios: cubre Bootstrap, FA y roles ARIA típicos
+  var SELECTOR = [
+    '.spinner-border','.spinner-grow',
+    '.fa-spinner','.fa-circle-notch','.fa-sync','.fa-cog','.fa-gear',
+    '[role="status"]','[aria-busy="true"]'
+  ].join(',');
+
+  // Colores “rojo Bootstrap” que queremos neutralizar
+  var REDS = new Set([
+    'rgb(220, 53, 69)',        // #dc3545 (Bootstrap danger)
+    'rgb(255, 0, 0)',          // rojo puro (por si acaso)
+    '#dc3545','#DC3545'        // inline hex
+  ]);
+
+  function isRed(el) {
+    // 1) por clase
+    if (/\btext-danger\b/.test(el.className)) return true;
+    // 2) por color computado
+    var cs = getComputedStyle(el);
+    if (REDS.has(cs.color)) return true;
+    // 3) por inline style común
+    var inline = el.getAttribute('style') || '';
+    if (/color\s*:\s*(#dc3545|red)/i.test(inline)) return true;
+    return false;
+  }
+
+  function paint(el) {
+    if (!el || el.nodeType !== 1) return;
+
+    // Forzar base (Bootstrap spinner usa currentColor)
+    el.style.setProperty('color', BLUE, 'important');
+
+    // Asegurar bordes en spinner-border (por si algún bundle los fija)
+    el.style.setProperty('border-color', BLUE, 'important');
+    el.style.setProperty('border-top-color', BLUE, 'important');
+    el.style.setProperty('border-right-color', BLUE, 'important');
+    el.style.setProperty('border-bottom-color', BLUE, 'important');
+    el.style.setProperty('border-left-color', BLUE, 'important');
+
+    // SVG internos (FA/SVG)
+    var svgs = el.querySelectorAll('svg, svg *');
+    for (var i=0; i<svgs.length; i++) {
+      svgs[i].style.setProperty('fill', BLUE, 'important');
+      svgs[i].style.setProperty('stroke', BLUE, 'important');
+    }
+  }
+
+  function scan(root) {
+    if (!root) return;
+    var list = (root.matches && root.matches(SELECTOR)) ? [root] : [];
+    var all = root.querySelectorAll ? root.querySelectorAll(SELECTOR) : [];
+    for (var i=0; i<all.length; i++) list.push(all[i]);
+
+    for (var j=0; j<list.length; j++) {
+      var el = list[j];
+      // Si ya está azul por nuestros estilos, igual reforzamos inline
+      // y si viene rojo (clase/inline), lo corregimos.
+      if (el) paint(el);
+
+      // Si el padre trae .text-danger y afecta por herencia, pintamos el padre también
+      var p = el && el.parentElement;
+      if (p && /\btext-danger\b/.test(p.className)) {
+        p.style.setProperty('color', BLUE, 'important');
+      }
+    }
+  }
+
+  // Primeros pases
+  requestAnimationFrame(function(){ scan(document.body); });
+  setTimeout(function(){ scan(document.body); }, 50);
+  setTimeout(function(){ scan(document.body); }, 300);
+
+  // Observa mutaciones (modales/overlays fuera del controlador)
+  var mo = new MutationObserver(function(muts){
+    for (var i=0; i<muts.length; i++) {
+      var m = muts[i];
+      if (m.type === 'childList') {
+        for (var j=0; j<m.addedNodes.length; j++) scan(m.addedNodes[j]);
+      } else if (m.type === 'attributes') {
+        if (m.attributeName === 'class' || m.attributeName === 'style' ||
+            m.attributeName === 'aria-busy' || m.attributeName === 'role') {
+          scan(m.target);
+        }
+      }
+    }
+  });
+  mo.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['class','style','aria-busy','role']
+  });
+
+})();
+</script>
+<!-- ==== /OVERRIDE GLOBAL ==== -->
+
 </html>
