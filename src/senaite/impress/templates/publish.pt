@@ -12,11 +12,9 @@
     <!-- SENANITE IMPRESS Custom HTML head (after impress core resources)  -->
     <div tal:replace="structure provider:senaite.impress.publishcustomhead" />
 
-    <!-- ===== Spinner color (solo CSS, seguro) ===== -->
+    <!-- ===== Spinner color (CSS “suave”; mantenemos) ===== -->
     <style>
-      :root { --impress-blue: #0d6efd; } /* puedes ajustar este tono */
-
-      /* Alcance limitado al controlador React para no afectar otras vistas */
+      :root { --impress-blue: #0d6efd; }
       #publish_controller .spinner-border,
       #publish_controller .spinner-grow,
       #publish_controller .fa-spinner,
@@ -28,27 +26,21 @@
       #publish_controller [aria-busy="true"] {
         color: var(--impress-blue);
       }
-
-      /* OVERRIDE CLAVE: gana a .text-danger{... !important} del bundle */
       #publish_controller .text-danger,
-      #publish_controller [class*="text-danger"] {
+      #publish_controller [class*="text-danger"] { /* puede que no sea suficiente contra inline */
         color: var(--impress-blue) !important;
       }
-
-      /* (Opcional) si tu theme usa SVG para loaders */
       #publish_controller svg,
       #publish_controller svg * {
         stroke: var(--impress-blue);
         fill: var(--impress-blue);
       }
-      /* Nota: No tocamos border-color; Bootstrap ya usa currentColor en spinner-border */
     </style>
     <!-- ============================================ -->
 
     <!-- =================== CUSTOM OVERRIDES: TRADUCCIÓN + RENOMBRE (SEGURO) =================== -->
     <script type="text/javascript">
       (function () {
-        // --- Renombrado de token técnico a nombre visible ---
         function prettyTemplateName(text) {
           if (!text || typeof text !== "string") return text;
           if (text.indexOf("senaite.impress:") === 0) {
@@ -56,16 +48,9 @@
           }
           return text;
         }
+        function normalizeEllipsis(str) { if (!str) return str; return str.replace(/&#8230;|&hellip;/gi, "..."); }
 
-        // --- Normaliza elipsis HTML a "..." ASCII ---
-        function normalizeEllipsis(str) {
-          if (!str) return str;
-          return str.replace(/&#8230;|&hellip;/gi, "...");
-        }
-
-        // --- Diccionario de traducciones (usa "..." ASCII) ---
         var DICTIONARY = [
-          // ===== Estados de carga / spinner (ampliados) =====
           {en: /\b(rendering|generating)\s+preview\b/i,           es: "Generando vista previa..."},
           {en: /\b(loading)\s+(the\s+)?preview\b/i,               es: "Cargando vista previa..."},
           {en: /\b(preview)\s+loading\b/i,                        es: "Cargando vista previa..."},
@@ -92,8 +77,6 @@
           {en: /\bpublish\b/i,                                    es: "Publicar"},
           {en: /\brepublish\b/i,                                  es: "Republicar"},
           {en: /\bunpublish\b/i,                                  es: "Despublicar"},
-
-          // ===== Acciones / Botones comunes =====
           {en: /\bdownload(?:\s*pdf)?\b/i,                        es: "Descargar PDF"},
           {en: /\bdownload\b/i,                                   es: "Descargar"},
           {en: /\bprint\b/i,                                      es: "Imprimir"},
@@ -106,15 +89,11 @@
           {en: /\b(retry|try\s*again)\b/i,                        es: "Reintentar"},
           {en: /\b(refresh|reload)\b/i,                           es: "Recargar"},
           {en: /\bopen\b/i,                                       es: "Abrir"},
-
-          // ===== Orientación / Layout =====
           {en: /\blandscape\b/i,                                  es: "Horizontal"},
           {en: /\bportrait\b/i,                                   es: "Vertical"},
           {en: /\borientation\b/i,                                es: "Orientación"},
           {en: /\bpage\s*size\b/i,                                es: "Tamaño de página"},
           {en: /\bpage\s*layout\b/i,                              es: "Diseño de página"},
-
-          // ===== Generales =====
           {en: /\bplease\s*wait\b/i,                              es: "Por favor, espera..."},
           {en: /\bprocessing\b/i,                                 es: "Procesando..."},
           {en: /\berror\b/i,                                      es: "Error"},
@@ -125,49 +104,35 @@
         function translateString(str) {
           if (!str) return str;
           var s = prettyTemplateName(normalizeEllipsis(str));
-          for (var i = 0; i < DICTIONARY.length; i++) {
-            s = s.replace(DICTIONARY[i].en, DICTIONARY[i].es);
-          }
+          for (var i = 0; i < DICTIONARY.length; i++) s = s.replace(DICTIONARY[i].en, DICTIONARY[i].es);
           return s;
         }
 
-        // ---- traducción no intrusiva (sin tocar value/placeholder) ----
         var MARK = "data-i18n-done";
-        var SAFE_ATTRS = ["title","aria-label","aria-title","data-original-title"]; // ⚠️ SIN value/placeholder
+        var SAFE_ATTRS = ["title","aria-label","aria-title","data-original-title"]; // sin value/placeholder
 
         function translateTextNode(n){
           if (!n || n.nodeType !== 3) return;
-          var oldT = n.nodeValue;
-          var newT = translateString(oldT);
+          var oldT = n.nodeValue, newT = translateString(oldT);
           if (newT !== oldT) n.nodeValue = newT;
         }
-
         function translateElement(el) {
           if (!el || el.nodeType !== 1) return;
-
-          // atributos seguros (incluye aria-* de spinners)
           for (var i=0;i<SAFE_ATTRS.length;i++){
             var a = SAFE_ATTRS[i];
             if (el.hasAttribute(a)) {
-              var v = el.getAttribute(a);
-              var nv = translateString(v);
+              var v = el.getAttribute(a), nv = translateString(v);
               if (nv !== v) el.setAttribute(a, nv);
             }
           }
-
-          // sólo nodos de texto directos (no inputs controlados por React)
           if (!/^(INPUT|TEXTAREA|SELECT)$/i.test(el.tagName)) {
             for (var j=0;j<el.childNodes.length;j++){
               var n = el.childNodes[j];
               if (n.nodeType === 3) translateTextNode(n);
             }
           }
-
-          // marcamos para evitar reprocesados costosos de elementos,
-          // pero los cambios de texto (characterData) se capturan aparte
           el.setAttribute(MARK, "1");
         }
-
         function walk(root){
           if (!root) return;
           if (root.nodeType === 1) translateElement(root);
@@ -176,10 +141,8 @@
           for (var i=0;i<q.length;i++) translateElement(q[i]);
         }
 
-        // Observer con “candado” para evitar bucles
         var mo, locked = false;
         function withLock(fn){ if (locked) return; locked = true; try { fn(); } finally { locked = false; } }
-
         function onMutations(muts){
           if (locked) return;
           withLock(function(){
@@ -199,20 +162,12 @@
             }
           });
         }
-
         function setup() {
           var host = document.getElementById("publish_controller") || document;
           walk(host);
           mo = new MutationObserver(onMutations);
-          mo.observe(host, {
-            subtree:true,
-            childList:true,
-            attributes:true,
-            characterData:true,
-            attributeFilter: SAFE_ATTRS
-          });
+          mo.observe(host, {subtree:true, childList:true, attributes:true, characterData:true, attributeFilter: SAFE_ATTRS});
         }
-
         if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup);
         else setup();
       })();
@@ -221,14 +176,10 @@
 
     <!-- /END -->
 
-    <!-- CUSTOM JS
-         N.B. we render the JS inline, because traversal seems to not work for plone:static resouces!
-    -->
+    <!-- CUSTOM JS -->
     <tal:custom_js repeat="script view/get_custom_javascripts">
-      <!-- <tal:t replace="script/filename"/> -->
       <script type="text/javascript" tal:content="script/filecontents"></script>
     </tal:custom_js>
-    <!-- /CUSTOM JS -->
   </head>
   <body>
     <div class="container">
@@ -251,21 +202,18 @@
         <!-- ReactJS controlled component -->
         <div class="row" id="publish_controller"></div>
 
-      </div> <!-- /card -->
-    </div> <!-- /container -->
+      </div>
+    </div>
 
-    <!-- ====== SOLO LÓGICA FUNCIONAL: apagar loaders/overlays cuando llega la vista previa ====== -->
+    <!-- ====== LÓGICA: apagar loaders cuando llega la vista previa (sin tocar colores) ====== -->
     <script>
       (function(){
         var HOST = document.getElementById('publish_controller') || document;
-
-        // selectores de loaders/overlays comunes (sin tocar colores)
         var SPINNER_SEL = [
           '.spinner-border','.spinner-grow','.fa-spinner','.fa-circle-notch','.fa-sync','.fa-cog','.fa-gear',
           '.impress-loading','.report-loading','.loading','[aria-busy="true"]',
           '.loading-overlay','.overlay','.modal-backdrop'
         ].join(',');
-
         function hideSpinners(){
           var reportReady = !!HOST.querySelector('.report');
           if (!reportReady) return;
@@ -277,17 +225,13 @@
             n.classList.remove('impress-loading','report-loading','loading','text-danger','btn-danger');
           }
         }
-
-        // 1) Si la preview ya está, apaga
         setTimeout(hideSpinners, 0);
         setTimeout(hideSpinners, 300);
         setTimeout(hideSpinners, 1000);
 
-        // 2) Apaga cuando detectemos que carga la preview por red (XHR/fetch)
         function hookXHR(){
           if (!window.XMLHttpRequest) return;
-          var _open = XMLHttpRequest.prototype.open;
-          var _send = XMLHttpRequest.prototype.send;
+          var _open = XMLHttpRequest.prototype.open, _send = XMLHttpRequest.prototype.send;
           XMLHttpRequest.prototype.open = function(method, url){
             this.__isPreview = /\/ajax_publish\/load_preview\b/.test(url || '');
             return _open.apply(this, arguments);
@@ -304,7 +248,6 @@
             return _send.apply(this, arguments);
           };
         }
-
         function hookFetch(){
           if (!window.fetch) return;
           var _fetch = window.fetch;
@@ -321,11 +264,8 @@
             });
           };
         }
+        hookXHR(); hookFetch();
 
-        hookXHR();
-        hookFetch();
-
-        // 3) Por si la .report entra por DOM sin enganchar red
         new MutationObserver(function(muts){
           for (var i=0;i<muts.length;i++){
             var m = muts[i];
@@ -343,5 +283,62 @@
       })();
     </script>
     <!-- ====== /APAGADO DE LOADERS ====== -->
+
+    <!-- ====== BLUE FIX “DURO” (seguro y no bloqueante) ====== -->
+    <script>
+      (function(){
+        // Si algún bundle mete inline rojo o !important, lo forzamos a azul
+        var BLUE = getComputedStyle(document.documentElement).getPropertyValue('--impress-blue').trim() || '#0d6efd';
+        var HOST = document.getElementById('publish_controller') || document;
+        var SELECTOR = [
+          '.spinner-border','.spinner-grow',
+          '.fa-spinner','.fa-circle-notch','.fa-sync','.fa-cog','.fa-gear',
+          '[role="status"]','[aria-busy="true"]'
+        ].join(',');
+
+        function paint(el){
+          if (!el || el.nodeType!==1) return;
+          // color/base (Bootstrap usa currentColor en spinner-border)
+          el.style.setProperty('color', BLUE, 'important');
+          el.style.setProperty('border-color', BLUE, 'important');
+          el.style.setProperty('border-top-color', BLUE, 'important');
+          el.style.setProperty('border-right-color', BLUE, 'important');
+          el.style.setProperty('border-bottom-color', BLUE, 'important');
+          el.style.setProperty('border-left-color', BLUE, 'important');
+          // SVG internos (FA/SVG loaders)
+          var svgs = el.querySelectorAll('svg, svg *');
+          for (var i=0;i<svgs.length;i++){
+            svgs[i].style.setProperty('fill', BLUE, 'important');
+            svgs[i].style.setProperty('stroke', BLUE, 'important');
+          }
+        }
+        function scan(root){
+          if (!root) return;
+          if (root.matches && root.matches(SELECTOR)) paint(root);
+          var list = root.querySelectorAll ? root.querySelectorAll(SELECTOR) : [];
+          for (var i=0;i<list.length;i++) paint(list[i]);
+        }
+
+        // Primeros pases (no bloqueantes)
+        requestAnimationFrame(function(){ scan(HOST); });
+        setTimeout(function(){ scan(HOST); }, 50);
+        setTimeout(function(){ scan(HOST); }, 250);
+
+        // Mantener el azul ante mutaciones (React)
+        new MutationObserver(function(muts){
+          for (var i=0;i<muts.length;i++){
+            var m = muts[i];
+            if (m.type === 'childList') {
+              for (var j=0;j<m.addedNodes.length;j++) scan(m.addedNodes[j]);
+            } else if (m.type === 'attributes') {
+              if (m.attributeName === 'class' || m.attributeName === 'style' || m.attributeName === 'aria-busy' || m.attributeName === 'role') {
+                paint(m.target);
+              }
+            }
+          }
+        }).observe(HOST, {subtree:true, childList:true, attributes:true, attributeFilter:['class','style','aria-busy','role']});
+      })();
+    </script>
+    <!-- ====== /BLUE FIX “DURO” ====== -->
   </body>
 </html>
