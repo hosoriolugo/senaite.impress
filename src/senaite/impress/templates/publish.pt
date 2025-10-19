@@ -11,6 +11,134 @@
     <div tal:replace="structure provider:senaite.impress.publishhead" />
     <!-- SENANITE IMPRESS Custom HTML head (after impress core resources)  -->
     <div tal:replace="structure provider:senaite.impress.publishcustomhead" />
+
+    <!-- ===================== CUSTOM OVERRIDES: SPINNER EN AZUL ===================== -->
+    <style type="text/css">
+      /* Azul “salud/laboratorio” (ajústalo si quieres) */
+      :root {
+        --impress-blue: #0d6efd; /* Bootstrap Primary */
+      }
+
+      /* Font Awesome spinner (fa-spin, fa-spinner) */
+      .fa-spinner, .fa-circle-notch, .fa-sync, .fa-cog, .fa-gear {
+        color: var(--impress-blue) !important;
+      }
+      .fa-spin { color: var(--impress-blue) !important; }
+
+      /* Bootstrap spinners */
+      .spinner-border, .spinner-grow {
+        color: var(--impress-blue) !important;
+        border-color: var(--impress-blue) !important;
+      }
+      .spinner-border {
+        border-top-color: var(--impress-blue) !important;
+        border-right-color: var(--impress-blue) !important;
+        border-bottom-color: var(--impress-blue) !important;
+        border-left-color: var(--impress-blue) !important;
+      }
+
+      /* A veces el bundle usa .text-danger (rojo) para el loader: lo suavizamos a azul */
+      .text-danger {
+        color: var(--impress-blue) !important;
+      }
+
+      /* Si el contenedor del spinner tiene clase específica, la reforzamos */
+      .impress-spinner, .impress-loading, .report-loading, .loading {
+        color: var(--impress-blue) !important;
+      }
+    </style>
+    <!-- =================== /CUSTOM OVERRIDES: SPINNER EN AZUL ====================== -->
+
+    <!-- =================== CUSTOM OVERRIDES: TRADUCCIÓN SPINNER =================== -->
+    <script type="text/javascript">
+      (function () {
+        // Diccionario de traducciones de mensajes habituales del publish controller
+        // Agrega/ajusta entradas si ves otros textos.
+        var DICTIONARY = [
+          // Preview/render
+          {en: /rendering preview/i, es: "Generando vista previa…"},
+          {en: /loading preview/i,  es: "Cargando vista previa…"},
+          {en: /generating preview/i, es: "Generando vista previa…"},
+          // PDF
+          {en: /generating pdf/i,   es: "Generando PDF…"},
+          {en: /creating pdf/i,     es: "Creando PDF…"},
+          {en: /building pdf/i,     es: "Construyendo PDF…"},
+          // Save / Email
+          {en: /saving reports/i,   es: "Guardando reportes…"},
+          {en: /sending emails?/i,  es: "Enviando correos…"},
+          // General
+          {en: /please wait/i,      es: "Por favor, espera…"},
+          {en: /loading/i,          es: "Cargando…"},
+          {en: /processing/i,       es: "Procesando…"}
+        ];
+
+        function translateTextNode(node) {
+          if (!node || node.nodeType !== Node.TEXT_NODE) return;
+          var text = node.nodeValue;
+          var replaced = text;
+          for (var i = 0; i < DICTIONARY.length; i++) {
+            replaced = replaced.replace(DICTIONARY[i].en, DICTIONARY[i].es);
+          }
+          if (replaced !== text) node.nodeValue = replaced;
+        }
+
+        function walkAndTranslate(root) {
+          if (!root) return;
+          if (root.nodeType === Node.TEXT_NODE) {
+            translateTextNode(root);
+            return;
+          }
+          var walker = document.createTreeWalker(
+            root,
+            NodeFilter.SHOW_TEXT,
+            null,
+            false
+          );
+          var n;
+          while ((n = walker.nextNode())) translateTextNode(n);
+        }
+
+        function setupObserver() {
+          var host = document.getElementById("publish_controller");
+          if (!host) {
+            // Reintenta cuando cargue el DOM
+            return void window.addEventListener("DOMContentLoaded", setupObserver);
+          }
+
+          // Traduce lo ya presente
+          walkAndTranslate(host);
+
+          // Observa nuevos nodos/actualizaciones (React va pintando dinámicamente)
+          var mo = new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+              var m = mutations[i];
+              if (m.type === "childList") {
+                for (var j = 0; j < m.addedNodes.length; j++) {
+                  walkAndTranslate(m.addedNodes[j]);
+                }
+              } else if (m.type === "characterData") {
+                translateTextNode(m.target);
+              }
+            }
+          });
+
+          mo.observe(host, {
+            childList: true,
+            characterData: true,
+            subtree: true
+          });
+        }
+
+        // Arranca lo antes posible
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", setupObserver);
+        } else {
+          setupObserver();
+        }
+      })();
+    </script>
+    <!-- ================= /CUSTOM OVERRIDES: TRADUCCIÓN SPINNER ==================== -->
+
     <!-- /END -->
 
     <!-- CUSTOM JS
