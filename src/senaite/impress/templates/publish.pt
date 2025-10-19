@@ -24,69 +24,69 @@
           return text;
         }
 
-        // --- Normaliza elipsis HTML a "..." ASCII para evitar &#8230; en la UI ---
+        // --- Normaliza elipsis HTML a "..." ASCII ---
         function normalizeEllipsis(str) {
           if (!str) return str;
           return str.replace(/&#8230;|&hellip;/gi, "...");
         }
 
         // --- Diccionario de traducciones (usa "..." ASCII) ---
-        // Orden: casos más específicos -> generales
         var DICTIONARY = [
           // ===== Estados de carga / spinner (ampliados) =====
-          {en: /\b(rendering|generating)\s+preview\b/i,         es: "Generando vista previa..."},
-          {en: /\b(loading)\s+preview\b/i,                      es: "Cargando vista previa..."},
-          {en: /\b(building|creating|preparing)\s+preview\b/i,  es: "Preparando vista previa..."},
-          {en: /\b(generating|creating|building)\s+pdf\b/i,     es: "Generando PDF..."},
-          {en: /\b(preparing|building|creating)\s+report\b/i,   es: "Preparando informe..."},
-          {en: /\b(loading)\s*reports?\b/i,                     es: "Cargando informe de laboratorio..."},
-          {en: /\b(fetching|loading)\s+(data|resources)\b/i,    es: "Cargando datos..."},
-          {en: /\b(processing|calculating|computing)\b/i,       es: "Procesando..."},
-          {en: /\b(initializing|starting|bootstrapping)\b/i,    es: "Inicializando..."},
-          {en: /\b(queue(?:d|ing)?)\b/i,                        es: "En cola..."},
-          {en: /\b(finalizing|finishing|wrapping up)\b/i,       es: "Finalizando..."},
-          {en: /\b(please\s*wait)\b/i,                          es: "Por favor, espera..."},
-          {en: /\bloading\b/i,                                  es: "Cargando..."},
-          {en: /\bworking\b/i,                                  es: "Trabajando..."},
-          {en: /\bupdating\b/i,                                 es: "Actualizando..."},
-          {en: /\bsaving\s+reports?\b/i,                        es: "Guardando reportes..."},
-          {en: /\bsave\s+reports?\b/i,                          es: "Guardar reportes"},
-          {en: /\bsave\b/i,                                     es: "Guardar"},
-          {en: /\bsending?\s+emails?\b/i,                       es: "Enviando correos..."},
-          {en: /\bsend\s+by\s+email\b/i,                        es: "Enviar por correo"},
-          {en: /\bemail\s+reports?\b/i,                         es: "Enviar por correo"},
-          {en: /\bemail\b/i,                                    es: "Correo"},
-          {en: /\bpublish\b/i,                                  es: "Publicar"},
-          {en: /\brepublish\b/i,                                es: "Republicar"},
-          {en: /\bunpublish\b/i,                                es: "Despublicar"},
+          {en: /\b(rendering|generating)\s+preview\b/i,           es: "Generando vista previa..."},
+          {en: /\b(loading)\s+(the\s+)?preview\b/i,               es: "Cargando vista previa..."},
+          {en: /\b(preview)\s+loading\b/i,                        es: "Cargando vista previa..."},
+          {en: /\b(building|creating|preparing)\s+preview\b/i,    es: "Preparando vista previa..."},
+          {en: /\b(generating|creating|building)\s+pdf\b/i,       es: "Generando PDF..."},
+          {en: /\b(preparing|building|creating)\s+report\b/i,     es: "Preparando informe..."},
+          {en: /\b(loading)\s*reports?\b/i,                       es: "Cargando informe de laboratorio..."},
+          {en: /\b(fetching|loading)\s+(data|resources)\b/i,      es: "Cargando datos..."},
+          {en: /\b(processing|calculating|computing)\b/i,         es: "Procesando..."},
+          {en: /\b(initializing|starting|bootstrapping)\b/i,      es: "Inicializando..."},
+          {en: /\b(queue(?:d|ing)?)\b/i,                          es: "En cola..."},
+          {en: /\b(finalizing|finishing|wrapping up)\b/i,         es: "Finalizando..."},
+          {en: /\b(please\s*wait)\b/i,                            es: "Por favor, espera..."},
+          {en: /\bloading\b/i,                                    es: "Cargando..."},
+          {en: /\bworking\b/i,                                    es: "Trabajando..."},
+          {en: /\bupdating\b/i,                                   es: "Actualizando..."},
+          {en: /\bsaving\s+reports?\b/i,                          es: "Guardando reportes..."},
+          {en: /\bsave\s+reports?\b/i,                            es: "Guardar reportes"},
+          {en: /\bsave\b/i,                                       es: "Guardar"},
+          {en: /\bsending?\s+emails?\b/i,                         es: "Enviando correos..."},
+          {en: /\bsend\s+by\s+email\b/i,                          es: "Enviar por correo"},
+          {en: /\bemail\s+reports?\b/i,                           es: "Enviar por correo"},
+          {en: /\bemail\b/i,                                      es: "Correo"},
+          {en: /\bpublish\b/i,                                    es: "Publicar"},
+          {en: /\brepublish\b/i,                                  es: "Republicar"},
+          {en: /\bunpublish\b/i,                                  es: "Despublicar"},
 
           // ===== Acciones / Botones comunes =====
-          {en: /\bdownload(?:\s*pdf)?\b/i,                      es: "Descargar PDF"},
-          {en: /\bdownload\b/i,                                 es: "Descargar"},
-          {en: /\bprint\b/i,                                    es: "Imprimir"},
-          {en: /\bpreview\b/i,                                  es: "Vista previa"},
-          {en: /\bclose\b/i,                                    es: "Cerrar"},
-          {en: /\bcancel\b/i,                                   es: "Cancelar"},
-          {en: /\bapply\b/i,                                    es: "Aplicar"},
-          {en: /\bok\b/i,                                       es: "Aceptar"},
-          {en: /\bconfirm\b/i,                                  es: "Confirmar"},
-          {en: /\b(retry|try\s*again)\b/i,                      es: "Reintentar"},
-          {en: /\b(refresh|reload)\b/i,                         es: "Recargar"},
-          {en: /\bopen\b/i,                                     es: "Abrir"},
+          {en: /\bdownload(?:\s*pdf)?\b/i,                        es: "Descargar PDF"},
+          {en: /\bdownload\b/i,                                   es: "Descargar"},
+          {en: /\bprint\b/i,                                      es: "Imprimir"},
+          {en: /\bpreview\b/i,                                    es: "Vista previa"},
+          {en: /\bclose\b/i,                                      es: "Cerrar"},
+          {en: /\bcancel\b/i,                                     es: "Cancelar"},
+          {en: /\bapply\b/i,                                      es: "Aplicar"},
+          {en: /\bok\b/i,                                         es: "Aceptar"},
+          {en: /\bconfirm\b/i,                                    es: "Confirmar"},
+          {en: /\b(retry|try\s*again)\b/i,                        es: "Reintentar"},
+          {en: /\b(refresh|reload)\b/i,                           es: "Recargar"},
+          {en: /\bopen\b/i,                                       es: "Abrir"},
 
           // ===== Orientación / Layout =====
-          {en: /\blandscape\b/i,                                es: "Horizontal"},
-          {en: /\bportrait\b/i,                                 es: "Vertical"},
-          {en: /\borientation\b/i,                              es: "Orientación"},
-          {en: /\bpage\s*size\b/i,                              es: "Tamaño de página"},
-          {en: /\bpage\s*layout\b/i,                            es: "Diseño de página"},
+          {en: /\blandscape\b/i,                                  es: "Horizontal"},
+          {en: /\bportrait\b/i,                                   es: "Vertical"},
+          {en: /\borientation\b/i,                                es: "Orientación"},
+          {en: /\bpage\s*size\b/i,                                es: "Tamaño de página"},
+          {en: /\bpage\s*layout\b/i,                              es: "Diseño de página"},
 
           // ===== Generales =====
-          {en: /\bplease\s*wait\b/i,                            es: "Por favor, espera..."},
-          {en: /\bprocessing\b/i,                               es: "Procesando..."},
-          {en: /\berror\b/i,                                    es: "Error"},
-          {en: /\bwarning\b/i,                                  es: "Advertencia"},
-          {en: /\bsuccess\b/i,                                  es: "Éxito"}
+          {en: /\bplease\s*wait\b/i,                              es: "Por favor, espera..."},
+          {en: /\bprocessing\b/i,                                 es: "Procesando..."},
+          {en: /\berror\b/i,                                      es: "Error"},
+          {en: /\bwarning\b/i,                                    es: "Advertencia"},
+          {en: /\bsuccess\b/i,                                    es: "Éxito"}
         ];
 
         function translateString(str) {
@@ -102,9 +102,15 @@
         var MARK = "data-i18n-done";
         var SAFE_ATTRS = ["title","aria-label","aria-title","data-original-title"]; // ⚠️ SIN value/placeholder
 
+        function translateTextNode(n){
+          if (!n || n.nodeType !== 3) return;
+          var oldT = n.nodeValue;
+          var newT = translateString(oldT);
+          if (newT !== oldT) n.nodeValue = newT;
+        }
+
         function translateElement(el) {
           if (!el || el.nodeType !== 1) return;
-          if (el.hasAttribute(MARK)) return;
 
           // atributos seguros (incluye aria-* de spinners)
           for (var i=0;i<SAFE_ATTRS.length;i++){
@@ -120,13 +126,12 @@
           if (!/^(INPUT|TEXTAREA|SELECT)$/i.test(el.tagName)) {
             for (var j=0;j<el.childNodes.length;j++){
               var n = el.childNodes[j];
-              if (n.nodeType === 3) {
-                var oldT = n.nodeValue;
-                var newT = translateString(oldT);
-                if (newT !== oldT) n.nodeValue = newT;
-              }
+              if (n.nodeType === 3) translateTextNode(n);
             }
           }
+
+          // marcamos para evitar reprocesados costosos de elementos,
+          // pero los cambios de texto (characterData) se capturan aparte
           el.setAttribute(MARK, "1");
         }
 
@@ -138,9 +143,10 @@
           for (var i=0;i<q.length;i++) translateElement(q[i]);
         }
 
-        // Observer con “candado” para evitar bucles de render
+        // Observer con “candado” para evitar bucles
         var mo, locked = false;
         function withLock(fn){ if (locked) return; locked = true; try { fn(); } finally { locked = false; } }
+
         function onMutations(muts){
           if (locked) return;
           withLock(function(){
@@ -150,9 +156,12 @@
                 for (var j=0;j<m.addedNodes.length;j++){
                   var n = m.addedNodes[j];
                   if (n.nodeType === 1) walk(n);
+                  else if (n.nodeType === 3) translateTextNode(n);
                 }
               } else if (m.type === "attributes") {
                 if (SAFE_ATTRS.indexOf(m.attributeName)!==-1) translateElement(m.target);
+              } else if (m.type === "characterData") {
+                translateTextNode(m.target);
               }
             }
           });
@@ -162,7 +171,13 @@
           var host = document.getElementById("publish_controller") || document;
           walk(host);
           mo = new MutationObserver(onMutations);
-          mo.observe(host, {subtree:true, childList:true, attributes:true, attributeFilter: SAFE_ATTRS});
+          mo.observe(host, {
+            subtree:true,
+            childList:true,
+            attributes:true,
+            characterData:true,
+            attributeFilter: SAFE_ATTRS
+          });
         }
 
         if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup);
@@ -297,3 +312,4 @@
     <!-- ====== /APAGADO DE LOADERS ====== -->
   </body>
 </html>
+
