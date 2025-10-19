@@ -31,54 +31,62 @@
         }
 
         // --- Diccionario de traducciones (usa "..." ASCII) ---
+        // Orden: casos más específicos -> generales
         var DICTIONARY = [
-          // ESPECÍFICO solicitado (loading reports)
-          {en: /(loading\s*reports?)/i,        es: "Cargando informe de laboratorio..."},
-          {en: /(cargando\s*report(?:es)?)/i,  es: "Cargando informe de laboratorio..."},
+          // ===== Estados de carga / spinner (ampliados) =====
+          {en: /\b(rendering|generating)\s+preview\b/i,         es: "Generando vista previa..."},
+          {en: /\b(loading)\s+preview\b/i,                      es: "Cargando vista previa..."},
+          {en: /\b(building|creating|preparing)\s+preview\b/i,  es: "Preparando vista previa..."},
+          {en: /\b(generating|creating|building)\s+pdf\b/i,     es: "Generando PDF..."},
+          {en: /\b(preparing|building|creating)\s+report\b/i,   es: "Preparando informe..."},
+          {en: /\b(loading)\s*reports?\b/i,                     es: "Cargando informe de laboratorio..."},
+          {en: /\b(fetching|loading)\s+(data|resources)\b/i,    es: "Cargando datos..."},
+          {en: /\b(processing|calculating|computing)\b/i,       es: "Procesando..."},
+          {en: /\b(initializing|starting|bootstrapping)\b/i,    es: "Inicializando..."},
+          {en: /\b(queue(?:d|ing)?)\b/i,                        es: "En cola..."},
+          {en: /\b(finalizing|finishing|wrapping up)\b/i,       es: "Finalizando..."},
+          {en: /\b(please\s*wait)\b/i,                          es: "Por favor, espera..."},
+          {en: /\bloading\b/i,                                  es: "Cargando..."},
+          {en: /\bworking\b/i,                                  es: "Trabajando..."},
+          {en: /\bupdating\b/i,                                 es: "Actualizando..."},
+          {en: /\bsaving\s+reports?\b/i,                        es: "Guardando reportes..."},
+          {en: /\bsave\s+reports?\b/i,                          es: "Guardar reportes"},
+          {en: /\bsave\b/i,                                     es: "Guardar"},
+          {en: /\bsending?\s+emails?\b/i,                       es: "Enviando correos..."},
+          {en: /\bsend\s+by\s+email\b/i,                        es: "Enviar por correo"},
+          {en: /\bemail\s+reports?\b/i,                         es: "Enviar por correo"},
+          {en: /\bemail\b/i,                                    es: "Correo"},
+          {en: /\bpublish\b/i,                                  es: "Publicar"},
+          {en: /\brepublish\b/i,                                es: "Republicar"},
+          {en: /\bunpublish\b/i,                                es: "Despublicar"},
 
-          // Preview/render
-          {en: /rendering preview/i,           es: "Generando vista previa..."},
-          {en: /loading preview/i,             es: "Cargando vista previa..."},
-          {en: /generating preview/i,          es: "Generando vista previa..."},
+          // ===== Acciones / Botones comunes =====
+          {en: /\bdownload(?:\s*pdf)?\b/i,                      es: "Descargar PDF"},
+          {en: /\bdownload\b/i,                                 es: "Descargar"},
+          {en: /\bprint\b/i,                                    es: "Imprimir"},
+          {en: /\bpreview\b/i,                                  es: "Vista previa"},
+          {en: /\bclose\b/i,                                    es: "Cerrar"},
+          {en: /\bcancel\b/i,                                   es: "Cancelar"},
+          {en: /\bapply\b/i,                                    es: "Aplicar"},
+          {en: /\bok\b/i,                                       es: "Aceptar"},
+          {en: /\bconfirm\b/i,                                  es: "Confirmar"},
+          {en: /\b(retry|try\s*again)\b/i,                      es: "Reintentar"},
+          {en: /\b(refresh|reload)\b/i,                         es: "Recargar"},
+          {en: /\bopen\b/i,                                     es: "Abrir"},
 
-          // PDF / Report building
-          {en: /generating pdf/i,              es: "Generando PDF..."},
-          {en: /creating pdf/i,                es: "Creando PDF..."},
-          {en: /building pdf/i,                es: "Construyendo PDF..."},
-          {en: /creating report/i,             es: "Creando informe..."},
-          {en: /building report/i,             es: "Construyendo informe..."},
-          {en: /preparing report/i,            es: "Preparando informe..."},
+          // ===== Orientación / Layout =====
+          {en: /\blandscape\b/i,                                es: "Horizontal"},
+          {en: /\bportrait\b/i,                                 es: "Vertical"},
+          {en: /\borientation\b/i,                              es: "Orientación"},
+          {en: /\bpage\s*size\b/i,                              es: "Tamaño de página"},
+          {en: /\bpage\s*layout\b/i,                            es: "Diseño de página"},
 
-          // Save / Email / Publish
-          {en: /saving reports?/i,             es: "Guardando reportes..."},
-          {en: /save reports?/i,               es: "Guardar reportes"},
-          {en: /\bsave\b/i,                    es: "Guardar"},
-          {en: /send(ing)? emails?/i,          es: "Enviando correos..."},
-          {en: /send by email/i,               es: "Enviar por correo"},
-          {en: /email reports?/i,              es: "Enviar por correo"},
-          {en: /\bemail\b/i,                   es: "Correo"},
-          {en: /publish/i,                     es: "Publicar"},
-          {en: /republish/i,                   es: "Republicar"},
-          {en: /unpublish/i,                   es: "Despublicar"},
-
-          // Acciones / Botones comunes
-          {en: /download(?: pdf)?/i,           es: "Descargar PDF"},
-          {en: /\bdownload\b/i,                es: "Descargar"},
-          {en: /print/i,                       es: "Imprimir"},
-          {en: /preview/i,                     es: "Vista previa"},
-          {en: /close/i,                       es: "Cerrar"},
-          {en: /cancel/i,                      es: "Cancelar"},
-          {en: /apply/i,                       es: "Aplicar"},
-          {en: /\bok\b/i,                      es: "Aceptar"},
-          {en: /confirm/i,                     es: "Confirmar"},
-          {en: /retry|try again/i,             es: "Reintentar"},
-          {en: /refresh|reload/i,              es: "Recargar"},
-          {en: /open/i,                        es: "Abrir"},
-
-          // General
-          {en: /please wait/i,                 es: "Por favor, espera..."},
-          {en: /loading/i,                     es: "Cargando..."},
-          {en: /processing/i,                  es: "Procesando..."}
+          // ===== Generales =====
+          {en: /\bplease\s*wait\b/i,                            es: "Por favor, espera..."},
+          {en: /\bprocessing\b/i,                               es: "Procesando..."},
+          {en: /\berror\b/i,                                    es: "Error"},
+          {en: /\bwarning\b/i,                                  es: "Advertencia"},
+          {en: /\bsuccess\b/i,                                  es: "Éxito"}
         ];
 
         function translateString(str) {
@@ -98,7 +106,7 @@
           if (!el || el.nodeType !== 1) return;
           if (el.hasAttribute(MARK)) return;
 
-          // atributos “seguros”
+          // atributos seguros (incluye aria-* de spinners)
           for (var i=0;i<SAFE_ATTRS.length;i++){
             var a = SAFE_ATTRS[i];
             if (el.hasAttribute(a)) {
@@ -108,7 +116,7 @@
             }
           }
 
-          // sólo nodos de texto directos (no inputs controlados)
+          // sólo nodos de texto directos (no inputs controlados por React)
           if (!/^(INPUT|TEXTAREA|SELECT)$/i.test(el.tagName)) {
             for (var j=0;j<el.childNodes.length;j++){
               var n = el.childNodes[j];
