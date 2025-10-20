@@ -81,6 +81,15 @@
         function normalizeEllipsis(str) { if (!str) return str; return str.replace(/&#8230;|&hellip;/gi, "..."); }
         function normalizeSpaces(str){ return (str||"").replace(/\s+/g," ").trim(); }
 
+        /* NUEVO: decodificador de entidades HTML (&aacute;, &#243;, etc.) */
+        var _ta;
+        function decodeEntities(str){
+          if (!str) return str;
+          _ta = _ta || document.createElement('textarea');
+          _ta.innerHTML = str;
+          return _ta.value;
+        }
+
         /* 1) Frases COMPLETAS primero (ancladas para evitar parciales) */
         var PHRASES = [
           { en: /^Share PDF via email$/i,
@@ -144,6 +153,7 @@
         function translateString(str) {
           if (!str) return str;
           var s = prettyTemplateName(normalizeEllipsis(str));
+          s = decodeEntities(s);          /* <-- decodifica &#243; &oacute; etc. */
           s = normalizeSpaces(s);
 
           // 1) Frases completas primero
@@ -163,7 +173,7 @@
 
         function translateTextNode(n){
           if (!n || n.nodeType !== 3) return;
-          var oldT = n.nodeValue, newT = translateString(oldT);
+          var oldT = n.nodeValue, newT = translateString(n.nodeValue);
           if (newT !== oldT) n.nodeValue = newT;
         }
         function translateElement(el) {
@@ -172,7 +182,7 @@
             var a = SAFE_ATTRS[i];
             if (el.hasAttribute(a)) {
               var v = el.getAttribute(a), nv = translateString(v);
-              if (nv !== v) el.setAttribute(a, nv);
+              if (nv !== v) el.setAttribute(a, nv);  /* atributo queda decodificado */
             }
           }
           if (!/^(INPUT|TEXTAREA|SELECT)$/i.test(el.tagName)) {
@@ -199,7 +209,7 @@
             if (t.classList && t.classList.contains('tooltip-inner')) {
               var old = t.textContent || '';
               var neu = translateString(old);
-              if (neu !== old) t.textContent = neu;
+              if (neu !== old) t.textContent = neu; /* textContent evita re-encode */
             } else {
               translateElement(t);
             }
