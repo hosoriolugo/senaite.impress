@@ -129,8 +129,6 @@
           {en: /\berror\b/i,                                      es: "Error"},
           {en: /\bwarning\b/i,                                    es: "Advertencia"},
           {en: /\bsuccess\b/i,                                    es: "Éxito"}
-          {en: /\bShare PDF via email\b/i,                          es: "Compartir PDF por correo electrónico"},
-          {en: /\bDownload the generated PDF to your computer\b/i,  es: "Descargar el PDF generado en tu equipo"},
         ];
 
         function translateString(str) {
