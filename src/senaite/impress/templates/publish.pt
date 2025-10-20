@@ -79,8 +79,18 @@
           return text;
         }
         function normalizeEllipsis(str) { if (!str) return str; return str.replace(/&#8230;|&hellip;/gi, "..."); }
+        function normalizeSpaces(str){ return (str||"").replace(/\s+/g," ").trim(); }
 
-        var DICTIONARY = [
+        /* 1) Frases COMPLETAS primero (ancladas para evitar parciales) */
+        var PHRASES = [
+          { en: /^Share PDF via email$/i,
+            es: "Compartir PDF por correo electrónico" },
+          { en: /^Download the generated PDF to your computer$/i,
+            es: "Descargar el PDF generado en tu equipo" }
+        ];
+
+        /* 2) Reglas GENÉRICAS después */
+        var GENERICS = [
           {en: /\b(rendering|generating)\s+preview\b/i,           es: "Generando vista previa..."},
           {en: /\b(loading)\s+(the\s+)?preview\b/i,               es: "Cargando vista previa..."},
           {en: /\b(preview)\s+loading\b/i,                        es: "Cargando vista previa..."},
@@ -128,20 +138,28 @@
           {en: /\bprocessing\b/i,                                 es: "Procesando..."},
           {en: /\berror\b/i,                                      es: "Error"},
           {en: /\bwarning\b/i,                                    es: "Advertencia"},
-          {en: /\bsuccess\b/i,                                    es: "Éxito"},
-          {en: /\bShare PDF via email\b/i,                         es: "Compartir PDF por correo electrónico"},
-          {en: /\bDownload the generated PDF to your computer\b/i, es: "Descargar el PDF generado en tu equipo"}
+          {en: /\bsuccess\b/i,                                    es: "Éxito"}
         ];
 
         function translateString(str) {
           if (!str) return str;
           var s = prettyTemplateName(normalizeEllipsis(str));
-          for (var i = 0; i < DICTIONARY.length; i++) s = s.replace(DICTIONARY[i].en, DICTIONARY[i].es);
+          s = normalizeSpaces(s);
+
+          // 1) Frases completas primero
+          for (var i=0; i<PHRASES.length; i++) {
+            s = s.replace(PHRASES[i].en, PHRASES[i].es);
+          }
+          // 2) Reglas genéricas después
+          for (var j=0; j<GENERICS.length; j++) {
+            s = s.replace(GENERICS[j].en, GENERICS[j].es);
+          }
           return s;
         }
 
         var MARK = "data-i18n-done";
-        var SAFE_ATTRS = ["title","aria-label","aria-title","data-original-title"]; // sin value/placeholder
+        // Añadimos data-bs-original-title (Bootstrap 5) además de data-original-title (Bootstrap 4)
+        var SAFE_ATTRS = ["title","aria-label","aria-title","data-original-title","data-bs-original-title"];
 
         function translateTextNode(n){
           if (!n || n.nodeType !== 3) return;
@@ -173,6 +191,21 @@
           for (var i=0;i<q.length;i++) translateElement(q[i]);
         }
 
+        /* Traducción de tooltips montados en <body> */
+        function translateTooltipsInBody() {
+          var tips = document.querySelectorAll('.tooltip, .tooltip-inner');
+          for (var i=0;i<tips.length;i++) {
+            var t = tips[i];
+            if (t.classList && t.classList.contains('tooltip-inner')) {
+              var old = t.textContent || '';
+              var neu = translateString(old);
+              if (neu !== old) t.textContent = neu;
+            } else {
+              translateElement(t);
+            }
+          }
+        }
+
         var mo, locked = false;
         function withLock(fn){ if (locked) return; locked = true; try { fn(); } finally { locked = false; } }
         function onMutations(muts){
@@ -199,6 +232,31 @@
           walk(host);
           mo = new MutationObserver(onMutations);
           mo.observe(host, {subtree:true, childList:true, attributes:true, characterData:true, attributeFilter: SAFE_ATTRS});
+
+          // Observador global para tooltips (se crean en body)
+          var moGlobal = new MutationObserver(function(muts){
+            var touched = false;
+            for (var i=0;i<muts.length;i++){
+              var m = muts[i];
+              if (m.type === 'childList') {
+                for (var j=0;j<m.addedNodes.length;j++){
+                  var n = m.addedNodes[j];
+                  if (n.nodeType === 1 && (n.classList?.contains('tooltip') || n.querySelector?.('.tooltip-inner'))) {
+                    touched = true;
+                  }
+                }
+              }
+            }
+            if (touched) translateTooltipsInBody();
+          });
+          moGlobal.observe(document.documentElement, {subtree:true, childList:true});
+
+          // Eventos Bootstrap (si existen)
+          document.addEventListener('shown.bs.tooltip', translateTooltipsInBody, true);
+          document.addEventListener('inserted.bs.tooltip', translateTooltipsInBody, true);
+
+          setTimeout(translateTooltipsInBody, 0);
+          setTimeout(translateTooltipsInBody, 200);
         }
         if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup);
         else setup();
