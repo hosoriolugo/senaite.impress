@@ -114,51 +114,30 @@
     .section-attachments h3:first-of-type { display: none !important; }
     .section-attachments img { max-width: 180mm; width: 100%; height: auto; }
 
-    /* ====== Centrado robusto (vista previa) ====== */
-    .section-trends { text-align: initial !important; direction: ltr !important; clear: both !important; width: 100%; }
-    .section-trends::before, .section-trends::after { content: ""; display: table; clear: both; }
-    .section-trends .chart-center { display: grid; place-items: center; width: 100%; margin: 20px 0; }
-    .section-trends #trends-chart-container{
-      display: block !important;
-      width: 100%;
+    /* ====== Centrado SIMPLE y robusto para la vista previa ====== */
+    /* 1) Fuerza centrado por inline-block, sin floats ni grid/flex adicionales */
+    .section-trends { text-align: center !important; direction: ltr !important; }
+    .section-trends #trends-chart-container {
+      display: inline-block !important;
+      float: none !important;
+      margin: 20px auto !important;
       max-width: 180mm;
-      margin: 0 auto !important;
-      float: none !important;
-      clear: both !important;
-      box-sizing: border-box;
-      position: relative;
-      left: 0 !important; right: 0 !important;
+      width: 100%;
+      text-align: left; /* para que etiquetas internas no hereden el centrado del contenedor */
     }
-    .section-trends .highcharts-container{
-      display: block !important;
-      margin: 0 auto !important;
-      left: 0 !important; right: 0 !important;
+    /* neutraliza cualquier alineación a derecha que venga de arriba */
+    .section-trends .highcharts-container,
+    .section-trends svg {
+      margin-left: auto !important;
+      margin-right: auto !important;
+      float: none !important;
+      left: 0 !important;
+      right: 0 !important;
       transform: none !important;
-      float: none !important;
-      position: relative !important;
-    }
-
-    @media screen {
-      /* Pantalla: neutraliza empujes del tema/Bootstrap (flex-end, floats, text-right, etc.) */
-      .section-trends,
-      .section-trends * {
-        text-align: initial !important;
-      }
-      .section-trends .chart-center {
-        display: flex;
-        justify-content: center;
-        align-items: flex-start;
-      }
-      .section-trends .chart-container,
-      .section-trends .highcharts-container,
-      .section-trends svg {
-        margin-left: auto !important;
-        margin-right: auto !important;
-        float: none !important;
-      }
     }
 
     @media print {
+      /* Hacer atómico el bloque tail-pack para que salte completo si no cabe */
       .tail-pack { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
       .tail-pack .section-signatures,
       .tail-pack .section-remarks { page-break-inside: avoid; break-inside: avoid; }
@@ -179,6 +158,8 @@
       .section-trends .weasy-fallback .section-title { page-break-inside: avoid; break-inside: avoid; }
       .section-trends .weasy-fallback .section-title { page-break-after: avoid; break-after: avoid; margin-bottom: 8px !important; }
       .section-trends .weasy-fallback .fallback-message img { display: block; page-break-inside: avoid; break-inside: avoid; max-width: 180mm; height: auto; }
+
+      /* Bloque de anexos atómico: si no cabe, pasa entero a la siguiente página */
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
     }
   </style>
@@ -735,9 +716,7 @@
          tal:condition="python:bool(trends_data)">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
-      <div class="chart-center">
-        <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
-      </div>
+      <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
       <!-- Fallback (PNG) para PDF/WeasyPrint -->
       <div class="weasy-fallback"
@@ -863,45 +842,6 @@
               var fb = document.querySelector('.section-trends .weasy-fallback');
               if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
-
-              /* === Centrado & reflow robusto para vista previa === */
-              (function ensureCentered(){
-                try {
-                  if (el) {
-                    el.style.marginLeft  = 'auto';
-                    el.style.marginRight = 'auto';
-                    el.style.float       = 'none';
-                    el.style.left        = '0px';
-                    el.style.right       = '0px';
-                  }
-                  var wrap = el && el.querySelector('.highcharts-container');
-                  if (wrap) {
-                    wrap.style.marginLeft  = 'auto';
-                    wrap.style.marginRight = 'auto';
-                    wrap.style.left        = '0px';
-                    wrap.style.right       = '0px';
-                    wrap.style.transform   = 'none';
-                    wrap.style.float       = 'none';
-                    wrap.style.position    = 'relative';
-                  }
-                  if (chart) {
-                    chart.update({ chart: { marginLeft:  null, marginRight: null } }, false);
-                    chart.reflow();
-                    setTimeout(function(){ chart.reflow && chart.reflow(); }, 60);
-                    setTimeout(function(){ chart.reflow && chart.reflow(); }, 160);
-                  }
-                  window.dispatchEvent(new Event('resize'));
-                } catch(e){}
-              })();
-
-              /* Observa cambios de tamaño del contenedor y reflow */
-              try{
-                if (window.ResizeObserver) {
-                  var ro = new ResizeObserver(function(){ if (chart && chart.reflow) chart.reflow(); });
-                  ro.observe(el);
-                }
-              }catch(e){}
-
             } else {
               console.error('Highcharts no está cargado');
             }
