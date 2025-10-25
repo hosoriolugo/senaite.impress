@@ -556,12 +556,23 @@
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
 
-      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if ( (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014'))) )];
-      _row_series_dates python:lambda r: [ ( (p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'' ) for p in _row_series_clean(r) ];
-      _row_distinct_count python:lambda r: len([d for i,d in enumerate(_row_series_dates(r)) if (d not in (None, u'', u'\u2014')) and (d not in _row_series_dates(r)[:i])]);
+      /* --- LIMPIEZA Y REGLAS ESTRICTAS DE VISIBILIDAD --- */
+      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))];
+      _row_series_keys  python:lambda r: [ ( (p.get('ms') or p.get('date') or p.get('x') or u'') ) for p in _row_series_clean(r) ];
+      _row_distinct_cnt python:lambda r: len(set([k for k in _row_series_keys(r) if k not in (None, u'', u'\u2014')]));
 
-      rows_valid python:[ r for r in rows if ( (_row_distinct_count(r) >= 2) or ( (r.get('prev_value') not in (None, u'', u'\u2014')) and (r.get('prev_date') not in (None, u'', u'\u2014')) ) ) ];
-      hasrows python:bool(rows_valid);
+      _row_has_prev_fields python:lambda r: ( (r.get('prev_value') not in (None, u'', u'\u2014')) and
+                                              (r.get('prev_date')  not in (None, u'', u'\u2014')) and
+                                              (r.get('prev_sample_id') not in (None, u'', u'\u2014')) );
+
+      /* Regla: Delta check SOLO si hay previo real:
+         - serie con >=2 fechas distintas, O
+         - prev_value + prev_date + prev_sample_id presentes explícitamente
+      */
+      _row_has_prev python:lambda r: ( (_row_distinct_cnt(r) >= 2) or _row_has_prev_fields(r) );
+
+      rows_valid python:[ r for r in rows if _row_has_prev(r) ];
+      hasrows   python:bool(rows_valid);
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
         <div class="w-100">
@@ -760,15 +771,19 @@
            );
            _series python:trends_data and trends_data.get('series') or [];
            _valid_pairs python:[
-             [ ( (isinstance(p, (list, tuple)) and len(p)>1 and (p[0] not in (None, u'', u'\u2014')) and ( (isinstance(p[1], (int,float)) or (p[1] not in (None, u'', u'\u2014'))) ) and (p[0], p[1]) )
-               or ( (hasattr(p,'get') and ((p.get('ms') or p.get('x') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None))) )
-               or None )
+             [
+               (
+                 (isinstance(p, (list, tuple)) and len(p)>1 and (p[0] not in (None, u'', u'\u2014')) and ( (isinstance(p[1], (int,float)) or (p[1] not in (None, u'', u'\u2014'))) ) and (p[0], p[1]) )
+                 or
+                 ( (hasattr(p,'get') and ((p.get('ms') or p.get('x') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None))) )
+                 or
+                 None
+               )
                for p in (s.get('data') or [])
              ]
              for s in _series
            ];
            _all_points python:[ ( (pp and (pp[0] or u'')), (pp and pp[1]) ) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014')) ];
-           _distinct_keys python:[ k for i,(k,_) in enumerate(_all_points) if (k not in _all_points[:i][0] if _all_points[:i] else True) ];
            _distinct_count python:len(set([k for (k,_) in _all_points]));
            has_two_points python:(_distinct_count >= 2)
          "
@@ -819,7 +834,7 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            // Contar puntos únicos (por categoría/tiempo) con y válido
+            // Contar puntos únicos con Y válido
             var seen = {};
             var distinct = 0;
             try {
