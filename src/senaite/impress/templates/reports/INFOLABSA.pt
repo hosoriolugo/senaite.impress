@@ -79,29 +79,10 @@
     /* ===== SECCIÓN TENDENCIAS ===== */
     .section-trends { margin: 30px 0; page-break-inside: avoid; }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
-
-    /* AJUSTE: el contenedor existe (display:block) pero está invisible al inicio; mismo ancho que el PNG */
     .section-trends .chart-container {
-      width: 100%;
-      max-width: 180mm;
-      height: 560px;
-      margin: 20px auto;
-      border: 1px solid #e9ecef;
-      border-radius: 4px;
-      padding: 0;
-      background: #fff;
-      overflow: visible;
-      display: block;
-      visibility: hidden;   /* importante para que Highcharts mida bien */
-      position: relative;
+      width: 100%; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px;
+      padding: 0; background: #fff; overflow: visible; display: none;
     }
-    /* centra el SVG interno de Highcharts */
-    .section-trends .chart-container .highcharts-container {
-      left: 0 !important;
-      right: 0 !important;
-      margin: 0 auto !important;
-    }
-
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
     .section-trends .chart-container svg { overflow: visible !important; }
@@ -166,6 +147,16 @@
 
       /* Bloque de anexos atómico: si no cabe, pasa entero a la siguiente página */
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
+    }
+
+    /* == Fix centrado duro para vista previa (Highcharts) == */
+    .section-trends { display: flex; flex-direction: column; align-items: center; }
+    .section-trends .chart-container { margin-left: 0 !important; margin-right: 0 !important; }
+    .section-trends .chart-container .highcharts-container {
+      position: relative !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      margin: 0 !important;
     }
   </style>
 
@@ -837,22 +828,31 @@
             };
 
             if (typeof Highcharts !== 'undefined') {
-              var el = document.getElementById('trends-chart-container');
-              if (!el) return;
-
-              // Contenedor ya está display:block; visibility:hidden en CSS
               var chart = Highcharts.chart('trends-chart-container', options);
 
-              // Mostrar solo cuando ya midió/dibujó
-              el.style.height = '560px';
-              el.style.visibility = 'visible';
-
+              // === Forzar centrado después de render/reflow (vista previa) ===
+              function centerHC(c){
+                if (!c || !c.container) return;
+                var hc = c.container; // <div class="highcharts-container">
+                hc.style.position = 'relative';
+                hc.style.left = '50%';
+                hc.style.transform = 'translateX(-50%)';
+              }
+              centerHC(chart);
               if (chart && chart.reflow) chart.reflow();
+              if (Highcharts.addEvent) {
+                Highcharts.addEvent(chart, 'render', function(){ centerHC(chart); });
+              }
+              window.addEventListener('resize', function(){ centerHC(chart); });
 
-              // ocultamos el fallback PNG en vista previa
+              var el = document.getElementById('trends-chart-container');
+              if (el) { el.style.height = '560px'; el.style.display = 'block'; }
+              if (Highcharts.charts && Highcharts.charts.length) {
+                var c = Highcharts.charts[Highcharts.charts.length - 1];
+                if (c && c.reflow) c.reflow();
+              }
               var fb = document.querySelector('.section-trends .weasy-fallback');
               if (fb) fb.style.display = 'none';
-
               try { document.body.classList.add('has-highcharts'); } catch(e){}
             } else {
               console.error('Highcharts no está cargado');
