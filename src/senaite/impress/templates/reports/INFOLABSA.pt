@@ -840,7 +840,10 @@
     <tal:attachments_end define="
       get python:getattr;
       atts_html python:(get(view,'render_attachments',None) and view.render_attachments(ar, **options) or u'');
-      has_atts_end python:bool(atts_html and (hasattr(atts_html,'strip') and atts_html.strip() or atts_html));
+      atts_str  python:(atts_html and (hasattr(atts_html,'strip') and atts_html.strip() or atts_html) or u'');
+      atts_lc   python:(isinstance(atts_str, basestring) and atts_str.lower() or unicode(atts_str).lower());
+      has_media python:(u'<img' in atts_lc or u'<object' in atts_lc or u'<embed' in atts_lc or u'<figure' in atts_lc or u'<iframe' in atts_lc);
+      has_atts_end python:bool(has_media);
       rid python:(
         (get(ar,'getId',None) and ar.getId()) or
         (hasattr(ar,'id') and ar.id) or
@@ -848,8 +851,7 @@
         options.get('rid','')
       );
     ">
-      <!-- OJO: quitamos el 'pagebreak-before' para NO forzar salto;
-           el CSS print hace que sea atómico y salte solo si no cabe -->
+      <!-- NO forzamos salto; el bloque es atómico y saltará si no cabe -->
       <div class="attachments-end avoid-break-inside" tal:condition="has_atts_end" style="margin-top:10mm;">
         <h2 class="section-title" style="margin-bottom:6px;">
           <span>Anexos</span>
