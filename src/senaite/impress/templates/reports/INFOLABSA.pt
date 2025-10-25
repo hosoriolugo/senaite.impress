@@ -582,21 +582,28 @@
                   ser python:r.get('series') or [];
                   n python:len(ser);
 
-                  re modules/re;
-                  num_pat python:re.compile(r'^[+-]?\d+(?:[.,]\d+)?$');
-
                   val_now_raw python:r.get('value_now');
                   prev_raw python:r.get('prev_value');
 
+                  vn_s python:(isinstance(val_now_raw,basestring) and val_now_raw.strip() or u'');
+                  vn_s2 python:(vn_s and vn_s.replace(u',',u'.') or vn_s);
+                  vn_core python:(vn_s2 and ((vn_s2[1:] if (vn_s2 and vn_s2[0] in (u'+',u'-')) else vn_s2)) or vn_s2);
+                  vn_digits_ok python:(bool(vn_core) and (vn_core.count(u'.')<=1) and (u''.join([c for c in vn_core if c in u'0123456789.'])==vn_core));
+
+                  pv_s python:(isinstance(prev_raw,basestring) and prev_raw.strip() or u'');
+                  pv_s2 python:(pv_s and pv_s.replace(u',',u'.') or pv_s);
+                  pv_core python:(pv_s2 and ((pv_s2[1:] if (pv_s2 and pv_s2[0] in (u'+',u'-')) else pv_s2)) or pv_s2);
+                  pv_digits_ok python:(bool(pv_core) and (pv_core.count(u'.')<=1) and (u''.join([c for c in pv_core if c in u'0123456789.'])==pv_core));
+
                   val_now_num python:(
                     (isinstance(val_now_raw,(int,float)) and float(val_now_raw))
-                    or (isinstance(val_now_raw,basestring) and num_pat.match(val_now_raw.strip()) and float(val_now_raw.strip().replace(',','.')))
+                    or (vn_digits_ok and float(vn_s2))
                     or None
                   );
 
                   prev_num python:(
                     (isinstance(prev_raw,(int,float)) and float(prev_raw))
-                    or (isinstance(prev_raw,basestring) and num_pat.match(prev_raw.strip()) and float(prev_raw.strip().replace(',','.')))
+                    or (pv_digits_ok and float(pv_s2))
                     or None
                   );
 
@@ -613,10 +620,11 @@
                   );
 
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
-                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').replace(u'\u2014', u'').strip());
-                  delta_pct_val python:(
-                    (_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean.replace(',', '.'))) or None
-                  );
+                  dp_s python:((delta_pct_str or u'').replace(u'%', u'').replace(u'\u2014', u'').strip());
+                  dp_s2 python:(dp_s and dp_s.replace(u',', u'.') or dp_s);
+                  dp_core python:(dp_s2 and ((dp_s2[1:] if (dp_s2 and dp_s2[0] in (u'+',u'-')) else dp_s2)) or dp_s2);
+                  dp_digits_ok python:(bool(dp_core) and (dp_core.count(u'.')<=1) and (u''.join([c for c in dp_core if c in u'0123456789.'])==dp_core));
+                  delta_pct_val python:(dp_digits_ok and abs(float(dp_s2)) or None);
 
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
