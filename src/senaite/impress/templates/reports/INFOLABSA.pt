@@ -78,7 +78,9 @@
 
     /* ===== SECCIÓN TENDENCIAS ===== */
     .section-trends { margin: 30px 0; page-break-inside: avoid; }
+
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
+
     .section-trends .chart-container {
       width: 100%; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px;
       padding: 0; background: #fff; overflow: visible; display: none;
@@ -122,30 +124,34 @@
       height: auto;
     }
 
-    /* ====== NUEVO: Centrado robusto de Highcharts en vista previa ====== */
-    .section-trends { text-align: initial !important; direction: ltr !important; } /* línea solicitada */
-    .section-trends .chart-center {
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
+    /* ====== Centrado robusto de Highcharts en vista previa ====== */
+    .section-trends {
+      text-align: initial !important;
+      direction: ltr !important;
+      clear: both !important;
+      width: 100%;
+    }
+    .section-trends .chart-center{
+      display: grid;
+      place-items: center;
       width: 100%;
       margin: 20px 0;
     }
-    .section-trends #trends-chart-container {
-      flex: 0 1 auto;
-      max-width: 180mm;
+    .section-trends #trends-chart-container{
+      display: block;
       width: 100%;
-      margin-left: auto !important;
-      margin-right: auto !important;
+      max-width: 180mm;              /* igual que fallback PNG */
+      margin: 0 auto !important;     /* centrado horizontal */
       float: none !important;
       clear: both !important;
+      box-sizing: border-box;
     }
-    .section-trends .highcharts-container {
-      margin-left: auto !important;
-      margin-right: auto !important;
-      float: none !important;
-      left: auto !important;
+    .section-trends .highcharts-container{
+      margin: 0 auto !important;
+      left: 0 !important;
+      right: 0 !important;
       transform: none !important;
+      float: none !important;
     }
 
     @media print {
@@ -728,8 +734,8 @@
          tal:condition="python:bool(trends_data)">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
-      <div class="chart-center no-weasyprint">
-        <div id="trends-chart-container" class="chart-container"></div>
+      <div class="chart-center">
+        <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
       </div>
 
       <!-- Fallback (PNG) para PDF/WeasyPrint -->
@@ -856,6 +862,39 @@
               var fb = document.querySelector('.section-trends .weasy-fallback');
               if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
+
+              /* === Fuerza centrado y reflow en vista previa === */
+              (function ensureCentered(){
+                try {
+                  var wrap = el && el.querySelector('.highcharts-container');
+                  if (el) {
+                    el.style.marginLeft  = 'auto';
+                    el.style.marginRight = 'auto';
+                    el.style.float       = 'none';
+                  }
+                  if (wrap) {
+                    wrap.style.marginLeft  = 'auto';
+                    wrap.style.marginRight = 'auto';
+                    wrap.style.left        = '0px';
+                    wrap.style.right       = '0px';
+                    wrap.style.transform   = 'none';
+                    wrap.style.float       = 'none';
+                  }
+                  if (chart && chart.reflow) { chart.reflow(); }
+                  setTimeout(function(){ if (chart && chart.reflow) chart.reflow(); }, 50);
+                  setTimeout(function(){ if (chart && chart.reflow) chart.reflow(); }, 150);
+                  window.dispatchEvent(new Event('resize'));
+                } catch(e){}
+              })();
+
+              /* Observa cambios de tamaño del contenedor y reflow */
+              try{
+                if (window.ResizeObserver) {
+                  var ro = new ResizeObserver(function(){ if (chart && chart.reflow) chart.reflow(); });
+                  ro.observe(document.getElementById('trends-chart-container'));
+                }
+              }catch(e){}
+
             } else {
               console.error('Highcharts no está cargado');
             }
