@@ -819,22 +819,25 @@
       </script>
     </div>
 
-<!-- =========== Anexos (AL FINAL, solo si existen) =========== -->
-<tal:attachments_end define="
-  get python:getattr;
-  atts_list python:(
-    (get(ar,'getAttachments',None) and ar.getAttachments()) or
-    (get(ar,'listAttachments',None) and ar.listAttachments()) or
-    (get(ar,'attachments',None) and ar.attachments) or
-    (get(view,'getAttachments',None) and view.getAttachments(ar)) or
-    []
-  );
-  has_atts_end python:bool(atts_list and len(atts_list) > 0);
-">
-  <div class="attachments-end pagebreak-before avoid-break-inside" tal:condition="has_atts_end" style="margin-top:10mm;">
-    <h2 class="section-title" style="margin-bottom:6px;">Anexos</h2>
-    <div class="section-attachments">
-      <tal:t replace="structure python:view.render_attachments(ar, **options)" />
-    </div>
-  </div>
-</tal:attachments_end>
+    <!-- =========== Anexos (AL FINAL, solo si existen) =========== -->
+    <tal:attachments_end define="
+      get python:getattr;
+      atts_list python:(
+        (get(ar,'getAttachments',None) and ar.getAttachments()) or
+        (get(ar,'listAttachments',None) and ar.listAttachments()) or
+        (get(ar,'attachments',None) and ar.attachments) or
+        (get(view,'getAttachments',None) and view.getAttachments(ar)) or
+        []
+      );
+      has_atts_end python:bool(atts_list and len(atts_list) > 0);
+    ">
+      <div class="attachments-end pagebreak-before avoid-break-inside" tal:condition="has_atts_end" style="margin-top:10mm;">
+        <h2 class="section-title" style="margin-bottom:6px;">Anexos</h2>
+        <div class="section-attachments">
+          <tal:t replace="structure python:view.render_attachments(ar, **options)" />
+        </div>
+      </div>
+    </tal:attachments_end>
+
+  </div> <!-- cierre del contenedor que define 'ar' -->
+</tal:report>
