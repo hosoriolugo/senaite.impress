@@ -80,12 +80,37 @@
     .section-trends { margin: 30px 0; page-break-inside: avoid; }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
     .section-trends .chart-container {
-      width: 100%; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px;
-      padding: 0; background: #fff; overflow: visible; display: none;
+      width: 100%;
+      height: 560px;
+      margin: 20px 0;
+      border: 1px solid #e9ecef;
+      border-radius: 4px;
+      padding: 0;
+      background: #fff;
+      overflow: visible;
+      display: none; /* lo activamos en JS solo si hay Highcharts */
+      max-width: 180mm;          /* NUEVO: mismo ancho que el PNG de fallback */
+      margin-left: auto !important;  /* NUEVO: centrado clásico */
+      margin-right: auto !important; /* NUEVO */
     }
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
     .section-trends .chart-container svg { overflow: visible !important; }
+
+    /* Centrado robusto de todo el bloque (vista previa) */
+    .section-trends {
+      display: grid;              /* NUEVO */
+      grid-template-columns: 1fr; /* NUEVO */
+      justify-items: center;      /* NUEVO */
+    }
+    /* Cualquier wrapper que genera Highcharts */
+    .section-trends .highcharts-container,
+    .section-trends .highcharts-container svg {
+      margin: 0 auto !important;  /* NUEVO: centra el canvas/svg */
+      left: auto !important;       /* NUEVO: sin desplazamientos */
+      transform: none !important;  /* NUEVO */
+    }
+
     .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
     .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
@@ -109,21 +134,12 @@
     .attachments-end .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
 
     /* ====== Ajuste específico para ANEXOS ====== */
-    /* Ocultar encabezados autogenerados del HTML de adjuntos (ej. "Attachments for ...") */
     .section-attachments h1:first-of-type,
     .section-attachments h2:first-of-type,
-    .section-attachments h3:first-of-type {
-      display: none !important;
-    }
-    /* Imágenes de anexos escalables */
-    .section-attachments img {
-      max-width: 180mm;
-      width: 100%;
-      height: auto;
-    }
+    .section-attachments h3:first-of-type { display: none !important; }
+    .section-attachments img { max-width: 180mm; width: 100%; height: auto; }
 
     @media print {
-      /* Hacer atómico el bloque tail-pack para que salte completo si no cabe */
       .tail-pack { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
       .tail-pack .section-signatures,
       .tail-pack .section-remarks { page-break-inside: avoid; break-inside: avoid; }
@@ -145,18 +161,7 @@
       .section-trends .weasy-fallback .section-title { page-break-after: avoid; break-after: avoid; margin-bottom: 8px !important; }
       .section-trends .weasy-fallback .fallback-message img { display: block; page-break-inside: avoid; break-inside: avoid; max-width: 180mm; height: auto; }
 
-      /* Bloque de anexos atómico: si no cabe, pasa entero a la siguiente página */
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
-    }
-
-    /* == Fix centrado duro para vista previa (Highcharts) == */
-    .section-trends { display: flex; flex-direction: column; align-items: center; }
-    .section-trends .chart-container { margin-left: 0 !important; margin-right: 0 !important; }
-    .section-trends .chart-container .highcharts-container {
-      position: relative !important;
-      left: 50% !important;
-      transform: translateX(-50%) !important;
-      margin: 0 !important;
     }
   </style>
 
@@ -830,27 +835,11 @@
             if (typeof Highcharts !== 'undefined') {
               var chart = Highcharts.chart('trends-chart-container', options);
 
-              // === Forzar centrado después de render/reflow (vista previa) ===
-              function centerHC(c){
-                if (!c || !c.container) return;
-                var hc = c.container; // <div class="highcharts-container">
-                hc.style.position = 'relative';
-                hc.style.left = '50%';
-                hc.style.transform = 'translateX(-50%)';
-              }
-              centerHC(chart);
-              if (chart && chart.reflow) chart.reflow();
-              if (Highcharts.addEvent) {
-                Highcharts.addEvent(chart, 'render', function(){ centerHC(chart); });
-              }
-              window.addEventListener('resize', function(){ centerHC(chart); });
-
+              // Mostrar contenedor y refrescar medidas
               var el = document.getElementById('trends-chart-container');
               if (el) { el.style.height = '560px'; el.style.display = 'block'; }
-              if (Highcharts.charts && Highcharts.charts.length) {
-                var c = Highcharts.charts[Highcharts.charts.length - 1];
-                if (c && c.reflow) c.reflow();
-              }
+              if (chart && chart.reflow) chart.reflow();
+
               var fb = document.querySelector('.section-trends .weasy-fallback');
               if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
@@ -877,7 +866,6 @@
         options.get('rid','')
       );
     ">
-      <!-- NO forzamos salto; el bloque es atómico y saltará si no cabe -->
       <div class="attachments-end avoid-break-inside" tal:condition="has_atts_end" style="margin-top:10mm;">
         <h2 class="section-title" style="margin-bottom:6px;">
           <span>Anexos</span>
