@@ -108,6 +108,20 @@
     .attachments-end { page-break-before: auto; margin-top: 8mm; }
     .attachments-end .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
 
+    /* ====== Ajuste específico para ANEXOS ====== */
+    /* Ocultar encabezados autogenerados del HTML de adjuntos (ej. "Attachments for ...") */
+    .section-attachments h1:first-of-type,
+    .section-attachments h2:first-of-type,
+    .section-attachments h3:first-of-type {
+      display: none !important;
+    }
+    /* Imágenes de anexos escalables */
+    .section-attachments img {
+      max-width: 180mm;
+      width: 100%;
+      height: auto;
+    }
+
     @media print {
       /* Hacer atómico el bloque tail-pack para que salte completo si no cabe */
       .tail-pack { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
@@ -130,6 +144,9 @@
       .section-trends .weasy-fallback .section-title { page-break-inside: avoid; break-inside: avoid; }
       .section-trends .weasy-fallback .section-title { page-break-after: avoid; break-after: avoid; margin-bottom: 8px !important; }
       .section-trends .weasy-fallback .fallback-message img { display: block; page-break-inside: avoid; break-inside: avoid; max-width: 180mm; height: auto; }
+
+      /* Bloque de anexos atómico: si no cabe, pasa entero a la siguiente página */
+      .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
     }
   </style>
 
@@ -824,9 +841,20 @@
       get python:getattr;
       atts_html python:(get(view,'render_attachments',None) and view.render_attachments(ar, **options) or u'');
       has_atts_end python:bool(atts_html and (hasattr(atts_html,'strip') and atts_html.strip() or atts_html));
+      rid python:(
+        (get(ar,'getId',None) and ar.getId()) or
+        (hasattr(ar,'id') and ar.id) or
+        (get(ar,'getRequestID',None) and ar.getRequestID()) or
+        options.get('rid','')
+      );
     ">
-      <div class="attachments-end pagebreak-before avoid-break-inside" tal:condition="has_atts_end" style="margin-top:10mm;">
-        <h2 class="section-title" style="margin-bottom:6px;">Anexos</h2>
+      <!-- OJO: quitamos el 'pagebreak-before' para NO forzar salto;
+           el CSS print hace que sea atómico y salte solo si no cabe -->
+      <div class="attachments-end avoid-break-inside" tal:condition="has_atts_end" style="margin-top:10mm;">
+        <h2 class="section-title" style="margin-bottom:6px;">
+          <span>Anexos</span>
+          <span tal:condition="rid"> — para la muestra: <strong tal:content="rid">ID</strong></span>
+        </h2>
         <div class="section-attachments" tal:content="structure atts_html">
           <!-- render_attachments inyecta aquí el contenido -->
         </div>
