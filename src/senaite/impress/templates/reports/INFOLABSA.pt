@@ -515,22 +515,22 @@
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Interpretación de resultados</h2>
 
-          <tal:gen tal:condition="gen">
-            <h3 class="mb-0" i18n:translate="">General</h3>
-            <div tal:content="structure gen">-</div>
-          </tal:gen>
+        <tal:gen tal:condition="gen">
+          <h3 class="mb-0" i18n:translate="">General</h3>
+          <div tal:content="structure gen">-</div>
+        </tal:gen>
 
-          <tal:qc tal:condition="qc">
-            <h3 class="mb-0">Química clínica</h3>
-            <div tal:content="structure qc">-</div>
-          </tal:qc>
+        <tal:qc tal:condition="qc">
+          <h3 class="mb-0">Química clínica</h3>
+          <div tal:content="structure qc">-</div>
+        </tal:qc>
 
-          <tal:dept tal:condition="has_dept">
-            <tal:loop tal:repeat="item dept_items">
-              <h3 class="mb-0" tal:content="python:item.get('title') or u'Departamento'">Departamento</h3>
-              <div tal:content="structure python:item.get('text')">-</div>
-            </tal:loop>
-          </tal:dept>
+        <tal:dept tal:condition="has_dept">
+          <tal:loop tal:repeat="item dept_items">
+            <h3 class="mb-0" tal:content="python:item.get('title') or u'Departamento'">Departamento</h3>
+            <div tal:content="structure python:item.get('text')">-</div>
+          </tal:loop>
+        </tal:dept>
         </div>
       </div>
     </tal:interp>
@@ -554,25 +554,31 @@
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
-      rows python:(delta and delta.get('rows') or []);
-
-      /* --- LIMPIEZA Y REGLAS ESTRICTAS DE VISIBILIDAD --- */
-      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))];
-      _row_series_keys  python:lambda r: [ ( (p.get('ms') or p.get('date') or p.get('x') or u'') ) for p in _row_series_clean(r) ];
-      _row_distinct_cnt python:lambda r: len(set([k for k in _row_series_keys(r) if k not in (None, u'', u'\u2014')]));
-
-      _row_has_prev_fields python:lambda r: ( (r.get('prev_value') not in (None, u'', u'\u2014')) and
-                                              (r.get('prev_date')  not in (None, u'', u'\u2014')) and
-                                              (r.get('prev_sample_id') not in (None, u'', u'\u2014')) );
-
-      /* Regla: Delta check SOLO si hay previo real:
-         - serie con >=2 fechas distintas, O
-         - prev_value + prev_date + prev_sample_id presentes explícitamente
-      */
-      _row_has_prev python:lambda r: ( (_row_distinct_cnt(r) >= 2) or _row_has_prev_fields(r) );
-
-      rows_valid python:[ r for r in rows if _row_has_prev(r) ];
-      hasrows   python:bool(rows_valid);
+      rows  python:(delta and delta.get('rows') or []);
+      rows_valid python:[
+        r for r in rows if (
+          (
+            len(
+              set([
+                (p.get('ms') or p.get('date') or p.get('x') or u'')
+                for p in (r.get('series') or [])
+                if (
+                  hasattr(p,'get') and
+                  (p.get('value') not in (None, u'', u'\u2014')) and
+                  ((p.get('ms') or p.get('date') or p.get('x') or u'') not in (None, u'', u'\u2014'))
+                )
+              ])
+            ) >= 2
+          )
+          or
+          (
+            (r.get('prev_value')     not in (None, u'', u'\u2014')) and
+            (r.get('prev_date')      not in (None, u'', u'\u2014')) and
+            (r.get('prev_sample_id') not in (None, u'', u'\u2014'))
+          )
+        )
+      ];
+      hasrows python:bool(rows_valid);
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
         <div class="w-100">
@@ -597,34 +603,34 @@
               <tal:loop repeat="r rows_valid">
                 <tal:calc define="
                   ser python:r.get('series') or [];
-                  n python:len(ser);
+                  n   python:len(ser);
                   t_last python:(ser and ((hasattr(ser[-1],'get') and (ser[-1].get('ms') or ser[-1].get('date'))) or u'') or u'');
                   t_prev python:((n>=2) and ((hasattr(ser[-2],'get') and (ser[-2].get('ms') or ser[-2].get('date'))) or u'') or u'');
                   has_distinct python:(bool(t_last) and bool(t_prev) and (t_last != t_prev));
 
-                  _now_val_raw python:r.get('value_now');
+                  _now_val_raw  python:r.get('value_now');
                   _prev_val_raw python:r.get('prev_value');
-                  _now_val python:((_now_val_raw not in (None, u'', u'\u2014')) and float(_now_val_raw) or None);
-                  _prev_val python:((_prev_val_raw not in (None, u'', u'\u2014')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
+                  _now_val  python:((_now_val_raw  not in (None, u'', u'\u2014')) and float(_now_val_raw)  or None);
+                  _prev_val python:((_prev_val_raw not in (None, u'', u'\u2014')) and float(_prev_val_raw) or ((n>=2 and has_distinct) and float(ser[-2].get('value')) or None));
 
                   delta_abs_val python:((_now_val is not None and _prev_val is not None) and (_now_val - _prev_val) or None);
                   delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
                   delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'\u2014');
 
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
-                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
+                  _pct_clean    python:((delta_pct_str or u'').replace(u'%', u'').strip());
                   delta_pct_val python:((_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None);
 
-                  rcv python:r.get('rcv_pct');
+                  rcv     python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
-                  rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
+                  rcv_ok  python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
 
-                  dir_sym python:(r.get('delta_dir') or u'');
-                  trend_arrow python:((dir_sym==u'\u25b2' or dir_sym==u'\u25b3' or dir_sym==u'\u25b4' or dir_sym==u'\u25b5') and u'\u2191' or (dir_sym==u'\u25bc' or dir_sym==u'\u25bd' or dir_sym==u'\u25be' or dir_sym==u'\u25bf') and u'\u2193' or u'\u2192');
+                  dir_sym     python:(r.get('delta_dir') or u'');
+                  trend_arrow python:((dir_sym in (u'\u25b2', u'\u25b3', u'\u25b4', u'\u25b5')) and u'\u2191' or (dir_sym in (u'\u25bc', u'\u25bd', u'\u25be', u'\u25bf')) and u'\u2193' or u'\u2192');
 
-                  prev_val_display python:((_prev_val is not None) and (u'%s' % _prev_val) or u'\u2014');
-                  prev_date_display python:( (r.get('prev_date_fmt') not in (None, u'', u'\u2014')) and r.get('prev_date_fmt') or ( (n>=2 and has_distinct) and ( (hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or u'' ) or u'\u2014') );
-                  prev_id_display python:(r.get('prev_sample_id') or u'\u2014');
+                  prev_val_display  python:((_prev_val is not None) and (u'%s' % _prev_val) or u'\u2014');
+                  prev_date_display python:((r.get('prev_date_fmt') not in (None, u'', u'\u2014')) and r.get('prev_date_fmt') or ((n>=2 and has_distinct) and ((hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or u'') or u'\u2014'));
+                  prev_id_display   python:(r.get('prev_sample_id') or u'\u2014');
                 ">
                   <tr>
                     <td>
@@ -834,7 +840,6 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            // Contar puntos únicos con Y válido
             var seen = {};
             var distinct = 0;
             try {
