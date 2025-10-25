@@ -819,10 +819,10 @@
       </script>
     </div>
 
-        <!-- =========== Anexos (AL FINAL, solo si hay contenido real y sin modules/re) =========== -->
+    <!-- =========== Anexos (AL FINAL, solo si hay contenido real y sin guardar HTML en variable) =========== -->
     <tal:attachments_end define="
       get python:getattr;
-      # Intentos robustos para obtener la lista de anexos sin importar módulos
+      # Intentos robustos para obtener la lista de anexos sin imports
       atts_list python:(
         (get(ar,'getAttachments',None) and ar.getAttachments()) or
         (get(ar,'listAttachments',None) and ar.listAttachments()) or
@@ -831,12 +831,12 @@
         []
       );
       has_atts_end python:bool(atts_list and len(atts_list) > 0);
-      atts_html python:(has_atts_end and (get(view,'render_attachments',None) and view.render_attachments(ar, **options) or u'') or u'');
     ">
       <div class="attachments-end" tal:condition="has_atts_end">
         <h2 class="tail-title">Anexos</h2>
         <div class="section-attachments">
-          <tal:t replace="structure python:atts_html" />
+          <!-- Inyectar directo: evita coerciones ASCII -->
+          <tal:t replace="structure python:view.render_attachments(ar, **options)" />
         </div>
       </div>
     </tal:attachments_end>
