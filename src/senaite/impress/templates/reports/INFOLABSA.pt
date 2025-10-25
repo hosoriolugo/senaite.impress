@@ -196,6 +196,26 @@
         page-break-inside: avoid;
         break-inside: avoid;
       }
+
+      /* --- NUEVO: evitar cortes entre título e imagen del fallback --- */
+      .section-trends .weasy-fallback,
+      .section-trends .weasy-fallback .fallback-message,
+      .section-trends .weasy-fallback .section-title {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      .section-trends .weasy-fallback .section-title {
+        page-break-after: avoid;
+        break-after: avoid;
+        margin-bottom: 8px !important;
+      }
+      .section-trends .weasy-fallback .fallback-message img {
+        display: block;
+        page-break-inside: avoid;
+        break-inside: avoid;
+        max-width: 180mm; /* si aún empuja, baja a 170mm */
+        height: auto;
+      }
     }
   </style>
 
@@ -758,13 +778,14 @@
          "
          tal:condition="python:bool(trends_data)">
 
-      <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
+      <!-- Título para pantalla (no se imprime) -->
+      <h2 class="section-title no-weasyprint">Tendencias de Resultados en el Tiempo</h2>
 
       <!-- Contenedor para Highcharts (solo en navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PNG con data-URI más nítido y 1:1 px) -->
-      <div class="weasy-fallback fallback-message"
+      <!-- Fallback para WeasyPrint (PNG con data-URI) -->
+      <div class="weasy-fallback"
            tal:define="
              get python:getattr;
              ar_uid python:(
@@ -780,19 +801,24 @@
                options.get('rid','')
              );
            ">
-        <!-- 180mm ≈ 7.087in; 7.087 * 96 ≈ 680px -->
-        <img alt="Gráfico de tendencias (PNG)"
-             style="width:180mm; height:auto;"
-             tal:attributes="
-               src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
-                 uid=ar_uid, rid=rid,
-                 w=680, h=340, dpi=96,
-                 scale=3,
-                 max_points=6, days=365,
-                 note=1,
-                 even=1,
-                 sharpen=1
-               )" />
+        <!-- Título dentro del bloque que sí imprime -->
+        <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
+
+        <div class="fallback-message">
+          <!-- 180mm ≈ 7.087in; 7.087 * 96 ≈ 680px -->
+          <img alt="Gráfico de tendencias (PNG)"
+               style="width:180mm; height:auto;"
+               tal:attributes="
+                 src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
+                   uid=ar_uid, rid=rid,
+                   w=680, h=340, dpi=96,
+                   scale=3,
+                   max_points=6, days=365,
+                   note=1,
+                   even=1,
+                   sharpen=1
+                 )" />
+        </div>
       </div>
 
       <!-- Script para inicializar Highcharts con datos reales -->
