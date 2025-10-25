@@ -180,15 +180,18 @@
 
     /* --- Paginación "inteligente" --- */
     .section-interp { page-break-before: always; }
-    .section-delta { page-break-before: always; }
+    .section-delta { page-break-before: auto; break-before: auto; } /* <--- cambio clave */
     .section-trends { page-break-inside: avoid; }
+
+    /* Utilidad global para evitar cortes feos (aplica también fuera de print) */
+    .avoid-break-inside { page-break-inside: avoid; break-inside: avoid; }
 
     @media print {
       .pagebreak { page-break-before: always; }
       .pagebreak-before { page-break-before: always; }
-      .avoid-break-inside { page-break-inside: avoid; }
+      .avoid-break-inside { page-break-inside: avoid; break-inside: avoid; }
       .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
-      .section-delta { page-break-before: always; }
+      .section-delta { page-break-before: auto; } /* <--- antes era always */
 
       /* En PDF: oculto las piezas de pantalla y muestro fallback (ya es el default arriba) */
       .no-weasyprint { display: none !important; }
@@ -569,17 +572,21 @@
     </tal:interp>
 
     <!-- Adjuntos, observaciones, firmas -->
-    <tal:t replace="structure python:view.render_attachments(ar, **options)" />
-    <tal:t replace="structure python:view.render_remarks(ar, **options)" />
-
-    <!-- Firmas -->
-    <tal:t replace="structure python:view.render_signatures(ar, **options)" />
+    <div class="avoid-break-inside section-attachments">
+      <tal:t replace="structure python:view.render_attachments(ar, **options)" />
+    </div>
+    <div class="avoid-break-inside section-remarks">
+      <tal:t replace="structure python:view.render_remarks(ar, **options)" />
+    </div>
+    <div class="avoid-break-inside section-signatures">
+      <tal:t replace="structure python:view.render_signatures(ar, **options)" />
+    </div>
 
     <!-- Discreeter y pie -->
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (última página) =========== -->
+    <!-- =========== Delta Check (última página / flexible) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
@@ -868,7 +875,7 @@
               tooltip: {
                 shared: true, crosshairs: true,
                 formatter: function() {
-                  var idx = this.points && this.points.length ? this.points[0].point.x : this.point && this.point.x;
+                  var idx = this.points y this.points.length ? this.points[0].point.x : this.point && this.point.x;
                   var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
                   var s = '<b>' + fecha + '</b>';
                   this.points.forEach(function(p) {
