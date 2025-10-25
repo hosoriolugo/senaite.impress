@@ -76,7 +76,7 @@
     .section-delta .trend-down { color:#0d6efd; }
     .section-delta .trend-flat { color:#6c757d; }
 
-    /* ===== SECCIÓN TENDENCIAS ===== */
+    /* ===== SECCION TENDENCIAS ===== */
     .section-trends { 
       margin: 30px 0; 
       page-break-inside: avoid;
@@ -86,7 +86,6 @@
     }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
 
-    /* Wrapper centrador para la vista previa */
     .section-trends .chart-center-wrap {
       width: 180mm;
       max-width: 100%;
@@ -122,7 +121,7 @@
     .weasy-fallback { display: block !important; }
     body.has-highcharts .weasy-fallback { display: none !important; }
 
-    /* --- Paginación inteligente (CSS) --- */
+    /* --- Paginacion inteligente (CSS) --- */
     .section-interp { page-break-before: always; }
     .section-trends { page-break-inside: avoid; }
     .section-delta { page-break-before: auto; break-before: auto; margin-top: 8mm; }
@@ -136,7 +135,7 @@
     .attachments-end { page-break-before: auto; margin-top: 8mm; }
     .attachments-end .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
 
-    /* Ajuste específico para ANEXOS */
+    /* Ajuste especifico para ANEXOS */
     .section-attachments h1:first-of-type,
     .section-attachments h2:first-of-type,
     .section-attachments h3:first-of-type { display: none !important; }
@@ -209,7 +208,7 @@
       </div>
     </div>
 
-    <!-- Secciones estándar -->
+    <!-- Secciones estandar -->
     <tal:t replace="structure python:view.render_info(ar, **options)" />
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
@@ -337,7 +336,7 @@
               </td>
             </tr>
             <tr>
-              <td class="label" i18n:translate="">Género</td>
+              <td class="label" i18n:translate="">G\u00e9nero</td>
               <td><span tal:content="gender_norm|nothing">-</span></td>
               <td class="label"></td>
               <td></td>
@@ -441,9 +440,9 @@
               <td><span tal:content="stype|nothing">-</span></td>
             </tr>
             <tr>
-              <td class="label">Recepción</td>
+              <td class="label">Recepci\u00f3n</td>
               <td><span tal:content="rec_txt|nothing">-</span></td>
-              <td class="label">Verificación</td>
+              <td class="label">Verificaci\u00f3n</td>
               <td><span tal:content="ver_txt|nothing">-</span></td>
             </tr>
           </table>
@@ -457,7 +456,7 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretación de resultados -->
+    <!-- Interpretaci\u00f3n de resultados -->
     <tal:interp define="
       get python:getattr;
 
@@ -513,7 +512,7 @@
     ">
       <div class="row section-interp no-gutters pagebreak-before" tal:condition="show">
         <div class="w-100">
-          <h2 class="mb-1 section-title" i18n:translate="">Interpretación de resultados</h2>
+          <h2 class="mb-1 section-title" i18n:translate="">Interpretaci\u00f3n de resultados</h2>
 
           <tal:gen tal:condition="gen">
             <h3 class="mb-0" i18n:translate="">General</h3>
@@ -521,7 +520,7 @@
           </tal:gen>
 
           <tal:qc tal:condition="qc">
-            <h3 class="mb-0">Química clínica</h3>
+            <h3 class="mb-0">Qu\u00edmica cl\u00ednica</h3>
             <div tal:content="structure qc">-</div>
           </tal:qc>
 
@@ -549,21 +548,29 @@
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (con margen arriba) =========== -->
+    <!-- =========== Delta Check (ocultar si no hay al menos 2 puntos) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
-      rows python:(delta and delta.get('rows') or []);
-      hasrows python:bool(rows);
+      rows_all python:(delta and delta.get('rows') or []);
+
+      valid_rows python:[
+        r for r in (rows_all or [])
+        if (
+          (r.get('prev_value') not in (None, u'', u'\u2014', u'-', u'N/A'))
+          or (len(r.get('series') or []) >= 2)
+        )
+      ];
+      hasrows python:bool(valid_rows);
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Tendencia (Delta check)</h2>
           <div class="small" tal:condition="delta/period_label">
-            <span i18n:translate="">Período considerado:</span>
-            <strong tal:content="delta/period_label">6 meses</strong>
-            • <span i18n:translate="">Fuente:</span> <span i18n:translate="">historial de muestras del paciente</span>
+            <span i18n:translate="">Per\u00edodo considerado:</span>
+            <strong tal:content="delta/period_label">12 meses</strong>
+            &bull; <span i18n:translate="">Fuente:</span> <span i18n:translate="">historial de muestras del paciente</span>
           </div>
 
           <table class="table table-sm table-condensed mt-1">
@@ -572,66 +579,40 @@
                 <th i18n:translate="">Analito</th>
                 <th i18n:translate="">Actual</th>
                 <th i18n:translate="">Analito previo</th>
-                <th i18n:translate="">Δ vs. previo</th>
+                <th i18n:translate="">&#916; vs. previo</th>
                 <th i18n:translate="">Tendencia</th>
               </tr>
             </thead>
             <tbody>
-              <tal:loop repeat="r rows">
+              <tal:loop repeat="r valid_rows">
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
 
-                  val_now_raw python:r.get('value_now');
-                  prev_raw python:r.get('prev_value');
+                  prev_val_raw python:r.get('prev_value');
+                  has_prev_val python:(prev_val_raw not in (None, u'', u'\u2014', u'-', u'N/A'));
 
-                  vn_s python:(isinstance(val_now_raw,basestring) and val_now_raw.strip() or u'');
-                  vn_s2 python:(vn_s and vn_s.replace(u',',u'.') or vn_s);
-                  vn_core python:(vn_s2 and ((vn_s2[1:] if (vn_s2 and vn_s2[0] in (u'+',u'-')) else vn_s2)) or vn_s2);
-                  vn_digits_ok python:(bool(vn_core) and (vn_core.count(u'.')<=1) and (u''.join([c for c in vn_core if c in u'0123456789.'])==vn_core));
+                  prev_value_eff python:( float(prev_val_raw) if has_prev_val else ( (n>=2) and float(ser[-2].get('value')) or None) );
+                  prev_date_eff_raw python:( r.get('prev_date') or r.get('prev_date_fmt') );
+                  prev_date_eff python:( prev_date_eff_raw if (prev_date_eff_raw not in (None, u'', u'\u2014')) else ( (n>=2) and ser[-2].get('date') or None) );
 
-                  pv_s python:(isinstance(prev_raw,basestring) and prev_raw.strip() or u'');
-                  pv_s2 python:(pv_s and pv_s.replace(u',',u'.') or pv_s);
-                  pv_core python:(pv_s2 and ((pv_s2[1:] if (pv_s2 and pv_s2[0] in (u'+',u'-')) else pv_s2)) or pv_s2);
-                  pv_digits_ok python:(bool(pv_core) and (pv_core.count(u'.')<=1) and (u''.join([c for c in pv_core if c in u'0123456789.'])==pv_core));
+                  now_val_raw python:r.get('value_now');
+                  value_now_eff python:( float(now_val_raw) if (now_val_raw not in (None, u'', u'\u2014', u'N/A')) else ( (n>=1) and float(ser[-1].get('value')) or None) );
 
-                  val_now_num python:(
-                    (isinstance(val_now_raw,(int,float)) and float(val_now_raw))
-                    or (vn_digits_ok and float(vn_s2))
-                    or None
-                  );
-
-                  prev_num python:(
-                    (isinstance(prev_raw,(int,float)) and float(prev_raw))
-                    or (pv_digits_ok and float(pv_s2))
-                    or None
-                  );
-
-                  delta_abs_val python:(
-                    (val_now_num is not None and prev_num is not None) and (val_now_num - prev_num)
-                    or ((n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None)
-                  );
-
-                  delta_abs_val_norm python:(
-                    (delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None
-                  );
-                  delta_abs_str python:(
-                    (delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'\u2014'
-                  );
+                  delta_abs_val python:( ( (value_now_eff is not None) and (prev_value_eff is not None) ) and (value_now_eff - prev_value_eff) or None );
+                  delta_abs_val_norm python:( (delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None );
+                  delta_abs_str python:( (delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'\u2014' );
 
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
-                  dp_s python:((delta_pct_str or u'').replace(u'%', u'').replace(u'\u2014', u'').strip());
-                  dp_s2 python:(dp_s and dp_s.replace(u',', u'.') or dp_s);
-                  dp_core python:(dp_s2 and ((dp_s2[1:] if (dp_s2 and dp_s2[0] in (u'+',u'-')) else dp_s2)) or dp_s2);
-                  dp_digits_ok python:(bool(dp_core) and (dp_core.count(u'.')<=1) and (u''.join([c for c in dp_core if c in u'0123456789.'])==dp_core));
-                  delta_pct_val python:(dp_digits_ok and abs(float(dp_s2)) or None);
-
+                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
+                  delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
                   rcv_ok python:( has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)) );
 
                   dir_sym python:(r.get('delta_dir') or u'');
-                  trend_arrow python:((dir_sym==u'\u25b2') and u'\u2191' or (dir_sym==u'\u25bc') and u'\u2193' or u'\u2192');
+                  trend_arrow python:((dir_sym==u'\u25b2' or dir_sym==u'\u25b4' or dir_sym==u'\u25b3' or dir_sym==u'\u25b5') and u'\u2191' or
+                                      (dir_sym==u'\u25bc' or dir_sym==u'\u25be' or dir_sym==u'\u25bd' or dir_sym==u'\u25bf') and u'\u2193' or u'\u2192');
                 ">
                   <tr>
                     <td>
@@ -640,7 +621,7 @@
                     </td>
 
                     <td>
-                      <div tal:content="python:r.get('value_now') or u'\u2014'">\u2014</div>
+                      <div tal:content="python:(value_now_eff is not None) and (u'%s' % value_now_eff) or u'\u2014'">\u2014</div>
                       <div class="small"
                            tal:content="python:view.to_localized_time(
                              (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
@@ -652,19 +633,19 @@
                     </td>
 
                     <td>
-                      <div tal:content="python:r.get('prev_value') or u'\u2014'">\u2014</div>
+                      <div tal:content="python:(prev_value_eff is not None) and (u'%s' % prev_value_eff) or u'\u2014'">\u2014</div>
                       <div class="small">
                         <span i18n:translate="">ID</span>:
                         <strong tal:content="python:r.get('prev_sample_id') or u'\u2014'">\u2014</strong>
                         &nbsp;|&nbsp;
-                        <span tal:content="python:r.get('prev_date_fmt') or r.get('prev_date') or u'\u2014'">\u2014</span>
+                        <span tal:content="python:(prev_date_eff and view.to_localized_time(prev_date_eff)) or (r.get('prev_date_fmt') or r.get('prev_date') or u'\u2014')">\u2014</span>
                       </div>
                     </td>
 
                     <td>
-                      <div tal:condition="python:(r.get('delta_pct') is not None)">
+                      <div tal:condition="python:(value_now_eff is not None) and (prev_value_eff is not None)">
                         <span tal:attributes="class python:(r.get('delta_dir')==u'\u25b2' and 'delta-up' or (r.get('delta_dir')==u'\u25bc' and 'delta-down' or ''))"
-                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'\u0394', (delta_abs_str), (delta_pct_str))">\u0394 +0.00 (+0%)</span>
+                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'\u0394', (delta_abs_str), (delta_pct_str or u'N/A'))">\u0394 +0.00 (+0%)</span>
                       </div>
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">\u2014</div>
                     </td>
@@ -763,7 +744,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (DESPUÉS DEL DELTA CHECK) =========== -->
+    <!-- =========== GRAFICO DE TENDENCIAS (ocultar si <2 puntos) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -813,7 +794,7 @@
            ">
         <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
         <div class="fallback-message">
-          <img alt="Gráfico de tendencias (PNG)"
+          <img alt="Gr\u00e1fico de tendencias (PNG)"
                style="width:180mm; height:auto;"
                tal:attributes="
                  src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
@@ -874,13 +855,13 @@
               chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
               title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
                        style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
-              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los \u00faltimos 365 d\u00edas (m\u00e1ximo).', y: 30,
                           style: { color: '#6c757d', fontSize: '12px' } },
               xAxis: {
                 categories: cats,
                 tickPositions: tickPositions,
                 labels: { style: { color: '#333' }, rotation: -45, step: step },
-                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                title: { text: 'Fecha de An\u00e1lisis', style: { color: '#000', fontWeight: 'bold' } },
                 tickmarkPlacement: 'on'
               },
               yAxis: {
@@ -937,7 +918,7 @@
               if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
             } else {
-              console.error('Highcharts no está cargado');
+              console.error('Highcharts no est\u00e1 cargado');
             }
           }
         })();
@@ -965,7 +946,7 @@
           <span tal:condition="rid"> — para la muestra: <strong tal:content="rid">ID</strong></span>
         </h2>
         <div class="section-attachments" tal:content="structure atts_html">
-          <!-- render_attachments inyecta aquí el contenido -->
+          <!-- render_attachments inyecta aqu\u00ed el contenido -->
         </div>
       </div>
     </tal:attachments_end>
