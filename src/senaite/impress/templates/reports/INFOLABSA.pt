@@ -8,7 +8,7 @@
   <!-- Cargar Highcharts (usado solo en navegador, no en WeasyPrint) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
-  <!-- Afinado visual: separadores y control de paginado -->
+  <!-- Afinado visual + control de paginado -->
   <style>
     .section-summary table.table-condensed { border-collapse: collapse; border-spacing: 0; }
     .section-summary table.table-condensed td { border-bottom: 1px solid #dee2e6 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: top; }
@@ -99,23 +99,26 @@
     .section-trends { page-break-inside: avoid; }
     .section-delta { page-break-before: auto; break-before: auto; margin-top: 8mm; }
 
-    /* Bloque “cola del informe”: firmas + observaciones + anexos juntos */
+    /* Cola del informe: Firmas + Observaciones (juntas) */
     .tail-pack { break-inside: avoid; page-break-inside: avoid; margin-bottom: 8mm; }
     .tail-pack .section-signatures,
-    .tail-pack .section-remarks,
-    .tail-pack .section-attachments { break-inside: avoid; page-break-inside: avoid; }
-    .tail-pack .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
+    .tail-pack .section-remarks { break-inside: avoid; page-break-inside: avoid; }
+
+    /* Anexos finales */
+    .attachments-end { page-break-before: auto; margin-top: 8mm; }
+    .attachments-end .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
 
     @media print {
+      /* Hacer atómico el bloque tail-pack para que salte completo si no cabe */
+      .tail-pack { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
+      .tail-pack .section-signatures,
+      .tail-pack .section-remarks { page-break-inside: avoid; break-inside: avoid; }
+
       .pagebreak { page-break-before: always; }
       .pagebreak-before { page-break-before: always; }
-      .avoid-break-inside,
-      .tail-pack,
-      .tail-pack .section-signatures,
-      .tail-pack .section-remarks,
-      .tail-pack .section-attachments { page-break-inside: avoid; break-inside: avoid; }
+      .avoid-break-inside { page-break-inside: avoid; }
 
-      .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
+      .section-interp, .section-signatures { break-inside: avoid; }
       .section-delta { page-break-before: auto; margin-top: 8mm; }
 
       .no-weasyprint { display: none !important; }
@@ -477,38 +480,21 @@
       </div>
     </tal:interp>
 
-    <!-- ===== Cola del informe: Firmas + Observaciones + (Anexos si hay) ===== -->
-    <tal:tail define="
-      get python:getattr;
-      atts_html python:(get(view,'render_attachments',None) and view.render_attachments(ar, **options) or u'');
-      has_atts python:bool((atts_html and (hasattr(atts_html,'strip') and atts_html.strip() or atts_html)));
-    ">
-      <div class="tail-pack">
-        <!-- Firmas -->
-        <div class="section-signatures">
-          <tal:t replace="structure python:view.render_signatures(ar, **options)" />
-        </div>
-
-        <!-- Observaciones -->
-        <div class="section-remarks">
-          <tal:t replace="structure python:view.render_remarks(ar, **options)" />
-        </div>
-
-        <!-- Anexos (solo si hay) -->
-        <tal:atts tal:condition="has_atts">
-          <h2 class="tail-title">Anexos</h2>
-          <div class="section-attachments">
-            <tal:t replace="structure python:atts_html" />
-          </div>
-        </tal:atts>
+    <!-- ===== Cola del informe: Firmas + Observaciones (siempre juntas) ===== -->
+    <div class="tail-pack">
+      <div class="section-signatures">
+        <tal:t replace="structure python:view.render_signatures(ar, **options)" />
       </div>
-    </tal:tail>
+      <div class="section-remarks">
+        <tal:t replace="structure python:view.render_remarks(ar, **options)" />
+      </div>
+    </div>
 
     <!-- Discreeter y pie -->
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (última página flexible) =========== -->
+    <!-- =========== Delta Check (con margen arriba) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
@@ -798,7 +784,7 @@
               tooltip: {
                 shared: true, crosshairs: true,
                 formatter: function() {
-                  var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x); /* FIX: '&&' */
+                  var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
                   var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
                   var s = '<b>' + fecha + '</b>';
                   this.points.forEach(function(p) {
@@ -832,6 +818,22 @@
         })();
       </script>
     </div>
+
+    <!-- =========== Anexos (AL FINAL, solo si hay contenido real) =========== -->
+    <tal:attachments_end define="
+      get python:getattr;
+      re modules/re;
+      atts_html python:(get(view,'render_attachments',None) and view.render_attachments(ar, **options) or u'');
+      atts_text python:( (atts_html and unicode(atts_html)) and re.sub(u'<[^>]+>', u'', unicode(atts_html)).strip() or u'' );
+      has_atts_end python:bool(atts_text);
+    ">
+      <div class="attachments-end" tal:condition="has_atts_end">
+        <h2 class="tail-title">Anexos</h2>
+        <div class="section-attachments">
+          <tal:t replace="structure python:atts_html" />
+        </div>
+      </div>
+    </tal:attachments_end>
 
   </div>
 </tal:report>
