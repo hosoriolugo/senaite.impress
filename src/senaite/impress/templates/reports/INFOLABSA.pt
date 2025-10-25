@@ -581,17 +581,49 @@
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
-                  delta_abs_val python:( (float(r.get('value_now')) - float(r.get('prev_value'))) if ((r.get('value_now') not in (None, u'', '')) and (r.get('prev_value') not in (None, u'', ''))) else ((ser[-1].get('value') - ser[-2].get('value')) if (n>=2) else None) );
-                  delta_abs_val_norm python:( (delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None );
-                  delta_abs_str python:( (delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—' );
+
+                  re modules/re;
+                  num_pat python:re.compile(r'^[+-]?\d+(?:[.,]\d+)?$');
+
+                  val_now_raw python:r.get('value_now');
+                  prev_raw python:r.get('prev_value');
+
+                  val_now_num python:(
+                    (isinstance(val_now_raw,(int,float)) and float(val_now_raw))
+                    or (isinstance(val_now_raw,basestring) and num_pat.match(val_now_raw.strip()) and float(val_now_raw.strip().replace(',','.')))
+                    or None
+                  );
+
+                  prev_num python:(
+                    (isinstance(prev_raw,(int,float)) and float(prev_raw))
+                    or (isinstance(prev_raw,basestring) and num_pat.match(prev_raw.strip()) and float(prev_raw.strip().replace(',','.')))
+                    or None
+                  );
+
+                  delta_abs_val python:(
+                    (val_now_num is not None and prev_num is not None) and (val_now_num - prev_num)
+                    or ((n>=2) and (ser[-1].get('value') - ser[-2].get('value')) or None)
+                  );
+
+                  delta_abs_val_norm python:(
+                    (delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None
+                  );
+                  delta_abs_str python:(
+                    (delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'\u2014'
+                  );
+
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
-                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
-                  delta_pct_val python:( ( _pct_clean not in (u'', u'N/A') ) and abs(float(_pct_clean)) or None );
+                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').replace(u'\u2014', u'').strip());
+                  delta_pct_val python:(
+                    (_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean.replace(',', '.'))) or None
+                  );
+
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
                   rcv_ok python:( has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)) );
+
                   dir_sym python:(r.get('delta_dir') or u'');
-                  trend_arrow python:((dir_sym==u'▲') and u'↑' or (dir_sym==u'▼') and u'↓' or u'→');
+                  trend_arrow python:((dir_sym==u'\u25b2') and u'\u2191' or (dir_sym==u'\u25bc') and u'\u2193' or u'\u2192');
                 ">
                   <tr>
                     <td>
@@ -600,7 +632,7 @@
                     </td>
 
                     <td>
-                      <div tal:content="python:r.get('value_now') or u'—'">—</div>
+                      <div tal:content="python:r.get('value_now') or u'\u2014'">\u2014</div>
                       <div class="small"
                            tal:content="python:view.to_localized_time(
                              (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
@@ -608,31 +640,31 @@
                              (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
                              (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
                              get(ar,'created',None)
-                           )">—</div>
+                           )">\u2014</div>
                     </td>
 
                     <td>
-                      <div tal:content="python:r.get('prev_value') or u'—'">—</div>
+                      <div tal:content="python:r.get('prev_value') or u'\u2014'">\u2014</div>
                       <div class="small">
                         <span i18n:translate="">ID</span>:
-                        <strong tal:content="python:r.get('prev_sample_id') or u'—'">—</strong>
+                        <strong tal:content="python:r.get('prev_sample_id') or u'\u2014'">\u2014</strong>
                         &nbsp;|&nbsp;
-                        <span tal:content="python:r.get('prev_date_fmt') or r.get('prev_date') or u'—'">—</span>
+                        <span tal:content="python:r.get('prev_date_fmt') or r.get('prev_date') or u'\u2014'">\u2014</span>
                       </div>
                     </td>
 
                     <td>
                       <div tal:condition="python:(r.get('delta_pct') is not None)">
-                        <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
-                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'Δ', (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
+                        <span tal:attributes="class python:(r.get('delta_dir')==u'\u25b2' and 'delta-up' or (r.get('delta_dir')==u'\u25bc' and 'delta-down' or ''))"
+                              tal:content="python:u'%s %s (%s)' % (r.get('delta_dir') or u'\u0394', (delta_abs_str), (delta_pct_str))">\u0394 +0.00 (+0%)</span>
                       </div>
-                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
+                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">\u2014</div>
                     </td>
 
                     <td>
                       <div class="trend-arrow"
-                           tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'↑') and 'trend-up' or (trend_arrow==u'↓') and 'trend-down' or 'trend-flat')"
-                           tal:content="python:trend_arrow">→</div>
+                           tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'\u2191') and 'trend-up' or (trend_arrow==u'\u2193') and 'trend-down' or 'trend-flat')"
+                           tal:content="python:trend_arrow">\u2192</div>
 
                       <canvas class="spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
