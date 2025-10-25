@@ -77,18 +77,29 @@
     .section-delta .trend-flat { color:#6c757d; }
 
     /* ===== SECCIÓN TENDENCIAS ===== */
-    .section-trends { margin: 30px 0; page-break-inside: avoid; }
+    .section-trends { 
+      margin: 30px 0; 
+      page-break-inside: avoid;
+      /* NUEVO: proteger contra floats previos y herencias de alineado */
+      clear: both;
+      text-align: initial !important;
+      direction: ltr !important;
+    }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
 
     /* === NUEVO: wrapper centrador para la vista previa === */
     .section-trends .chart-center-wrap {
-      width: 180mm;       /* igual al fallback PNG */
-      margin: 0 auto;     /* centrar horizontalmente */
-      max-width: 100%;    /* no desbordar en pantallas angostas */
+      width: 180mm;                 /* igual al fallback PNG */
+      max-width: 100%;
+      margin: 0 auto !important;    /* centrar horizontalmente */
+      float: none !important;       /* neutraliza cualquier float heredado */
+      display: flex;                /* centrado robusto */
+      justify-content: center;
+      align-items: flex-start;
     }
 
     .section-trends .chart-container {
-      width: 100% !important;     /* Highcharts toma este ancho */
+      width: 100% !important;       /* Highcharts toma este ancho del wrapper */
       height: 560px;
       margin: 20px 0;
       border: 1px solid #e9ecef;
@@ -97,6 +108,7 @@
       background: #fff;
       overflow: visible;
       display: none; /* se activa tras render en JS */
+      float: none !important;       /* evita empuje a la derecha por floats ajenos */
     }
 
     .section-trends .chart-container .highcharts-title,
