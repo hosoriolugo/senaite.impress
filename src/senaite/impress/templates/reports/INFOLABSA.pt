@@ -8,98 +8,51 @@
   <!-- Cargar Highcharts (usado solo en navegador, no en WeasyPrint) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
-  <!-- Afinado visual: separadores tenues estilo cool -->
+  <!-- Afinado visual + paginación inteligente -->
   <style>
-    .section-summary table.table-condensed {
-      border-collapse: collapse;
-      border-spacing: 0;
-    }
-    .section-summary table.table-condensed td {
-      border-bottom: 1px solid #dee2e6 !important;
-      padding-top: 2px;
-      padding-bottom: 2px;
-      vertical-align: top;
-    }
+    .section-summary table.table-condensed { border-collapse: collapse; border-spacing: 0; }
+    .section-summary table.table-condensed td { border-bottom: 1px solid #dee2e6 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: top; }
     .section-summary h2 { margin-bottom: 6px !important; }
     .section-summary td.label { color: #666; font-weight: 700; width: 25%; }
     .section-summary td + td { width: 25%; }
-
-    /* Titulares en negro y negritas */
     .section-title { color: #000; font-weight: 800; }
 
-    /* Encabezado tipo default: tabla sin bordes/padding */
     .noborder { border: 0; }
     .noborder td, .noborder th { border: 0 !important; padding: 0 !important; }
 
-    /* Contenedor de barcode como en default */
     .barcode { display: inline-block; line-height: 1; }
     .barcode canvas, .barcode svg, .barcode img { display: block; height: auto; }
-
-    /* ===== Pegado total a la derecha del código de barras ===== */
     .barcode-box{ display:inline-block; text-align:right; float:right; margin-right:0; }
     .section-summary .noborder td.text-right { padding-right: 0 !important; }
+    .barcode-hri { display: block; text-align: center; font-size: 11px; font-weight: 800; color: #000; margin-top: 2px; line-height: 1.1; }
 
-    /* === SOLO CAMBIO: HRI centrado bajo el código de barras === */
-    .barcode-hri {
-      display: block; text-align: center; font-size: 11px; font-weight: 800;
-      color: #000; margin-top: 2px; line-height: 1.1;
-    }
-
-    /* === Alineación por defecto a la IZQUIERDA (como en Datos del Paciente) === */
     .section-summary table.table-condensed td,
     .section-summary table.table-condensed th { text-align: left; padding-left: .5rem; padding-right: .5rem; }
-
-    /* Celda con el ID textual (tabla de datos) a la izquierda */
     .barcode-cell { text-align: left; }
-
-    /* Resetea márgenes/sangrías del bloque y sus tablas */
     .section-summary .w-100 { margin-left: 0 !important; margin-right: 0 !important; }
     .section-summary .w-100 > table { margin-left: 0 !important; margin-right: 0 !important; width: 100% !important; }
     .section-summary .w-100 > table.noborder { border-collapse: collapse !important; table-layout: fixed; }
     .section-summary .w-100 > table.table { margin-top: 0 !important; }
-
-    /* Mantén la celda del encabezado (barcode) con el contenedor visible */
     td.text-right #sample-barcode { display: block; }
 
-    /* ====== CONTENIDOS centrados (ya lo tenías) ====== */
     .results-center-cells table.table tbody td:nth-child(n+2):nth-child(-n+6) { text-align: center !important; vertical-align: middle; }
     .results-center-cells table.table thead th:nth-child(n+2):nth-child(-n+6) { text-align: center !important; }
-
-    /* === AJUSTE: misma línea bajo los encabezados que en las demás secciones === */
-    .results-center-cells table.table.table-condensed {
-      border-collapse: collapse;
-      border-spacing: 0;
-    }
-    .results-center-cells table.table.table-condensed thead th {
-      border-bottom: 0 !important;
-      padding-top: 2px;
-      padding-bottom: 2px;
-      vertical-align: bottom;
-    }
-    .results-center-cells table.table.table-condensed thead tr {
-      border-bottom: 1px solid #dee2e6 !important;
-    }
-    .results-center-cells table.table.table-condensed tbody td {
-      border-bottom: 1px solid #dee2e6 !important;
-      padding-top: 2px; padding-bottom: 2px;
-      vertical-align: middle;
-    }
+    .results-center-cells table.table.table-condensed { border-collapse: collapse; border-spacing: 0; }
+    .results-center-cells table.table.table-condensed thead th { border-bottom: 0 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: bottom; }
+    .results-center-cells table.table.table-condensed thead tr { border-bottom: 1px solid #dee2e6 !important; }
+    .results-center-cells table.table.table-condensed tbody td { border-bottom: 1px solid #dee2e6 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: middle; }
 
     .section-interp h3 { color: #000; font-weight: 800; }
 
-    /* === Panel Delta Check (última página) === */
+    /* === Panel Delta Check === */
     .section-delta h2 { color:#000; font-weight:800; margin-bottom:6px !important; }
     .section-delta .small { font-size:90%; color:#6c757d; }
     .section-delta table.table-sm td, .section-delta table.table-sm th { padding-top:2px; padding-bottom:2px; }
-    .section-delta .delta-up   { color:#fd7e14; font-weight:700; } /* ▲ */
-    .section-delta .delta-down { color:#0d6efd; font-weight:700; } /* ▼ */
+    .section-delta .delta-up   { color:#fd7e14; font-weight:700; }
+    .section-delta .delta-down { color:#0d6efd; font-weight:700; }
     .section-delta .spark { width:120px; height:36px; }
-
-    /* RCV (dejado pero comentado en markup) */
     .section-delta .rcv-ok  { color:#198754; font-weight:700; }
     .section-delta .rcv-bad { color:#dc3545; font-weight:700; }
-
-    /* === Centrado de columnas del panel Delta === */
     .section-delta table.table-condensed thead th:nth-child(2),
     .section-delta table.table-condensed thead th:nth-child(3),
     .section-delta table.table-condensed thead th:nth-child(4),
@@ -110,112 +63,63 @@
     .section-delta table.table-condensed tbody td:nth-child(5) { text-align: center; vertical-align: middle; }
     .section-delta table.table-condensed thead th:nth-child(6),
     .section-delta table.table-condensed tbody td:nth-child(6) { text-align: center; vertical-align: middle; }
-
-    /* (conservada por si reactivas fechas) */
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
-
-    /* Flechas de tendencia en Delta Check */
-    .section-delta .trend-arrow {
-      display: block;
-      font-size: 16px;
-      font-weight: 700;
-      line-height: 1;
-      margin-bottom: 2px; /* flecha encima del spark */
-      text-align: center;
-    }
-    .section-delta .trend-up   { color:#fd7e14; } /* ↑ */
-    .section-delta .trend-down { color:#0d6efd; } /* ↓ */
-    .section-delta .trend-flat { color:#6c757d; } /* → */
+    .section-delta .trend-arrow { display: block; font-size: 16px; font-weight: 700; line-height: 1; margin-bottom: 2px; text-align: center; }
+    .section-delta .trend-up   { color:#fd7e14; }
+    .section-delta .trend-down { color:#0d6efd; }
+    .section-delta .trend-flat { color:#6c757d; }
 
     /* ===== SECCIÓN TENDENCIAS ===== */
-    .section-trends {
-      margin: 30px 0;
-      page-break-inside: avoid;
-    }
-    .section-trends .section-title {
-      color: #000;
-      font-weight: 800;
-      margin-bottom: 15px !important;
-      border-bottom: 2px solid #2c3e50;
-      padding-bottom: 5px;
-    }
+    .section-trends { margin: 30px 0; page-break-inside: avoid; }
+    .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
     .section-trends .chart-container {
-      width: 100%;
-      height: 560px; /* altura del contenedor = altura del chart */
-      margin: 20px 0;
-      border: 1px solid #e9ecef;
-      border-radius: 4px;
-      padding: 0;          /* FIX: sin padding para no recortar el SVG/título */
-      background: #fff;
-      overflow: visible;   /* asegurar visibilidad de textos fuera del plot area */
+      width: 100%; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px; padding: 0; background: #fff; overflow: visible;
     }
-    /* Forzar visibilidad del título/subtítulo por si alguna regla global los oculta */
     .section-trends .chart-container .highcharts-title,
-    .section-trends .chart-container .highcharts-subtitle {
-      display: block !important;
-      opacity: 1 !important;
-      visibility: visible !important;
-    }
-    .section-trends .chart-container svg {
-      overflow: visible !important;
-    }
+    .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
+    .section-trends .chart-container svg { overflow: visible !important; }
 
-    .section-trends .fallback-message {
-      text-align: center;
-      padding: 20px;
-      background: #f8f9fa;
-      border-radius: 5px;
-      border: 1px dashed #dee2e6;
-    }
-    .section-trends .fallback-message img {
-      display: block;
-      max-width: 100%;
-      height: auto;
-      margin: 0 auto;
-    }
+    .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
+    .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
     /* Control de visibilidad */
     .weasy-fallback { }
     .no-weasyprint { }
     body.has-highcharts .weasy-fallback { display: none !important; }
 
-    /* --- Paginación "inteligente" --- */
-    .section-interp { page-break-before: always; }
-    .section-delta { page-break-before: always; }
+    /* --- Paginación "inteligente" por defecto --- */
+    .section-interp { page-break-before: auto; }   /* antes era always */
+    .section-delta  { page-break-before: auto; }   /* antes era always */
     .section-trends { page-break-inside: avoid; }
 
+    /* Widows/Orphans para no dejar líneas huérfanas ni páginas medio vacías */
+    p, li, table { orphans: 2; widows: 2; }
+
+    /* Firmas/observaciones juntas */
+    .section-signatures, .section-remarks { page-break-inside: avoid; break-inside: avoid; }
+    .section-remarks { page-break-before: avoid; break-before: avoid; }
+
+    /* Clases dinámicas para pegar Delta + Tendencias en la misma página si Delta es "compacta" */
+    .delta-compact { page-break-inside: avoid; break-inside: avoid; page-break-after: avoid; break-after: avoid; }
+    .trends-with-delta { page-break-before: avoid; break-before: avoid; }
+
     @media print {
-      .pagebreak { page-break-before: always; }
-      .pagebreak-before { page-break-before: always; }
+      .pagebreak, .pagebreak-before { page-break-before: always; }
       .avoid-break-inside { page-break-inside: avoid; }
       .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
-      .section-delta { page-break-before: always; }
       .no-weasyprint { display: none !important; }
       .weasy-fallback { display: block !important; }
-      .section-trends {
-        page-break-inside: avoid;
-        break-inside: avoid;
-      }
 
-      /* --- NUEVO: evitar cortes entre título e imagen del fallback --- */
+      .section-trends { page-break-inside: avoid; break-inside: avoid; }
+      /* Título + imagen del fallback siempre juntos */
       .section-trends .weasy-fallback,
       .section-trends .weasy-fallback .fallback-message,
-      .section-trends .weasy-fallback .section-title {
-        page-break-inside: avoid;
-        break-inside: avoid;
-      }
-      .section-trends .weasy-fallback .section-title {
-        page-break-after: avoid;
-        break-after: avoid;
-        margin-bottom: 8px !important;
-      }
-      .section-trends .weasy-fallback .fallback-message img {
-        display: block;
-        page-break-inside: avoid;
-        break-inside: avoid;
-        max-width: 180mm; /* si aún empuja, baja a 170mm */
-        height: auto;
-      }
+      .section-trends .weasy-fallback .section-title { page-break-inside: avoid; break-inside: avoid; }
+      .section-trends .weasy-fallback .section-title { page-break-after: avoid; break-after: avoid; margin-bottom: 8px !important; }
+
+      /* Delta corta + Tendencias juntas cuando sea posible */
+      .delta-compact { page-break-after: avoid; break-after: avoid; }
+      .trends-with-delta { page-break-before: avoid; break-before: avoid; }
     }
   </style>
 
@@ -233,22 +137,18 @@
           <tr>
             <td class="align-middle text-left">
               <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
-              <!-- <div class="font-weight-bold font-size-120">INFOLABSA</div> -->
             </td>
-            <td class="align-middle text-right">
-              <!-- <img class="logo" tal:attributes="src string:${context/portal_url}/@@site-logo" /> -->
-            </td>
+            <td class="align-middle text-right"></td>
           </tr>
         </table>
       </div>
     </div>
 
-    <!-- Secciones estandar (conservadas) -->
+    <!-- Secciones estándar -->
     <tal:t replace="structure python:view.render_info(ar, **options)" />
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
-    <!-- Datos del Paciente -->
-    <!-- (sin cambios) -->
+    <!-- Datos del Paciente (sin cambios) -->
     <tal:patient define="
       get python:getattr;
 
@@ -363,12 +263,9 @@
               </td>
               <td class="label" i18n:translate="">Edad</td>
               <td>
-                <span tal:condition="python:(age_years_int not in (None,0))"
-                      tal:content="python:u'%s a\u00f1os' % age_years_int">-</span>
-                <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int not in (None,0)))"
-                      tal:content="python:u'%s meses' % age_months_int">-</span>
-                <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)))"
-                      tal:content="age_raw|nothing">-</span>
+                <span tal:condition="python:(age_years_int not in (None,0))" tal:content="python:u'%s a\u00f1os' % age_years_int">-</span>
+                <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int not in (None,0)))" tal:content="python:u'%s meses' % age_months_int">-</span>
+                <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)))" tal:content="age_raw|nothing">-</span>
               </td>
             </tr>
             <tr>
@@ -412,8 +309,6 @@
     ">
       <div class="row section-summary no-gutters" tal:condition="show_sample">
         <div class="w-100">
-
-          <!-- Encabezado tipo default: título izq / barcode + HRI der -->
           <table class="w-100 mb-1 noborder">
             <colgroup><col style="width:70%"/><col style="width:30%"/></colgroup>
             <tr>
@@ -423,17 +318,11 @@
               <td class="align-middle text-right" tal:condition="sid">
                 <div class="barcode-box">
                   <div id="sample-barcode" class="barcode"
-                       tal:attributes="
-                         data-code sid;
-                         data-type string:code128;
-                         data-barwidth string:1;
-                         data-barheight string:26;
-                         title sid">
+                       tal:attributes="data-code sid; data-type string:code128; data-barwidth string:1; data-barheight string:26; title sid">
                     <span tal:replace="sid">SAMPLE-ID</span>
                   </div>
                   <div class="barcode-hri"><span tal:replace="sid">SAMPLE-ID</span></div>
                 </div>
-
                 <script type="text/javascript">
                   (function() {
                     if (window.jQuery) {
@@ -447,14 +336,9 @@
                               $el.empty().barcode(
                                 code,
                                 $el.attr('data-type') || 'code128',
-                                {
-                                  barWidth: parseInt($el.attr('data-barwidth') || 1, 10),
-                                  barHeight: parseInt($el.attr('data-barheight') || 26),
-                                  bgColor: '#ffffff',
-                                  color: '#000000',
-                                  output: 'svg',
-                                  showHRI: false
-                                }
+                                { barWidth: parseInt($el.attr('data-barwidth') || 1, 10),
+                                  barHeight: parseInt($el.attr('data-barheight') || 26, 10),
+                                  bgColor: '#ffffff', color: '#000000', output: 'svg', showHRI: false }
                               );
                             } catch(e) { /* no-op */ }
                           }
@@ -495,7 +379,7 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretacion de resultados -->
+    <!-- Interpretación de resultados -->
     <tal:interp define="
       get python:getattr;
 
@@ -549,7 +433,7 @@
 
       show python:any([gen, qc, has_dept]);
     ">
-      <div class="row section-interp no-gutters pagebreak-before" tal:condition="show">
+      <div class="row section-interp no-gutters" tal:condition="show">
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Interpretación de resultados</h2>
 
@@ -576,23 +460,26 @@
     <!-- Adjuntos, observaciones, firmas -->
     <tal:t replace="structure python:view.render_attachments(ar, **options)" />
     <tal:t replace="structure python:view.render_remarks(ar, **options)" />
-
-    <!-- Firmas -->
     <tal:t replace="structure python:view.render_signatures(ar, **options)" />
 
     <!-- Discreeter y pie -->
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (última página) =========== -->
+    <!-- =========== Delta Check (intenta ir con Tendencias) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
+      rows_count python:len(rows);
       hasrows python:bool(rows);
+      compact python:(rows_count <= 8);  /* umbral "compacto": ajusta si quieres */
     ">
-      <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
+      <div class="row section-delta no-gutters"
+           tal:condition="hasrows"
+           tal:attributes="class python:u'row section-delta no-gutters ' + (compact and u'delta-compact' or u'')"
+           id="delta-check-panel">
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Tendencia (Delta check)</h2>
           <div class="small" tal:condition="delta/period_label">
@@ -633,7 +520,6 @@
                       <div><strong tal:content="r/name">Analito</strong></div>
                       <div class="small" tal:condition="python:r.get('unit')" tal:content="python:r.get('unit')">U</div>
                     </td>
-
                     <td>
                       <div tal:content="python:r.get('value_now') or u'—'">—</div>
                       <div class="small"
@@ -645,7 +531,6 @@
                              get(ar,'created',None)
                            )">—</div>
                     </td>
-
                     <td>
                       <div tal:content="python:r.get('prev_value') or u'—'">—</div>
                       <div class="small">
@@ -655,7 +540,6 @@
                         <span tal:content="python:r.get('prev_date_fmt') or r.get('prev_date') or u'—'">—</span>
                       </div>
                     </td>
-
                     <td>
                       <div tal:condition="python:(r.get('delta_pct') is not None)">
                         <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
@@ -663,16 +547,11 @@
                       </div>
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
-
-                    <!-- Tendencia (flecha + sparkline) -->
                     <td>
-                      <!-- Flecha de dirección (↑ ↓ →) -->
                       <div class="trend-arrow"
                            tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'↑') and 'trend-up' or (trend_arrow==u'↓') and 'trend-down' or 'trend-flat')"
                            tal:content="python:trend_arrow">→</div>
-
-                      <canvas class="spark"
-                              tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
+                      <canvas class="spark" tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
                       <input type="hidden"
                              tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
                                              value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
@@ -682,21 +561,16 @@
               </tal:loop>
             </tbody>
           </table>
-
-          <!-- (ELIMINADO el bloque "Tendencias por analito" que dejaba hueco) -->
         </div>
       </div>
 
-      <!-- Dibujo de mini-sparklines -->
+      <!-- Dibujo de mini-sparklines (preview) -->
       <script type="text/javascript" tal:condition="hasrows">
       (function(){
         function parseTime(s){
           if (!s) return 0;
           var st = String(s).trim();
-          if (/^\d{9,}$/.test(st)) {
-            var num = parseInt(st,10);
-            return (st.length<=10) ? (num*1000) : num;
-          }
+          if (/^\d{9,}$/.test(st)) { var num = parseInt(st,10); return (st.length<=10) ? (num*1000) : num; }
           if (st.indexOf(' ')>0 && st.indexOf('T')<0) st = st.replace(' ', 'T');
           var t = Date.parse(st);
           return isNaN(t) ? 0 : t;
@@ -715,24 +589,20 @@
           var sx = function(x){ return pad + (x - xmin) * (W-2*pad) / (xmax - xmin); };
           var sy = function(y){ return H - pad - (y - ymin) * (H-2*pad) / (ymax - ymin); };
           ctx.clearRect(0,0,W,H);
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = '#343a40';
-          ctx.beginPath();
-          ctx.moveTo(sx(points[0][0]), sy(points[0][1]));
+          ctx.lineWidth = 1; ctx.strokeStyle = '#343a40';
+          ctx.beginPath(); ctx.moveTo(sx(points[0][0]), sy(points[0][1]));
           for (var i=1;i<points.length;i++){ ctx.lineTo(sx(points[i][0]), sy(points[i][1])); }
           ctx.stroke();
           var last = points[points.length-1];
-          ctx.fillStyle = '#343a40';
-          ctx.beginPath();
-          ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true);
-          ctx.fill();
+          ctx.fillStyle = '#343a40'; ctx.beginPath();
+          ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true); ctx.fill();
         }
         function parseHiddenSpark(id){
           var el = document.getElementById(id);
           if (!el) return null;
           var raw = (el.value || '').trim();
           if (!raw) return null;
-          var pts = rawsplit = raw.split('|').map(function(s){
+          var pts = raw.split('|').map(function(s){
             var kv = s.split(',');
             var t = parseTime(kv[0]);
             var v = parseFloat(kv[1]);
@@ -752,11 +622,7 @@
           }
         }
         function init(){ initSparks(); }
-        if (document.readyState === 'loading'){
-          document.addEventListener('DOMContentLoaded', init);
-        } else {
-          init();
-        }
+        if (document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', init); } else { init(); }
       })();
       </script>
     </tal:delta>
@@ -774,41 +640,43 @@
              (_get_trends and (callable(_get_trends) and _get_trends() or _get_trends))
              or (_delta and (_delta.get('chart_v2') or _delta.get('chart')))
              or {}
-           )
+           );
+           rows python:(_delta and _delta.get('rows') or []);
+           rows_count python:len(rows);
+           compact python:(rows_count <= 8);
          "
-         tal:condition="python:bool(trends_data)">
+         tal:condition="python:bool(trends_data)"
+         tal:attributes="class python:u'section-trends ' + (compact and u'trends-with-delta' or u'')">
 
-      <!-- Título para pantalla (no se imprime) -->
-      <h2 class="section-title no-weasyprint">Tendencias de Resultados en el Tiempo</h2>
-
-      <!-- Contenedor para Highcharts (solo en navegador) -->
-      <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
-
-      <!-- Fallback para WeasyPrint (PNG con data-URI) -->
-      <div class="weasy-fallback"
-           tal:define="
-             get python:getattr;
-             ar_uid python:(
-               (get(ar,'UID',None) and ar.UID()) or
-               (get(ar,'getUID',None) and ar.getUID()) or
-               (get(model,'UID',None) and model.UID()) or
-               options.get('uid','')
-             );
-             rid python:(
-               (get(ar,'getId',None) and ar.getId()) or
-               (hasattr(ar,'id') and ar.id) or
-               (get(ar,'getRequestID',None) and ar.getRequestID()) or
-               options.get('rid','')
-             );
-           ">
-        <!-- Título dentro del bloque que sí imprime -->
+      <!-- PREVIEW: título + Highcharts SOLO si NO es PDF -->
+      <tal:preview tal:condition="python:not options.get('pdf', False)">
         <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
+        <div id="trends-chart-container" class="chart-container"></div>
+      </tal:preview>
 
+      <!-- PDF: título + fallback estático SOLO si ES PDF -->
+      <tal:print tal:condition="python:options.get('pdf', False)"
+                 tal:define="
+                   get python:getattr;
+                   ar_uid python:(
+                     (get(ar,'UID',None) and ar.UID()) or
+                     (get(ar,'getUID',None) and ar.getUID()) or
+                     (get(model,'UID',None) and model.UID()) or
+                     options.get('uid','')
+                   );
+                   rid python:(
+                     (get(ar,'getId',None) and ar.getId()) or
+                     (hasattr(ar,'id') and ar.id) or
+                     (get(ar,'getRequestID',None) and ar.getRequestID()) or
+                     options.get('rid','')
+                   );
+                   img_style python:(compact and 'width:160mm; height:auto;' or 'width:180mm; height:auto;');
+                 ">
+        <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
         <div class="fallback-message">
-          <!-- 180mm ≈ 7.087in; 7.087 * 96 ≈ 680px -->
           <img alt="Gráfico de tendencias (PNG)"
-               style="width:180mm; height:auto;"
                tal:attributes="
+                 style img_style;
                  src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                    uid=ar_uid, rid=rid,
                    w=680, h=340, dpi=96,
@@ -819,124 +687,76 @@
                    sharpen=1
                  )" />
         </div>
-      </div>
+      </tal:print>
 
-      <!-- Script para inicializar Highcharts con datos reales -->
-      <script type="text/javascript">
+      <!-- Script Highcharts solo en PREVIEW -->
+      <script type="text/javascript" tal:condition="python:not options.get('pdf', False)">
         (function() {
-          if (typeof window.WeasyPrint === 'undefined') {
-            var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
-            if (!trendsData || !trendsData.series || !trendsData.series.length) return;
+          var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
+          if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            // === Normalización para equidistancia en navegador ===
-            var cats = trendsData.categories || [];
-            var n = cats.length || 0;
-            var series = (trendsData.series || []).map(function(s){
-              var d = s.data || [];
-              var mapped = d.map(function(p, i){
-                var y = (p && typeof p === 'object')
-                          ? (Array.isArray(p) ? p[1] : p.y)
-                          : p;
-                return [i, y];
-              });
-              var copy = Object.assign({}, s);
-              copy.data = mapped;
-              return copy;
+          var cats = trendsData.categories || [];
+          var n = cats.length || 0;
+          var series = (trendsData.series || []).map(function(s){
+            var d = s.data || [];
+            var mapped = d.map(function(p, i){
+              var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+              return [i, y];
             });
+            var copy = Object.assign({}, s); copy.data = mapped; return copy;
+          });
 
-            var step = (n <= 6) ? 1 : Math.ceil(n / 6);
-            var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
+          var step = (n <= 6) ? 1 : Math.ceil(n / 6);
+          var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
-            var options = {
-              chart: {
-                type: 'line',
-                height: 560,
-                backgroundColor: 'transparent',
-                spacingTop: 60,
-                spacingBottom: 16,
-                marginTop: 60
-              },
-              title: {
-                text: (trendsData.title || 'Tendencias de Resultados'),
-                margin: 12,
-                style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
-              },
-              subtitle: {
-                text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                y: 30,
-                style: { color: '#6c757d', fontSize: '12px' }
-              },
-              xAxis: {
-                categories: cats,
-                tickPositions: tickPositions,
-                labels: { style: { color: '#333' }, rotation: -45, step: step },
-                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
-                tickmarkPlacement: 'on'
-              },
-              yAxis: {
-                title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
-                labels: { style: { color: '#333' } },
-                min: trendsData.yMin,
-                max: trendsData.yMax,
-                gridLineColor: '#f0f0f0'
-              },
-              legend: {
-                enabled: true,
-                layout: 'horizontal',
-                align: 'center',
-                verticalAlign: 'bottom',
-                y: 0,
-                itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' }
-              },
-              plotOptions: {
-                line: {
-                  marker: { enabled: true, radius: 4 },
-                  dataLabels: {
-                    enabled: true,
-                    formatter: function(){
-                      var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
-                      return (this.y != null)
-                             ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u
-                             : '';
-                    },
-                    style: { textOutline: '1px contrast' }
+          if (typeof Highcharts === 'undefined') return;
+          Highcharts.chart('trends-chart-container', {
+            chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
+            title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
+                     style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
+            subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+                        style: { color: '#6c757d', fontSize: '12px' } },
+            xAxis: { categories: cats, tickPositions: tickPositions,
+                     labels: { style: { color: '#333' }, rotation: -45, step: step },
+                     title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                     tickmarkPlacement: 'on' },
+            yAxis: { title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
+                     labels: { style: { color: '#333' } }, min: trendsData.yMin, max: trendsData.yMax, gridLineColor: '#f0f0f0' },
+            legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
+                      itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
+            plotOptions: {
+              line: {
+                marker: { enabled: true, radius: 4 },
+                dataLabels: {
+                  enabled: true,
+                  formatter: function(){
+                    var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
+                    return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
                   },
-                  enableMouseTracking: true
-                }
-              },
-              tooltip: {
-                shared: true, crosshairs: true,
-                formatter: function() {
-                  var idx = this.points && this.points.length ? this.points[0].point.x : this.point && this.point.x;
-                  var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
-                  var s = '<b>' + fecha + '</b>';
-                  this.points.forEach(function(p) {
-                    var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
-                    s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
-                         ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
-                  });
-                  return s;
-                }
-              },
-              series: series,
-              credits: { enabled: false },
-              exporting: { enabled: false }
-            };
-
-            if (typeof Highcharts !== 'undefined') {
-              Highcharts.chart('trends-chart-container', options);
-              var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; }
-              if (Highcharts.charts && Highcharts.charts.length) {
-                var c = Highcharts.charts[Highcharts.charts.length - 1];
-                if (c && c.reflow) c.reflow();
+                  style: { textOutline: '1px contrast' }
+                },
+                enableMouseTracking: true
               }
-              var fb = document.querySelector('.section-trends .weasy-fallback'); if (fb) fb.style.display = 'none';
-              try { document.body.classList.add('has-highcharts'); } catch(e){}
-            } else {
-              console.error('Highcharts no está cargado');
-            }
-          }
+            },
+            tooltip: {
+              shared: true, crosshairs: true,
+              formatter: function() {
+                var idx = this.points && this.points.length ? this.points[0].point.x : this.point && this.point.x;
+                var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
+                var s = '<b>' + fecha + '</b>';
+                this.points.forEach(function(p) {
+                  var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
+                  s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
+                       ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
+                });
+                return s;
+              }
+            },
+            series: series,
+            credits: { enabled: false },
+            exporting: { enabled: false }
+          });
+          try { document.body.classList.add('has-highcharts'); } catch(e){}
         })();
       </script>
     </div>
