@@ -126,10 +126,7 @@
     <div class="row section-header no-gutters">
       <div class="w-100 mb-2">
         <table class="w-100 mb-0 noborder">
-          <colgroup>
-            <col style="width:65%"/>
-            <col style="width:35%"/>
-          </colgroup>
+          <colgroup><col style='width:65%'/><col style='width:35%'/></colgroup>
           <tr>
             <td class="align-middle text-left">
               <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
@@ -672,7 +669,7 @@
         <div class="fallback-message">
           <img alt="Gráfico de tendencias (PNG)"
                tal:attributes="
-                 style img_style;
+                 style python:img_style;
                  src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                    uid=ar_uid, rid=rid,
                    w=680, h=340, dpi=96,
