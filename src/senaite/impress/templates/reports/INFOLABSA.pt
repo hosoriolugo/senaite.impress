@@ -79,10 +79,29 @@
     /* ===== SECCIÓN TENDENCIAS ===== */
     .section-trends { margin: 30px 0; page-break-inside: avoid; }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
+
+    /* AJUSTE: el contenedor existe (display:block) pero está invisible al inicio; mismo ancho que el PNG */
     .section-trends .chart-container {
-      width: 100%; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px;
-      padding: 0; background: #fff; overflow: visible; display: none;
+      width: 100%;
+      max-width: 180mm;
+      height: 560px;
+      margin: 20px auto;
+      border: 1px solid #e9ecef;
+      border-radius: 4px;
+      padding: 0;
+      background: #fff;
+      overflow: visible;
+      display: block;
+      visibility: hidden;   /* importante para que Highcharts mida bien */
+      position: relative;
     }
+    /* centra el SVG interno de Highcharts */
+    .section-trends .chart-container .highcharts-container {
+      left: 0 !important;
+      right: 0 !important;
+      margin: 0 auto !important;
+    }
+
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
     .section-trends .chart-container svg { overflow: visible !important; }
@@ -818,15 +837,22 @@
             };
 
             if (typeof Highcharts !== 'undefined') {
-              var chart = Highcharts.chart('trends-chart-container', options);
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; el.style.display = 'block'; }
-              if (Highcharts.charts && Highcharts.charts.length) {
-                var c = Highcharts.charts[Highcharts.charts.length - 1];
-                if (c && c.reflow) c.reflow();
-              }
+              if (!el) return;
+
+              // Contenedor ya está display:block; visibility:hidden en CSS
+              var chart = Highcharts.chart('trends-chart-container', options);
+
+              // Mostrar solo cuando ya midió/dibujó
+              el.style.height = '560px';
+              el.style.visibility = 'visible';
+
+              if (chart && chart.reflow) chart.reflow();
+
+              // ocultamos el fallback PNG en vista previa
               var fb = document.querySelector('.section-trends .weasy-fallback');
               if (fb) fb.style.display = 'none';
+
               try { document.body.classList.add('has-highcharts'); } catch(e){}
             } else {
               console.error('Highcharts no está cargado');
