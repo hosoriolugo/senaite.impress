@@ -79,13 +79,30 @@
     /* ===== SECCIÓN TENDENCIAS ===== */
     .section-trends { margin: 30px 0; page-break-inside: avoid; }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
-    .section-trends .chart-container {
-      width: 100%; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px;
-      padding: 0; background: #fff; overflow: visible; display: none;
+
+    /* === NUEVO: wrapper centrador para la vista previa === */
+    .section-trends .chart-center-wrap {
+      width: 180mm;       /* igual al fallback PNG */
+      margin: 0 auto;     /* centrar horizontalmente */
+      max-width: 100%;    /* no desbordar en pantallas angostas */
     }
+
+    .section-trends .chart-container {
+      width: 100% !important;     /* Highcharts toma este ancho */
+      height: 560px;
+      margin: 20px 0;
+      border: 1px solid #e9ecef;
+      border-radius: 4px;
+      padding: 0;
+      background: #fff;
+      overflow: visible;
+      display: none; /* se activa tras render en JS */
+    }
+
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
     .section-trends .chart-container svg { overflow: visible !important; }
+
     .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
     .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
@@ -114,32 +131,7 @@
     .section-attachments h3:first-of-type { display: none !important; }
     .section-attachments img { max-width: 180mm; width: 100%; height: auto; }
 
-    /* ====== Centrado robusto para vista previa ====== */
-    /* tu línea solicitada */
-    .section-trends { text-align: initial !important; direction: ltr !important; }
-    /* centrado a prueba de herencias (no toca layout de página) */
-    .section-trends { position: relative !important; }
-    .section-trends #trends-chart-container {
-      position: relative !important;
-      left: 50% !important;
-      transform: translateX(-50%) !important;
-      display: block !important;
-      float: none !important;
-      margin: 20px 0 !important;
-      max-width: 180mm;
-      width: 100%;
-    }
-    /* si Highcharts crea un wrapper con ancho fijo, también lo centramos */
-    .section-trends .highcharts-container {
-      position: relative !important;
-      left: 50% !important;
-      transform: translateX(-50%) !important;
-      float: none !important;
-      margin: 0 !important;
-    }
-
     @media print {
-      /* Hacer atómico el bloque tail-pack para que salte completo si no cabe */
       .tail-pack { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
       .tail-pack .section-signatures,
       .tail-pack .section-remarks { page-break-inside: avoid; break-inside: avoid; }
@@ -161,7 +153,6 @@
       .section-trends .weasy-fallback .section-title { page-break-after: avoid; break-after: avoid; margin-bottom: 8px !important; }
       .section-trends .weasy-fallback .fallback-message img { display: block; page-break-inside: avoid; break-inside: avoid; max-width: 180mm; height: auto; }
 
-      /* Bloque de anexos atómico: si no cabe, pasa entero a la siguiente página */
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
     }
   </style>
@@ -718,7 +709,10 @@
          tal:condition="python:bool(trends_data)">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
-      <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
+      <!-- NUEVO: wrapper centrador -->
+      <div class="chart-center-wrap no-weasyprint">
+        <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
+      </div>
 
       <!-- Fallback (PNG) para PDF/WeasyPrint -->
       <div class="weasy-fallback"
@@ -836,7 +830,7 @@
             if (typeof Highcharts !== 'undefined') {
               var chart = Highcharts.chart('trends-chart-container', options);
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; el.style.display = 'block'; }
+              if (el) { el.style.display = 'block'; }
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
@@ -867,7 +861,6 @@
         options.get('rid','')
       );
     ">
-      <!-- NO forzamos salto; el bloque es atómico y saltará si no cabe -->
       <div class="attachments-end avoid-break-inside" tal:condition="has_atts_end" style="margin-top:10mm;">
         <h2 class="section-title" style="margin-bottom:6px;">
           <span>Anexos</span>
