@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
-  <!-- Assets estandar de Impress -->
+  <!-- Assets estándar de Impress -->
   <tal:t replace="structure python:view.render_controls(context, **options)" />
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  <!-- Cargar Highcharts (usado solo en navegador, no en WeasyPrint) -->
+  <!-- Highcharts (solo navegador) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
-  <!-- Afinado visual + paginación inteligente -->
+  <!-- Estilos y paginación -->
   <style>
     .section-summary table.table-condensed { border-collapse: collapse; border-spacing: 0; }
     .section-summary table.table-condensed td { border-bottom: 1px solid #dee2e6 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: top; }
@@ -22,7 +22,7 @@
 
     .barcode { display: inline-block; line-height: 1; }
     .barcode canvas, .barcode svg, .barcode img { display: block; height: auto; }
-    .barcode-box{ display:inline-block; text-align:right; float:right; margin-right:0; }
+    .barcode-box { display: inline-block; text-align: right; float: right; margin-right: 0; }
     .section-summary .noborder td.text-right { padding-right: 0 !important; }
     .barcode-hri { display: block; text-align: center; font-size: 11px; font-weight: 800; color: #000; margin-top: 2px; line-height: 1.1; }
 
@@ -44,14 +44,14 @@
 
     .section-interp h3 { color: #000; font-weight: 800; }
 
-    /* === Panel Delta Check === */
+    /* Delta check */
     .section-delta h2 { color:#000; font-weight:800; margin-bottom:6px !important; }
     .section-delta .small { font-size:90%; color:#6c757d; }
     .section-delta table.table-sm td, .section-delta table.table-sm th { padding-top:2px; padding-bottom:2px; }
-    .section-delta .delta-up   { color:#fd7e14; font-weight:700; }
+    .section-delta .delta-up { color:#fd7e14; font-weight:700; }
     .section-delta .delta-down { color:#0d6efd; font-weight:700; }
     .section-delta .spark { width:120px; height:36px; }
-    .section-delta .rcv-ok  { color:#198754; font-weight:700; }
+    .section-delta .rcv-ok { color:#198754; font-weight:700; }
     .section-delta .rcv-bad { color:#dc3545; font-weight:700; }
     .section-delta table.table-condensed thead th:nth-child(2),
     .section-delta table.table-condensed thead th:nth-child(3),
@@ -65,41 +65,34 @@
     .section-delta table.table-condensed tbody td:nth-child(6) { text-align: center; vertical-align: middle; }
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
     .section-delta .trend-arrow { display: block; font-size: 16px; font-weight: 700; line-height: 1; margin-bottom: 2px; text-align: center; }
-    .section-delta .trend-up   { color:#fd7e14; }
+    .section-delta .trend-up { color:#fd7e14; }
     .section-delta .trend-down { color:#0d6efd; }
     .section-delta .trend-flat { color:#6c757d; }
 
-    /* ===== SECCIÓN TENDENCIAS ===== */
+    /* Tendencias */
     .section-trends { margin: 30px 0; page-break-inside: avoid; }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
-    .section-trends .chart-container {
-      width: 100%; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px; padding: 0; background: #fff; overflow: visible;
-    }
+    .section-trends .chart-container { width:100%; height:560px; margin:20px 0; border:1px solid #e9ecef; border-radius:4px; padding:0; background:#fff; overflow:visible; }
     .section-trends .chart-container .highcharts-title,
-    .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
-    .section-trends .chart-container svg { overflow: visible !important; }
+    .section-trends .chart-container .highcharts-subtitle { display:block !important; opacity:1 !important; visibility:visible !important; }
+    .section-trends .chart-container svg { overflow:visible !important; }
+    .section-trends .fallback-message { text-align:center; padding:20px; background:#f8f9fa; border-radius:5px; border:1px dashed #dee2e6; }
+    .section-trends .fallback-message img { display:block; max-width:100%; height:auto; margin:0 auto; }
 
-    .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
-    .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
-
-    /* Control de visibilidad */
+    /* Control preview/pdf */
     .weasy-fallback { }
     .no-weasyprint { }
     body.has-highcharts .weasy-fallback { display: none !important; }
 
-    /* --- Paginación "inteligente" por defecto --- */
-    .section-interp { page-break-before: auto; }   /* antes era always */
-    .section-delta  { page-break-before: auto; }   /* antes era always */
+    /* Paginación “inteligente” */
+    .section-interp { page-break-before: auto; }
+    .section-delta  { page-break-before: auto; }
     .section-trends { page-break-inside: avoid; }
-
-    /* Widows/Orphans para no dejar líneas huérfanas ni páginas medio vacías */
     p, li, table { orphans: 2; widows: 2; }
-
-    /* Firmas/observaciones juntas */
     .section-signatures, .section-remarks { page-break-inside: avoid; break-inside: avoid; }
     .section-remarks { page-break-before: avoid; break-before: avoid; }
 
-    /* Clases dinámicas para pegar Delta + Tendencias en la misma página si Delta es "compacta" */
+    /* Intentar pegar Delta + Tendencias cuando Delta es “compacta” */
     .delta-compact { page-break-inside: avoid; break-inside: avoid; page-break-after: avoid; break-after: avoid; }
     .trends-with-delta { page-break-before: avoid; break-before: avoid; }
 
@@ -109,8 +102,8 @@
       .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
       .no-weasyprint { display: none !important; }
       .weasy-fallback { display: block !important; }
-
       .section-trends { page-break-inside: avoid; break-inside: avoid; }
+
       /* Título + imagen del fallback siempre juntos */
       .section-trends .weasy-fallback,
       .section-trends .weasy-fallback .fallback-message,
@@ -133,7 +126,10 @@
     <div class="row section-header no-gutters">
       <div class="w-100 mb-2">
         <table class="w-100 mb-0 noborder">
-          <colgroup><col style=&quot;width:65%&quot;/><col style=&quot;width:35%&quot;/></colgroup>
+          <colgroup>
+            <col style="width:65%"/>
+            <col style="width:35%"/>
+          </colgroup>
           <tr>
             <td class="align-middle text-left">
               <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
@@ -148,7 +144,7 @@
     <tal:t replace="structure python:view.render_info(ar, **options)" />
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
-    <!-- Datos del Paciente (sin cambios) -->
+    <!-- Datos del Paciente -->
     <tal:patient define="
       get python:getattr;
 
@@ -159,7 +155,7 @@
         None
       );
 
-      idents python:(patient and (get(patient,'getIdentifiers',None) and patient.getIdentifiers()) or []) ;
+      idents python:(patient and (get(patient,'getIdentifiers',None) and patient.getIdentifiers()) or []);
 
       mrn_from_ids python:(
         u''.join([ i.get('value','') for i in (idents or [])
@@ -279,7 +275,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra (sin cambios) -->
+    <!-- Resumen de la Muestra -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -466,7 +462,7 @@
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (intenta ir con Tendencias) =========== -->
+    <!-- =========== Delta Check (inteligente) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
@@ -474,7 +470,7 @@
       rows python:(delta and delta.get('rows') or []);
       rows_count python:len(rows);
       hasrows python:bool(rows);
-      compact python:(rows_count <= 8);  /* umbral "compacto": ajusta si quieres */
+      compact python:(rows_count <= 8);
     ">
       <div class="row section-delta no-gutters"
            tal:condition="hasrows"
@@ -564,7 +560,7 @@
         </div>
       </div>
 
-      <!-- Dibujo de mini-sparklines (preview) -->
+      <!-- JS mini-sparklines (solo navegador) -->
       <script type="text/javascript" tal:condition="hasrows">
       (function(){
         function parseTime(s){
@@ -594,8 +590,8 @@
           for (var i=1;i<points.length;i++){ ctx.lineTo(sx(points[i][0]), sy(points[i][1])); }
           ctx.stroke();
           var last = points[points.length-1];
-          ctx.fillStyle = '#343a40'; ctx.beginPath();
-          ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true); ctx.fill();
+          ctx.fillStyle = '#343a40';
+          ctx.beginPath(); ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true); ctx.fill();
         }
         function parseHiddenSpark(id){
           var el = document.getElementById(id);
@@ -621,14 +617,14 @@
             if (pts) drawSpark(c, pts);
           }
         }
-        function init(){ initSparks(); }
-        if (document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', init); } else { init(); }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSparks);
+        else initSparks();
       })();
       </script>
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (DESPUÉS DEL DELTA CHECK) =========== -->
+    <!-- =========== Tendencias (después de Delta) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -648,13 +644,13 @@
          tal:condition="python:bool(trends_data)"
          tal:attributes="class python:u'section-trends ' + (compact and u'trends-with-delta' or u'')">
 
-      <!-- PREVIEW: título + Highcharts SOLO si NO es PDF -->
+      <!-- PREVIEW: título + Highcharts -->
       <tal:preview tal:condition="python:not options.get('pdf', False)">
         <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
         <div id="trends-chart-container" class="chart-container"></div>
       </tal:preview>
 
-      <!-- PDF: título + fallback estático SOLO si ES PDF -->
+      <!-- PDF: título + imagen fallback -->
       <tal:print tal:condition="python:options.get('pdf', False)"
                  tal:define="
                    get python:getattr;
@@ -689,7 +685,7 @@
         </div>
       </tal:print>
 
-      <!-- Script Highcharts solo en PREVIEW -->
+      <!-- Script Highcharts solo PREVIEW -->
       <script type="text/javascript" tal:condition="python:not options.get('pdf', False)">
         (function() {
           var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
