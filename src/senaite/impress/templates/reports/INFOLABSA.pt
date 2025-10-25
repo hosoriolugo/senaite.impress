@@ -145,20 +145,19 @@
       margin: 20px 0;
       border: 1px solid #e9ecef;
       border-radius: 4px;
-      padding: 0;          /* FIX: sin padding para no recortar el SVG/título */
+      padding: 0;          /* sin padding para no recortar el SVG/título */
       background: #fff;
       overflow: visible;   /* asegurar visibilidad de textos fuera del plot area */
+      display: none;       /* OCULTO por defecto: lo muestra el JS del navegador */
     }
-    /* Forzar visibilidad del título/subtítulo por si alguna regla global los oculta */
+    /* Forzar visibilidad del título/subtítulo del chart por si alguna regla global los oculta */
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle {
       display: block !important;
       opacity: 1 !important;
       visibility: visible !important;
     }
-    .section-trends .chart-container svg {
-      overflow: visible !important;
-    }
+    .section-trends .chart-container svg { overflow: visible !important; }
 
     .section-trends .fallback-message {
       text-align: center;
@@ -174,10 +173,10 @@
       margin: 0 auto;
     }
 
-    /* Control de visibilidad */
-    .weasy-fallback { }
-    .no-weasyprint { }
-    body.has-highcharts .weasy-fallback { display: none !important; }
+    /* Control de visibilidad (robusto para PDF) */
+    .no-weasyprint { display: none !important; }   /* por defecto, oculto lo de pantalla */
+    .weasy-fallback { display: block !important; } /* por defecto, muestro el fallback del PDF */
+    body.has-highcharts .weasy-fallback { display: none !important; } /* navegador: si hay chart, oculto fallback */
 
     /* --- Paginación "inteligente" --- */
     .section-interp { page-break-before: always; }
@@ -190,14 +189,16 @@
       .avoid-break-inside { page-break-inside: avoid; }
       .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
       .section-delta { page-break-before: always; }
+
+      /* En PDF: oculto las piezas de pantalla y muestro fallback (ya es el default arriba) */
       .no-weasyprint { display: none !important; }
       .weasy-fallback { display: block !important; }
+
       .section-trends {
         page-break-inside: avoid;
         break-inside: avoid;
       }
-
-      /* Evitar cortes entre título e imagen del fallback */
+      /* evitar cortes entre título e imagen del fallback */
       .section-trends .weasy-fallback,
       .section-trends .weasy-fallback .fallback-message,
       .section-trends .weasy-fallback .section-title {
@@ -233,21 +234,19 @@
           <tr>
             <td class="align-middle text-left">
               <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
-              <!-- <div class="font-weight-bold font-size-120">INFOLABSA</div> -->
             </td>
-            <td class="align-middle text-right">
-              <!-- <img class="logo" tal:attributes="src string:${context/portal_url}/@@site-logo" /> -->
-            </td>
+            <td class="align-middle text-right"></td>
           </tr>
         </table>
       </div>
     </div>
 
-    <!-- Secciones estandar (conservadas) -->
+    <!-- Secciones estandar -->
     <tal:t replace="structure python:view.render_info(ar, **options)" />
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
+    <!-- (todo tu bloque de paciente tal como lo tenías) -->
     <tal:patient define="
       get python:getattr;
 
@@ -381,7 +380,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra -->
+    <!-- Resumen de la Muestra (sin cambios) -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -411,8 +410,6 @@
     ">
       <div class="row section-summary no-gutters" tal:condition="show_sample">
         <div class="w-100">
-
-          <!-- Encabezado tipo default: título izq / barcode + HRI der -->
           <table class="w-100 mb-1 noborder">
             <colgroup><col style="width:70%"/><col style="width:30%"/></colgroup>
             <tr>
@@ -432,7 +429,6 @@
                   </div>
                   <div class="barcode-hri"><span tal:replace="sid">SAMPLE-ID</span></div>
                 </div>
-
                 <script type="text/javascript">
                   (function() {
                     if (window.jQuery) {
@@ -494,7 +490,7 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretación de resultados -->
+    <!-- Interpretacion de resultados -->
     <tal:interp define="
       get python:getattr;
 
@@ -663,9 +659,7 @@
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
-                    <!-- Tendencia (flecha + sparkline) -->
                     <td>
-                      <!-- Flecha de dirección (↑ ↓ →) -->
                       <div class="trend-arrow"
                            tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'↑') and 'trend-up' or (trend_arrow==u'↓') and 'trend-down' or 'trend-flat')"
                            tal:content="python:trend_arrow">→</div>
@@ -681,12 +675,9 @@
               </tal:loop>
             </tbody>
           </table>
-
-          <!-- (ELIMINADO el bloque "Tendencias por analito" que dejaba hueco) -->
         </div>
       </div>
 
-      <!-- Dibujo de mini-sparklines -->
       <script type="text/javascript" tal:condition="hasrows">
       (function(){
         function parseTime(s){
@@ -769,23 +760,18 @@
            _get_trends python:get(view,'get_trends_data', None);
            _trv python:getattr(ar, 'restrictedTraverse', None);
            _delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
-           rows2 python:(_delta and _delta.get('rows') or []);
            trends_data python:(
              (_get_trends and (callable(_get_trends) and _get_trends() or _get_trends))
              or (_delta and (_delta.get('chart_v2') or _delta.get('chart')))
              or {}
-           );
-           compact python:bool(rows2 and (len(rows2) > 6))
+           )
          "
          tal:condition="python:bool(trends_data)">
 
-      <!-- Título para pantalla (no se imprime) -->
-      <h2 class="section-title no-weasyprint">Tendencias de Resultados en el Tiempo</h2>
-
-      <!-- Contenedor para Highcharts (solo en navegador) -->
+      <!-- Contenedor para Highcharts (solo navegador) -->
       <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
 
-      <!-- Fallback para WeasyPrint (PNG con data-URI) -->
+      <!-- Fallback (PNG) para PDF/WeasyPrint -->
       <div class="weasy-fallback"
            tal:define="
              get python:getattr;
@@ -802,13 +788,11 @@
                options.get('rid','')
              );
            ">
-        <!-- Título dentro del bloque que sí imprime -->
         <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
-
         <div class="fallback-message">
           <img alt="Gráfico de tendencias (PNG)"
+               style="width:180mm; height:auto;"
                tal:attributes="
-                 style python:u'width:%s' % ((compact and u'160mm') or u'180mm');
                  src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
                    uid=ar_uid, rid=rid,
                    w=680, h=340, dpi=96,
@@ -821,14 +805,12 @@
         </div>
       </div>
 
-      <!-- Script para inicializar Highcharts con datos reales -->
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            // === Normalización para equidistancia en navegador ===
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
             var series = (trendsData.series || []).map(function(s){
@@ -848,24 +830,11 @@
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
             var options = {
-              chart: {
-                type: 'line',
-                height: 560,
-                backgroundColor: 'transparent',
-                spacingTop: 60,
-                spacingBottom: 16,
-                marginTop: 60
-              },
-              title: {
-                text: (trendsData.title || 'Tendencias de Resultados'),
-                margin: 12,
-                style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' }
-              },
-              subtitle: {
-                text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).',
-                y: 30,
-                style: { color: '#6c757d', fontSize: '12px' }
-              },
+              chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
+              title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
+                       style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
+              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+                          style: { color: '#6c757d', fontSize: '12px' } },
               xAxis: {
                 categories: cats,
                 tickPositions: tickPositions,
@@ -880,14 +849,8 @@
                 max: trendsData.yMax,
                 gridLineColor: '#f0f0f0'
               },
-              legend: {
-                enabled: true,
-                layout: 'horizontal',
-                align: 'center',
-                verticalAlign: 'bottom',
-                y: 0,
-                itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' }
-              },
+              legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
+                        itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
               plotOptions: {
                 line: {
                   marker: { enabled: true, radius: 4 },
@@ -895,9 +858,7 @@
                     enabled: true,
                     formatter: function(){
                       var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
-                      return (this.y != null)
-                             ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u
-                             : '';
+                      return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
                     },
                     style: { textOutline: '1px contrast' }
                   },
@@ -924,14 +885,18 @@
             };
 
             if (typeof Highcharts !== 'undefined') {
-              Highcharts.chart('trends-chart-container', options);
+              var chart = Highcharts.chart('trends-chart-container', options);
               var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.height = '560px'; }
+              if (el) {
+                el.style.height = '560px';
+                el.style.display = 'block'; /* <-- mostrar contenedor en navegador */
+              }
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
               }
-              var fb = document.querySelector('.section-trends .weasy-fallback'); if (fb) fb.style.display = 'none';
+              var fb = document.querySelector('.section-trends .weasy-fallback');
+              if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
             } else {
               console.error('Highcharts no está cargado');
