@@ -167,6 +167,29 @@
 
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
     }
+
+    /* =========================================================
+       AJUSTES EXTRA PARA CENTRAR PNG EN PREVIEW/PDF (WEASYPRINT)
+       (No elimina reglas previas; solo refuerza el centrado)
+       ========================================================= */
+    .section-trends { float: none !important; clear: both !important; }
+    .section-trends .weasy-fallback { display: block !important; text-align: center !important; }
+    .section-trends .weasy-fallback .fallback-message {
+      display: block !important;
+      max-width: 180mm;
+      margin: 0 auto !important;
+      float: none !important;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+    .section-trends .weasy-fallback .fallback-message img {
+      display: block !important;
+      width: 100% !important;
+      max-width: 180mm !important;
+      height: auto !important;
+      margin: 0 auto !important;
+    }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
@@ -716,12 +739,22 @@
              (_get_trends and (callable(_get_trends) and _get_trends() or _get_trends))
              or (_delta and (_delta.get('chart_v2') or _delta.get('chart')))
              or {}
-           )
+           );
+           _series python:trends_data and trends_data.get('series') or [];
+           /* ====== NUEVO: contar puntos válidos en todas las series ====== */
+           _points_per_series python:[
+             len([p for p in (s.get('data') or [])
+                  if ((isinstance(p, (list, tuple)) and (len(p)>1) and (p[1] not in (None, u'', '')) )
+                      or (hasattr(p, 'get') and (p.get('y') not in (None, u'', '')) )
+                      or (isinstance(p, (int, float)) and (p is not None)))])
+             for s in _series
+           ];
+           _total_points python:sum(_points_per_series) if _series else 0;
+           has_two_points python:(_total_points >= 2)
          "
-         tal:condition="python:bool(trends_data)">
+         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
-      <!-- NUEVO: wrapper centrador -->
       <div class="chart-center-wrap no-weasyprint">
         <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
       </div>
@@ -765,6 +798,24 @@
           if (typeof window.WeasyPrint === 'undefined') {
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
+
+            /* ====== NUEVO: no dibujar si hay < 2 puntos totales ====== */
+            var totalPoints = 0;
+            try {
+              totalPoints = trendsData.series.reduce(function(acc, s){
+                var d = (s && s.data) ? s.data : [];
+                var cnt = 0;
+                for (var i=0; i<d.length; i++){
+                  var p = d[i];
+                  var y = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[1] : p.y)
+                            : p;
+                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) cnt++;
+                }
+                return acc + cnt;
+              }, 0);
+            } catch(e) { totalPoints = 0; }
+            if (totalPoints < 2) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
