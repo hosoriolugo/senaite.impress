@@ -78,9 +78,7 @@
 
     /* ===== SECCIÓN TENDENCIAS ===== */
     .section-trends { margin: 30px 0; page-break-inside: avoid; }
-
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
-
     .section-trends .chart-container {
       width: 100%; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px;
       padding: 0; background: #fff; overflow: visible; display: none;
@@ -111,51 +109,56 @@
     .attachments-end .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
 
     /* ====== Ajuste específico para ANEXOS ====== */
-    /* Ocultar encabezados autogenerados del HTML de adjuntos (ej. "Attachments for ...") */
     .section-attachments h1:first-of-type,
     .section-attachments h2:first-of-type,
-    .section-attachments h3:first-of-type {
-      display: none !important;
-    }
-    /* Imágenes de anexos escalables */
-    .section-attachments img {
-      max-width: 180mm;
-      width: 100%;
-      height: auto;
-    }
+    .section-attachments h3:first-of-type { display: none !important; }
+    .section-attachments img { max-width: 180mm; width: 100%; height: auto; }
 
-    /* ====== Centrado robusto de Highcharts en vista previa ====== */
-    .section-trends {
-      text-align: initial !important;
-      direction: ltr !important;
-      clear: both !important;
-      width: 100%;
-    }
-    .section-trends .chart-center{
-      display: grid;
-      place-items: center;
-      width: 100%;
-      margin: 20px 0;
-    }
+    /* ====== Centrado robusto (vista previa) ====== */
+    .section-trends { text-align: initial !important; direction: ltr !important; clear: both !important; width: 100%; }
+    .section-trends::before, .section-trends::after { content: ""; display: table; clear: both; }
+    .section-trends .chart-center { display: grid; place-items: center; width: 100%; margin: 20px 0; }
     .section-trends #trends-chart-container{
-      display: block;
+      display: block !important;
       width: 100%;
-      max-width: 180mm;              /* igual que fallback PNG */
-      margin: 0 auto !important;     /* centrado horizontal */
+      max-width: 180mm;
+      margin: 0 auto !important;
       float: none !important;
       clear: both !important;
       box-sizing: border-box;
+      position: relative;
+      left: 0 !important; right: 0 !important;
     }
     .section-trends .highcharts-container{
+      display: block !important;
       margin: 0 auto !important;
-      left: 0 !important;
-      right: 0 !important;
+      left: 0 !important; right: 0 !important;
       transform: none !important;
       float: none !important;
+      position: relative !important;
+    }
+
+    @media screen {
+      /* Pantalla: neutraliza empujes del tema/Bootstrap (flex-end, floats, text-right, etc.) */
+      .section-trends,
+      .section-trends * {
+        text-align: initial !important;
+      }
+      .section-trends .chart-center {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      .section-trends .chart-container,
+      .section-trends .highcharts-container,
+      .section-trends svg {
+        margin-left: auto !important;
+        margin-right: auto !important;
+        float: none !important;
+      }
     }
 
     @media print {
-      /* Hacer atómico el bloque tail-pack para que salte completo si no cabe */
       .tail-pack { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
       .tail-pack .section-signatures,
       .tail-pack .section-remarks { page-break-inside: avoid; break-inside: avoid; }
@@ -176,8 +179,6 @@
       .section-trends .weasy-fallback .section-title { page-break-inside: avoid; break-inside: avoid; }
       .section-trends .weasy-fallback .section-title { page-break-after: avoid; break-after: avoid; margin-bottom: 8px !important; }
       .section-trends .weasy-fallback .fallback-message img { display: block; page-break-inside: avoid; break-inside: avoid; max-width: 180mm; height: auto; }
-
-      /* Bloque de anexos atómico: si no cabe, pasa entero a la siguiente página */
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
     }
   </style>
@@ -863,15 +864,17 @@
               if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
 
-              /* === Fuerza centrado y reflow en vista previa === */
+              /* === Centrado & reflow robusto para vista previa === */
               (function ensureCentered(){
                 try {
-                  var wrap = el && el.querySelector('.highcharts-container');
                   if (el) {
                     el.style.marginLeft  = 'auto';
                     el.style.marginRight = 'auto';
                     el.style.float       = 'none';
+                    el.style.left        = '0px';
+                    el.style.right       = '0px';
                   }
+                  var wrap = el && el.querySelector('.highcharts-container');
                   if (wrap) {
                     wrap.style.marginLeft  = 'auto';
                     wrap.style.marginRight = 'auto';
@@ -879,10 +882,14 @@
                     wrap.style.right       = '0px';
                     wrap.style.transform   = 'none';
                     wrap.style.float       = 'none';
+                    wrap.style.position    = 'relative';
                   }
-                  if (chart && chart.reflow) { chart.reflow(); }
-                  setTimeout(function(){ if (chart && chart.reflow) chart.reflow(); }, 50);
-                  setTimeout(function(){ if (chart && chart.reflow) chart.reflow(); }, 150);
+                  if (chart) {
+                    chart.update({ chart: { marginLeft:  null, marginRight: null } }, false);
+                    chart.reflow();
+                    setTimeout(function(){ chart.reflow && chart.reflow(); }, 60);
+                    setTimeout(function(){ chart.reflow && chart.reflow(); }, 160);
+                  }
                   window.dispatchEvent(new Event('resize'));
                 } catch(e){}
               })();
@@ -891,7 +898,7 @@
               try{
                 if (window.ResizeObserver) {
                   var ro = new ResizeObserver(function(){ if (chart && chart.reflow) chart.reflow(); });
-                  ro.observe(document.getElementById('trends-chart-container'));
+                  ro.observe(el);
                 }
               }catch(e){}
 
