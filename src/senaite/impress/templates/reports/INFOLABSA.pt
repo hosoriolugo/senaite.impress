@@ -8,98 +8,58 @@
   <!-- Cargar Highcharts (usado solo en navegador, no en WeasyPrint) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
-  <!-- Afinado visual: separadores tenues estilo cool -->
+  <!-- Afinado visual: separadores y control de paginado -->
   <style>
-    .section-summary table.table-condensed {
-      border-collapse: collapse;
-      border-spacing: 0;
-    }
-    .section-summary table.table-condensed td {
-      border-bottom: 1px solid #dee2e6 !important;
-      padding-top: 2px;
-      padding-bottom: 2px;
-      vertical-align: top;
-    }
+    .section-summary table.table-condensed { border-collapse: collapse; border-spacing: 0; }
+    .section-summary table.table-condensed td { border-bottom: 1px solid #dee2e6 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: top; }
     .section-summary h2 { margin-bottom: 6px !important; }
     .section-summary td.label { color: #666; font-weight: 700; width: 25%; }
     .section-summary td + td { width: 25%; }
 
-    /* Titulares en negro y negritas */
     .section-title { color: #000; font-weight: 800; }
 
-    /* Encabezado tipo default: tabla sin bordes/padding */
     .noborder { border: 0; }
     .noborder td, .noborder th { border: 0 !important; padding: 0 !important; }
 
-    /* Contenedor de barcode como en default */
     .barcode { display: inline-block; line-height: 1; }
     .barcode canvas, .barcode svg, .barcode img { display: block; height: auto; }
 
-    /* ===== Pegado total a la derecha del código de barras ===== */
     .barcode-box{ display:inline-block; text-align:right; float:right; margin-right:0; }
     .section-summary .noborder td.text-right { padding-right: 0 !important; }
 
-    /* === SOLO CAMBIO: HRI centrado bajo el código de barras === */
-    .barcode-hri {
-      display: block; text-align: center; font-size: 11px; font-weight: 800;
-      color: #000; margin-top: 2px; line-height: 1.1;
-    }
+    .barcode-hri { display: block; text-align: center; font-size: 11px; font-weight: 800; color: #000; margin-top: 2px; line-height: 1.1; }
 
-    /* === Alineación por defecto a la IZQUIERDA (como en Datos del Paciente) === */
     .section-summary table.table-condensed td,
     .section-summary table.table-condensed th { text-align: left; padding-left: .5rem; padding-right: .5rem; }
 
-    /* Celda con el ID textual (tabla de datos) a la izquierda */
     .barcode-cell { text-align: left; }
 
-    /* Resetea márgenes/sangrías del bloque y sus tablas */
     .section-summary .w-100 { margin-left: 0 !important; margin-right: 0 !important; }
     .section-summary .w-100 > table { margin-left: 0 !important; margin-right: 0 !important; width: 100% !important; }
     .section-summary .w-100 > table.noborder { border-collapse: collapse !important; table-layout: fixed; }
     .section-summary .w-100 > table.table { margin-top: 0 !important; }
 
-    /* Mantén la celda del encabezado (barcode) con el contenedor visible */
     td.text-right #sample-barcode { display: block; }
 
-    /* ====== CONTENIDOS centrados (ya lo tenías) ====== */
     .results-center-cells table.table tbody td:nth-child(n+2):nth-child(-n+6) { text-align: center !important; vertical-align: middle; }
     .results-center-cells table.table thead th:nth-child(n+2):nth-child(-n+6) { text-align: center !important; }
 
-    /* === AJUSTE: misma línea bajo los encabezados que en las demás secciones === */
-    .results-center-cells table.table.table-condensed {
-      border-collapse: collapse;
-      border-spacing: 0;
-    }
-    .results-center-cells table.table.table-condensed thead th {
-      border-bottom: 0 !important;
-      padding-top: 2px;
-      padding-bottom: 2px;
-      vertical-align: bottom;
-    }
-    .results-center-cells table.table.table-condensed thead tr {
-      border-bottom: 1px solid #dee2e6 !important;
-    }
-    .results-center-cells table.table.table-condensed tbody td {
-      border-bottom: 1px solid #dee2e6 !important;
-      padding-top: 2px; padding-bottom: 2px;
-      vertical-align: middle;
-    }
+    .results-center-cells table.table.table-condensed { border-collapse: collapse; border-spacing: 0; }
+    .results-center-cells table.table.table-condensed thead th { border-bottom: 0 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: bottom; }
+    .results-center-cells table.table.table-condensed thead tr { border-bottom: 1px solid #dee2e6 !important; }
+    .results-center-cells table.table.table-condensed tbody td { border-bottom: 1px solid #dee2e6 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: middle; }
 
     .section-interp h3 { color: #000; font-weight: 800; }
 
-    /* === Panel Delta Check (última página) === */
+    /* === Panel Delta Check === */
     .section-delta h2 { color:#000; font-weight:800; margin-bottom:6px !important; }
     .section-delta .small { font-size:90%; color:#6c757d; }
     .section-delta table.table-sm td, .section-delta table.table-sm th { padding-top:2px; padding-bottom:2px; }
-    .section-delta .delta-up   { color:#fd7e14; font-weight:700; } /* ▲ */
-    .section-delta .delta-down { color:#0d6efd; font-weight:700; } /* ▼ */
+    .section-delta .delta-up   { color:#fd7e14; font-weight:700; }
+    .section-delta .delta-down { color:#0d6efd; font-weight:700; }
     .section-delta .spark { width:120px; height:36px; }
-
-    /* RCV (dejado pero comentado en markup) */
     .section-delta .rcv-ok  { color:#198754; font-weight:700; }
     .section-delta .rcv-bad { color:#dc3545; font-weight:700; }
-
-    /* === Centrado de columnas del panel Delta === */
     .section-delta table.table-condensed thead th:nth-child(2),
     .section-delta table.table-condensed thead th:nth-child(3),
     .section-delta table.table-condensed thead th:nth-child(4),
@@ -110,116 +70,63 @@
     .section-delta table.table-condensed tbody td:nth-child(5) { text-align: center; vertical-align: middle; }
     .section-delta table.table-condensed thead th:nth-child(6),
     .section-delta table.table-condensed tbody td:nth-child(6) { text-align: center; vertical-align: middle; }
-
-    /* (conservada por si reactivas fechas) */
     .section-delta .trend-range { font-size: 10px; color:#6c757d; line-height:1.1; margin-top:2px; white-space:nowrap; text-align:center; }
-
-    /* Flechas de tendencia en Delta Check */
-    .section-delta .trend-arrow {
-      display: block;
-      font-size: 16px;
-      font-weight: 700;
-      line-height: 1;
-      margin-bottom: 2px; /* flecha encima del spark */
-      text-align: center;
-    }
-    .section-delta .trend-up   { color:#fd7e14; } /* ↑ */
-    .section-delta .trend-down { color:#0d6efd; } /* ↓ */
-    .section-delta .trend-flat { color:#6c757d; } /* → */
+    .section-delta .trend-arrow { display: block; font-size: 16px; font-weight: 700; line-height: 1; margin-bottom: 2px; text-align: center; }
+    .section-delta .trend-up   { color:#fd7e14; }
+    .section-delta .trend-down { color:#0d6efd; }
+    .section-delta .trend-flat { color:#6c757d; }
 
     /* ===== SECCIÓN TENDENCIAS ===== */
-    .section-trends {
-      margin: 30px 0;
-      page-break-inside: avoid;
-    }
-    .section-trends .section-title {
-      color: #000;
-      font-weight: 800;
-      margin-bottom: 15px !important;
-      border-bottom: 2px solid #2c3e50;
-      padding-bottom: 5px;
-    }
+    .section-trends { margin: 30px 0; page-break-inside: avoid; }
+    .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
     .section-trends .chart-container {
-      width: 100%;
-      height: 560px; /* altura del contenedor = altura del chart */
-      margin: 20px 0;
-      border: 1px solid #e9ecef;
-      border-radius: 4px;
-      padding: 0;          /* sin padding para no recortar el SVG/título */
-      background: #fff;
-      overflow: visible;   /* asegurar visibilidad de textos fuera del plot area */
-      display: none;       /* OCULTO por defecto: lo muestra el JS del navegador */
+      width: 100%; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px;
+      padding: 0; background: #fff; overflow: visible; display: none;
     }
-    /* Forzar visibilidad del título/subtítulo del chart por si alguna regla global los oculta */
     .section-trends .chart-container .highcharts-title,
-    .section-trends .chart-container .highcharts-subtitle {
-      display: block !important;
-      opacity: 1 !important;
-      visibility: visible !important;
-    }
+    .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
     .section-trends .chart-container svg { overflow: visible !important; }
+    .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
+    .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
-    .section-trends .fallback-message {
-      text-align: center;
-      padding: 20px;
-      background: #f8f9fa;
-      border-radius: 5px;
-      border: 1px dashed #dee2e6;
-    }
-    .section-trends .fallback-message img {
-      display: block;
-      max-width: 100%;
-      height: auto;
-      margin: 0 auto;
-    }
+    /* Visibilidad navegador/PDF */
+    .no-weasyprint { display: none !important; }
+    .weasy-fallback { display: block !important; }
+    body.has-highcharts .weasy-fallback { display: none !important; }
 
-    /* Control de visibilidad (robusto para PDF) */
-    .no-weasyprint { display: none !important; }   /* por defecto, oculto lo de pantalla */
-    .weasy-fallback { display: block !important; } /* por defecto, muestro el fallback del PDF */
-    body.has-highcharts .weasy-fallback { display: none !important; } /* navegador: si hay chart, oculto fallback */
-
-    /* --- Paginación "inteligente" --- */
+    /* --- Paginación inteligente (CSS) --- */
     .section-interp { page-break-before: always; }
-    .section-delta { page-break-before: auto; break-before: auto; } /* <--- cambio clave */
     .section-trends { page-break-inside: avoid; }
+    .section-delta { page-break-before: auto; break-before: auto; margin-top: 8mm; }
 
-    /* Utilidad global para evitar cortes feos (aplica también fuera de print) */
-    .avoid-break-inside { page-break-inside: avoid; break-inside: avoid; }
+    /* Bloque “cola del informe”: firmas + observaciones + anexos juntos */
+    .tail-pack { break-inside: avoid; page-break-inside: avoid; margin-bottom: 8mm; }
+    .tail-pack .section-signatures,
+    .tail-pack .section-remarks,
+    .tail-pack .section-attachments { break-inside: avoid; page-break-inside: avoid; }
+    .tail-pack .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
 
     @media print {
       .pagebreak { page-break-before: always; }
       .pagebreak-before { page-break-before: always; }
-      .avoid-break-inside { page-break-inside: avoid; break-inside: avoid; }
-      .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
-      .section-delta { page-break-before: auto; } /* <--- antes era always */
+      .avoid-break-inside,
+      .tail-pack,
+      .tail-pack .section-signatures,
+      .tail-pack .section-remarks,
+      .tail-pack .section-attachments { page-break-inside: avoid; break-inside: avoid; }
 
-      /* En PDF: oculto las piezas de pantalla y muestro fallback (ya es el default arriba) */
+      .section-interp, .section-attachments, .section-signatures { break-inside: avoid; }
+      .section-delta { page-break-before: auto; margin-top: 8mm; }
+
       .no-weasyprint { display: none !important; }
       .weasy-fallback { display: block !important; }
 
-      .section-trends {
-        page-break-inside: avoid;
-        break-inside: avoid;
-      }
-      /* evitar cortes entre título e imagen del fallback */
+      .section-trends { page-break-inside: avoid; break-inside: avoid; }
       .section-trends .weasy-fallback,
       .section-trends .weasy-fallback .fallback-message,
-      .section-trends .weasy-fallback .section-title {
-        page-break-inside: avoid;
-        break-inside: avoid;
-      }
-      .section-trends .weasy-fallback .section-title {
-        page-break-after: avoid;
-        break-after: avoid;
-        margin-bottom: 8px !important;
-      }
-      .section-trends .weasy-fallback .fallback-message img {
-        display: block;
-        page-break-inside: avoid;
-        break-inside: avoid;
-        max-width: 180mm;
-        height: auto;
-      }
+      .section-trends .weasy-fallback .section-title { page-break-inside: avoid; break-inside: avoid; }
+      .section-trends .weasy-fallback .section-title { page-break-after: avoid; break-after: avoid; margin-bottom: 8px !important; }
+      .section-trends .weasy-fallback .fallback-message img { display: block; page-break-inside: avoid; break-inside: avoid; max-width: 180mm; height: auto; }
     }
   </style>
 
@@ -244,12 +151,11 @@
       </div>
     </div>
 
-    <!-- Secciones estandar -->
+    <!-- Secciones estándar -->
     <tal:t replace="structure python:view.render_info(ar, **options)" />
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
-    <!-- Datos del Paciente -->
-    <!-- (todo tu bloque de paciente tal como lo tenías) -->
+    <!-- Datos del Paciente (sin cambios de lógica) -->
     <tal:patient define="
       get python:getattr;
 
@@ -383,7 +289,7 @@
       </div>
     </tal:patient>
 
-    <!-- Resumen de la Muestra (sin cambios) -->
+    <!-- Resumen de la Muestra -->
     <tal:sample define="
       get python:getattr;
       sid python:(
@@ -493,7 +399,7 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Interpretacion de resultados -->
+    <!-- Interpretación de resultados -->
     <tal:interp define="
       get python:getattr;
 
@@ -571,22 +477,38 @@
       </div>
     </tal:interp>
 
-    <!-- Adjuntos, observaciones, firmas -->
-    <div class="avoid-break-inside section-attachments">
-      <tal:t replace="structure python:view.render_attachments(ar, **options)" />
-    </div>
-    <div class="avoid-break-inside section-remarks">
-      <tal:t replace="structure python:view.render_remarks(ar, **options)" />
-    </div>
-    <div class="avoid-break-inside section-signatures">
-      <tal:t replace="structure python:view.render_signatures(ar, **options)" />
-    </div>
+    <!-- ===== Cola del informe: Firmas + Observaciones + (Anexos si hay) ===== -->
+    <tal:tail define="
+      get python:getattr;
+      atts_html python:(get(view,'render_attachments',None) and view.render_attachments(ar, **options) or u'');
+      has_atts python:bool((atts_html and (hasattr(atts_html,'strip') and atts_html.strip() or atts_html)));
+    ">
+      <div class="tail-pack">
+        <!-- Firmas -->
+        <div class="section-signatures">
+          <tal:t replace="structure python:view.render_signatures(ar, **options)" />
+        </div>
+
+        <!-- Observaciones -->
+        <div class="section-remarks">
+          <tal:t replace="structure python:view.render_remarks(ar, **options)" />
+        </div>
+
+        <!-- Anexos (solo si hay) -->
+        <tal:atts tal:condition="has_atts">
+          <h2 class="tail-title">Anexos</h2>
+          <div class="section-attachments">
+            <tal:t replace="structure python:atts_html" />
+          </div>
+        </tal:atts>
+      </div>
+    </tal:tail>
 
     <!-- Discreeter y pie -->
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (última página / flexible) =========== -->
+    <!-- =========== Delta Check (última página flexible) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
@@ -685,6 +607,7 @@
         </div>
       </div>
 
+      <!-- Dibujo de mini-sparklines -->
       <script type="text/javascript" tal:condition="hasrows">
       (function(){
         function parseTime(s){
@@ -875,7 +798,7 @@
               tooltip: {
                 shared: true, crosshairs: true,
                 formatter: function() {
-                  var idx = this.points y this.points.length ? this.points[0].point.x : this.point && this.point.x;
+                  var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x); /* FIX: '&&' */
                   var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
                   var s = '<b>' + fecha + '</b>';
                   this.points.forEach(function(p) {
@@ -894,10 +817,7 @@
             if (typeof Highcharts !== 'undefined') {
               var chart = Highcharts.chart('trends-chart-container', options);
               var el = document.getElementById('trends-chart-container');
-              if (el) {
-                el.style.height = '560px';
-                el.style.display = 'block'; /* <-- mostrar contenedor en navegador */
-              }
+              if (el) { el.style.height = '560px'; el.style.display = 'block'; }
               if (Highcharts.charts && Highcharts.charts.length) {
                 var c = Highcharts.charts[Highcharts.charts.length - 1];
                 if (c && c.reflow) c.reflow();
