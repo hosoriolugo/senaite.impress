@@ -46,7 +46,7 @@
     .results-center-cells table.table tbody td:nth-child(n+2):nth-child(-n+6) { text-align: center !important; vertical-align: middle; }
     .results-center-cells table.table thead th:nth-child(n+2):nth-child(-n+6) { text-align: center !important; }
     .results-center-cells table.table.table-condensed { border-collapse: collapse; border-spacing: 0; }
-    .results-center-cells table.table.table-condensed thead th { border-bottom: 0 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: bottom; }
+    .results-center-cells table.table.table-condensed thead th { border-bottom: 0 !important; padding-top:  2px; padding-bottom: 2px; vertical-align: bottom; }
     .results-center-cells table.table.table-condensed thead tr { border-bottom: 1px solid #dee2e6 !important; }
     .results-center-cells table.table.table-condensed tbody td { border-bottom: 1px solid #dee2e6 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: middle; }
 
@@ -158,7 +158,6 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
-    <!-- Ajuste: cálculo de días para RN y sin comentarios dentro de atributos -->
     <tal:patient define="
       get python:getattr;
 
@@ -402,7 +401,15 @@
     <!-- Resultados con Estado + Alertas -->
     <h2 class="mb-1 section-title">Resultados</h2>
     <div class="results-center-cells">
-      <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
+      <tal:results define="
+        get python:getattr;
+        re modules/re;
+        _raw python: ar.restrictedTraverse('@@infolabsa-results-with-state')();
+        _txt python: ( (hasattr(_raw,'decode') and not isinstance(_raw, unicode) and _raw.decode('utf-8','ignore')) or _raw );
+        _clean python: re.sub(u'(?is)<(script|style)[^>]*>.*?</\\1>', u'', unicode(_txt));
+      ">
+        <tal:t replace="structure _clean" />
+      </tal:results>
     </div>
 
     <!-- Traducción de estados en la tabla de resultados (solo UI, no toca datos) -->
@@ -534,7 +541,7 @@
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (>=3 estudios únicos para tendencia) =========== -->
+    <!-- =========== Delta Check (con guardas de 2 estudios) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
@@ -736,7 +743,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (>=3 puntos) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (con guardas de 2 puntos) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
