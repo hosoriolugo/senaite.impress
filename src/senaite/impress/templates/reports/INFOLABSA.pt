@@ -544,35 +544,37 @@
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (con guardas de 2 estudios) =========== -->
+    <!-- =========== Delta Check (visibilidad: ≥2 SIDs y ≥2 puntos por fila) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
 
-      rows_valid python:[
-        r for r in rows
-        if len(set([
-          unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
-          for p in (r.get('series') or [])
-          if (hasattr(p,'get')
-              and (p.get('value') not in (None, u'', u'\u2014'))
-              and (p.get('sid') or p.get('sample_id') or p.get('id')))
-        ])) >= 2
+      _series_keys python:lambda r: [
+        (
+          (hasattr(p,'get') and ((p.get('ms') or p.get('date') or u''))) and
+          ((p.get('ms') or p.get('date') or u'') + u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u''))
+        )
+        for p in (r.get('series') or [])
+        if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))
       ];
+
+      _row_two_distinct python:lambda r: (
+        len([k for i,k in enumerate(_series_keys(r)) if (k not in (None, u'', u'\u2014')) and (k not in _series_keys(r)[:i])]) >= 2
+      );
+
+      rows_valid python:[ r for r in rows if _row_two_distinct(r) ];
 
       _all_sids python:[
-        (p.get('sid') or p.get('sample_id') or p.get('id') or u'')
-        for r in rows
-        for p in (r.get('series') or [])
-        if (hasattr(p,'get')
-            and (p.get('value') not in (None, u'', u'\u2014'))
-            and (p.get('sid') or p.get('sample_id') or p.get('id')))
+        unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
+        for r in rows for p in (r.get('series') or [])
+        if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))
       ];
-      patient_has_two_studies python:(len(set([unicode(s) for s in _all_sids])) >= 2);
+      _distinct_sids_count python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
+      patient_has_two_sids python:(_distinct_sids_count >= 2);
 
-      hasrows python:(bool(rows_valid) and patient_has_two_studies)
+      hasrows python:(bool(rows_valid) and patient_has_two_sids)
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
         <div class="w-100">
@@ -633,7 +635,7 @@
                     </td>
 
                     <td>
-                      <div tal:content="python:(_now_val is not None and u'%s' % _now_val) or u'\u2014'">\u2014</div>
+                      <div tal:content="python:(_now_val is not None and u'%s' % _now_val) or u'\u2014'">&#8212;</div>
                       <div class="small"
                            tal:content="python:view.to_localized_time(
                              (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
@@ -641,31 +643,31 @@
                              (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
                              (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
                              get(ar,'created',None)
-                           )">\u2014</div>
+                           )">&#8212;</div>
                     </td>
 
                     <td>
-                      <div tal:content="python:prev_val_display">\u2014</div>
+                      <div tal:content="python:prev_val_display">&#8212;</div>
                       <div class="small">
                         <span i18n:translate="">ID</span>:
-                        <strong tal:content="python:prev_id_display">\u2014</strong>
+                        <strong tal:content="python:prev_id_display">&#8212;</strong>
                         &nbsp;|&nbsp;
-                        <span tal:content="python:prev_date_display">\u2014</span>
+                        <span tal:content="python:prev_date_display">&#8212;</span>
                       </div>
                     </td>
 
                     <td>
+                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">&#8212;</div>
                       <div tal:condition="python:(r.get('delta_pct') is not None or delta_abs_val_norm is not None)">
                         <span tal:attributes="class python:(r.get('delta_dir')==u'\u25b2' and 'delta-up' or (r.get('delta_dir')==u'\u25bc' and 'delta-down' or ''))"
-                              tal:content="python:u'%s %s (%s)' % ((r.get('delta_dir') or u'\u0394'), (delta_abs_str), (delta_pct_str))">\u0394 +0.00 (+0%)</span>
+                              tal:content="python:u'%s %s (%s)' % ((r.get('delta_dir') or u'\u0394'), (delta_abs_str), (delta_pct_str))">&#916; +0.00 (+0%)</span>
                       </div>
-                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">\u2014</div>
                     </td>
 
                     <td>
                       <div class="trend-arrow"
                            tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'\u2191') and 'trend-up' or (trend_arrow==u'\u2193') and 'trend-down' or 'trend-flat')"
-                           tal:content="python:trend_arrow">\u2192</div>
+                           tal:content="python:trend_arrow">&#8594;</div>
 
                       <canvas class="spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
@@ -756,7 +758,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (con guardas de 2 puntos) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (visibilidad: ≥2 SIDs y ≥2 puntos) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -770,18 +772,45 @@
              or {}
            );
            _series python:(trends_data and trends_data.get('series') or []);
+           _pairs_per_series python:[
+             [
+               (
+                 (isinstance(p,(list,tuple)) and (len(p)>1) and
+                  (p[0] not in (None, u'', u'\u2014')) and
+                  (p[1] not in (None, u'', u'\u2014')) and
+                  (p[0], p[1]))
+                 or
+                 (hasattr(p,'get') and
+                  (
+                    ( (p.get('ms') or p.get('x') or p.get('date') or u'') +
+                      u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
+                    (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)
+                  ))
+                 or
+                 None
+               )
+               for p in (s.get('data') or [])
+             ]
+             for s in _series
+           ];
+           _all_points python:[
+             ( (pp and (pp[0] or u'')), (pp and pp[1]) )
+             for ser in _pairs_per_series for pp in ser
+             if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))
+           ];
+           _distinct_points python:len(set([unicode(k) for (k,_) in _all_points]));
 
            _all_sids python:[
-             unicode((hasattr(p,'get') and (p.get('sid') or p.get('sample_id') or p.get('id') or u'')) or u'')
-             for s in _series
-             for p in (s.get('data') or [])
-             if (hasattr(p,'get')
-                 and (p.get('y') not in (None, u'', u'\u2014'))
-                 and (p.get('sid') or p.get('sample_id') or p.get('id')))
+             unicode((p.get('sid') or p.get('sample_id') or p.get('id') or u''))
+             for s in _series for p in (s.get('data') or [])
+             if (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014')))
            ];
-           has_two_sids python:(len(set([sid for sid in _all_sids if sid])) >= 2)
+           _distinct_sids python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
+
+           has_two_points python:(_distinct_points >= 2);
+           has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_sids">
+         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -828,31 +857,33 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            /* Contar SIDs únicos con valor para decidir visibilidad en navegador */
-            var seenSIDs = {};
-            var distinctSIDs = 0;
+            var seen = {};
+            var distinct = 0;
             try {
               trendsData.series.forEach(function(s){
                 var d = (s && s.data) ? s.data : [];
                 for (var i=0; i<d.length; i++){
                   var p = d[i];
-
+                  var x = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
+                            : i;
                   var y = (p && typeof p === 'object')
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
-                  if (y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) continue;
 
+                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
                   var sid = (p && typeof p === 'object' && !Array.isArray(p))
                               ? (p.sid || p.sample_id || p.id || '')
                               : '';
-                  if (!sid) continue;
+                  var key = String(x) + '|' + String(sid);
 
-                  if (!seenSIDs[sid]) { seenSIDs[sid] = true; distinctSIDs++; }
+                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
+                    if (!seen[key]) { seen[key] = true; distinct++; }
+                  }
                 }
               });
-            } catch(e) { distinctSIDs = 0; }
-
-            if (distinctSIDs < 2) return;
+            } catch(e) { distinct = 0; }
+            if (distinct < 2) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
