@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
+  <!-- INFOLABSA.pt :: DELTA-GUARD v3 :: 2025-10-26 00:15 -->
+
   <!-- Assets estandar de Impress -->
   <tal:t replace="structure python:view.render_controls(context, **options)" />
   <tal:t replace="structure python:view.render_js(context, **options)" />
@@ -77,8 +79,8 @@
     .section-delta .trend-flat { color:#6c757d; }
 
     /* ===== SECCIÓN TENDENCIAS ===== */
-    .section-trends { 
-      margin: 30px 0; 
+    .section-trends {
+      margin: 30px 0;
       page-break-inside: avoid;
       clear: both;
       text-align: initial !important;
@@ -86,7 +88,6 @@
     }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
 
-    /* Wrapper centrador para la vista previa */
     .section-trends .chart-center-wrap {
       width: 180mm;
       max-width: 100%;
@@ -117,26 +118,21 @@
     .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
     .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
-    /* Visibilidad navegador/PDF */
     .no-weasyprint { display: none !important; }
     .weasy-fallback { display: block !important; }
     body.has-highcharts .weasy-fallback { display: none !important; }
 
-    /* --- Paginación inteligente (CSS) --- */
     .section-interp { page-break-before: always; }
     .section-trends { page-break-inside: avoid; }
     .section-delta { page-break-before: auto; break-before: auto; margin-top: 8mm; }
 
-    /* Cola del informe: Firmas + Observaciones (juntas) */
     .tail-pack { break-inside: avoid; page-break-inside: avoid; margin-bottom: 8mm; }
     .tail-pack .section-signatures,
     .tail-pack .section-remarks { break-inside: avoid; page-break-inside: avoid; }
 
-    /* Anexos finales */
     .attachments-end { page-break-before: auto; margin-top: 8mm; }
     .attachments-end .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
 
-    /* Ajuste específico para ANEXOS */
     .section-attachments h1:first-of-type,
     .section-attachments h2:first-of-type,
     .section-attachments h3:first-of-type { display: none !important; }
@@ -167,7 +163,6 @@
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
     }
 
-    /* EXTRA: Centrado PNG en preview/PDF (WeasyPrint) */
     .section-trends { float: none !important; clear: both !important; }
     .section-trends .weasy-fallback { display: block !important; text-align: center !important; }
     .section-trends .weasy-fallback .fallback-message {
@@ -556,29 +551,19 @@
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
 
+      _distinct_dates python:lambda series: set([
+        (hasattr(p,'get') and (p.get('ms') or p.get('date')) or None)
+        for p in (series or [])
+        if (hasattr(p,'get') and
+            (p.get('value') not in (None, u'', u'\u2014')) and
+            (p.get('ms') or p.get('date')) not in (None, u'', u'\u2014'))
+      ]);
+
       rows_valid python:[
-        r for r in rows if (
-          (
-            len(
-              set([
-                (p.get('ms') or p.get('date'))
-                for p in (r.get('series') or [])
-                if (
-                  hasattr(p,'get') and
-                  (p.get('value') not in (None, u'', u'\u2014')) and
-                  (p.get('ms') or p.get('date')) not in (None, u'', u'\u2014')
-                )
-              ])
-            ) >= 2
-          )
-          or
-          (
-            (r.get('prev_value')     not in (None, u'', u'\u2014')) and
-            (r.get('prev_date')      not in (None, u'', u'\u2014')) and
-            (r.get('prev_sample_id') not in (None, u'', u'\u2014'))
-          )
-        )
+        r for r in rows
+        if (len(_distinct_dates(r.get('series'))) >= 2)
       ];
+
       hasrows python:bool(rows_valid);
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
@@ -781,13 +766,11 @@
              [
                (
                  (isinstance(p, (list, tuple)) and len(p)>1 and
-                   (p[0] not in (None, u'', u'\u2014')) and
-                   (p[1] not in (None, u'', u'\u2014')) and
-                   (p[0], p[1])
-                 )
+                  (p[0] not in (None, u'', u'\u2014')) and
+                  ((isinstance(p[1], (int,float)) or (p[1] not in (None, u'', u'\u2014')))) and
+                  (p[0], p[1]))
                  or
-                 (hasattr(p,'get') and
-                   ((p.get('ms') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)))
+                 ((hasattr(p,'get') and ((p.get('ms') or p.get('x') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None))))
                  or
                  None
                )
@@ -795,8 +778,8 @@
              ]
              for s in _series
            ];
-           _all_points python:[ ( (pp and (pp[0] or u'')), (pp and pp[1]) ) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014')) ];
-           _distinct_count python:len(set([k for (k,_) in _all_points]));
+           _all_points python:[(((pp and (pp[0] or u''))), (pp and pp[1])) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))];
+           _distinct_count python:len(set([unicode(k) for (k,_) in _all_points]));
            has_two_points python:(_distinct_count >= 2)
          "
          tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
@@ -846,7 +829,6 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            // Contar puntos únicos sólo por fecha real (sin x/índices)
             var seen = {};
             var distinct = 0;
             try {
@@ -855,12 +837,12 @@
                 for (var i=0; i<d.length; i++){
                   var p = d[i];
                   var x = (p && typeof p === 'object')
-                            ? (Array.isArray(p) ? p[0] : (p.ms || p.date || null))
-                            : null;
+                            ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
+                            : i;
                   var y = (p && typeof p === 'object')
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
-                  if (x && y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
+                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
                     var key = String(x);
                     if (!seen[key]) { seen[key] = true; distinct++; }
                   }
