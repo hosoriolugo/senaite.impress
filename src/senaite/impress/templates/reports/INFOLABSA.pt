@@ -46,7 +46,7 @@
     .results-center-cells table.table tbody td:nth-child(n+2):nth-child(-n+6) { text-align: center !important; vertical-align: middle; }
     .results-center-cells table.table thead th:nth-child(n+2):nth-child(-n+6) { text-align: center !important; }
     .results-center-cells table.table.table-condensed { border-collapse: collapse; border-spacing: 0; }
-    .results-center-cells table.table.table-condensed thead th { border-bottom: 0 !important; padding-top:  2px; padding-bottom: 2px; vertical-align: bottom; }
+    .results-center-cells table.table.table-condensed thead th { border-bottom: 0 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: bottom; }
     .results-center-cells table.table.table-condensed thead tr { border-bottom: 1px solid #dee2e6 !important; }
     .results-center-cells table.table.table-condensed tbody td { border-bottom: 1px solid #dee2e6 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: middle; }
 
@@ -85,7 +85,7 @@
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
     .section-trends .chart-container svg { overflow: visible !important; }
-    .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border: 1px dashed #dee2e6; }
+    .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
     .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
     /* Visibilidad navegador/PDF */
@@ -401,25 +401,19 @@
     <!-- Resultados con Estado + Alertas -->
     <h2 class="mb-1 section-title">Resultados</h2>
     <div class="results-center-cells">
-      <tal:results define="
-        get python:getattr;
-        re modules/re;
-        _raw python: ar.restrictedTraverse('@@infolabsa-results-with-state')();
-        _txt python: ( (hasattr(_raw,'decode') and not isinstance(_raw, unicode) and _raw.decode('utf-8','ignore')) or _raw );
-        _clean python: re.sub(u'(?is)<(script|style)[^>]*>.*?</\\1>', u'', unicode(_txt));
-      ">
-        <tal:t replace="structure _clean" />
-      </tal:results>
+      <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- Traducción de estados en la tabla de resultados (solo UI, no toca datos) -->
+    <!-- Traducción de estados (workflow) a español, sin imports de Python -->
     <script type="text/javascript">
       (function(){
-        function run(){
+        function translateStates(){
           var root = document.querySelector('.results-center-cells');
           if (!root) return;
           var map = {
             'to_be_verified': 'Pendiente de verificar',
+            'to-be-verified': 'Pendiente de verificar',
+            'pending': 'Pendiente de verificar',
             'verified': 'Verificada',
             'published': 'Publicada',
             'invalid': 'Inválida',
@@ -429,22 +423,33 @@
             'not_performed': 'No realizado',
             'sample_received': 'Muestra recibida'
           };
-          var rx = new RegExp('\\b(' + Object.keys(map).join('|') + ')\\b', 'gi');
-          root.querySelectorAll('td, span, div').forEach(function(el){
-            var t = el.textContent;
-            if (!t) return;
-            el.textContent = t.replace(rx, function(m){
-              var key = m.toLowerCase();
-              return map[key] || m;
+          var keys = Object.keys(map);
+          // Reemplazo directo (case-insensitive) sin RegExp global del servidor
+          var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+          var node;
+          while ((node = walker.nextNode())) {
+            var t = node.nodeValue;
+            if (!t) continue;
+            var tLower = t.toLowerCase();
+            var changed = false;
+            keys.forEach(function(k){
+              var idx = tLower.indexOf(k);
+              if (idx !== -1) {
+                // Reemplazo seguro por segmentos
+                var before = t.slice(0, idx);
+                var after  = t.slice(idx + k.length);
+                t = before + map[k] + after;
+                tLower = t.toLowerCase();
+                changed = true;
+              }
             });
-          });
-        }
-        if (typeof document !== 'undefined') {
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', run);
-          } else {
-            run();
+            if (changed) node.nodeValue = t;
           }
+        }
+        if (document.readyState === 'loading'){
+          document.addEventListener('DOMContentLoaded', translateStates);
+        } else {
+          translateStates();
         }
       })();
     </script>
