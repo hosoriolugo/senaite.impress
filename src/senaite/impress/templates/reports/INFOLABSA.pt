@@ -85,7 +85,7 @@
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
     .section-trends .chart-container svg { overflow: visible !important; }
-    .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
+    .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border: 1px dashed #dee2e6; }
     .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
     /* Visibilidad navegador/PDF */
@@ -233,6 +233,8 @@
         None
       );
       age_months_int python:(hasattr(age_raw,'months') and int(age_raw.months) or None);
+      <!-- AÑADIDO: días para recién nacidos -->
+      age_days_int python:(hasattr(age_raw,'days') and int(age_raw.days) or None);
 
       gender_raw python:(
         (get(ar,'getGender',None) and ar.getGender()) or
@@ -276,7 +278,10 @@
                       tal:content="python:u'%s a\u00f1os' % age_years_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int not in (None,0)))"
                       tal:content="python:u'%s meses' % age_months_int">-</span>
-                <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)))"
+                <!-- AÑADIDO: cuando no hay años ni meses pero sí días -->
+                <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)) and (age_days_int not in (None,0)))"
+                      tal:content="python:u'%s d\u00edas' % age_days_int">-</span>
+                <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)) and (age_days_int in (None,0)))"
                       tal:content="age_raw|nothing">-</span>
               </td>
             </tr>
@@ -400,6 +405,43 @@
     <div class="results-center-cells">
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
+
+    <!-- AÑADIDO: Traducción de estados en la tabla de resultados -->
+    <script type="text/javascript">
+      (function(){
+        function run(){
+          var root = document.querySelector('.results-center-cells');
+          if (!root) return;
+          var map = {
+            'to_be_verified': 'Pendiente de verificar',
+            'verified': 'Verificada',
+            'published': 'Publicada',
+            'invalid': 'Inválida',
+            'rejected': 'Rechazada',
+            'retracted': 'Retractada',
+            'awaiting': 'En espera',
+            'not_performed': 'No realizado',
+            'sample_received': 'Muestra recibida'
+          };
+          var rx = new RegExp('\\b(' + Object.keys(map).join('|') + ')\\b', 'gi');
+          root.querySelectorAll('td, span, div').forEach(function(el){
+            var t = el.textContent;
+            if (!t) return;
+            el.textContent = t.replace(rx, function(m){
+              var key = m.toLowerCase();
+              return map[key] || m;
+            });
+          });
+        }
+        if (typeof document !== 'undefined') {
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', run);
+          } else {
+            run();
+          }
+        }
+      })();
+    </script>
 
     <!-- Interpretación de resultados -->
     <tal:interp define="
