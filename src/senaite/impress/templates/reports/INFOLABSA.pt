@@ -550,21 +550,24 @@
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
-      _series_keys python:lambda r: [
-        (
-          (hasattr(p,'get') and ((p.get('ms') or p.get('date') or u''))) and
-          ((p.get('ms') or p.get('date') or u'') + u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u''))
-        )
+
+      # >>> NUEVO: sids por fila (solo si el punto tiene valor)
+      _row_sids python:lambda r: [
+        unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
         for p in (r.get('series') or [])
         if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))
       ];
-      _row_two_distinct python:lambda r: (
-        len([k for i,k in enumerate(_series_keys(r)) if (k not in (None, u'', u'\u2014')) and (k not in _series_keys(r)[:i])]) >= 2
-      );
-      rows_valid python:[ r for r in rows if _row_two_distinct(r) ];
-      _all_keys python:[ k for r in rows for k in _series_keys(r) if k and (k not in (None, u'', u'\u2014')) ];
-      _unique_total python:len(set(_all_keys));
-      patient_has_two_studies python:(_unique_total >= 2);
+
+      # >>> NUEVO: filtrar filas que tengan ≥ 2 SIDs distintos
+      rows_valid python:[ r for r in rows if len(set([s for s in _row_sids(r) if s])) >= 2 ];
+
+      # >>> NUEVO: visibilidad global: el paciente debe tener ≥ 2 SIDs distintos en total
+      _all_sids python:[ (p.get('sid') or p.get('sample_id') or p.get('id') or u'')
+                         for r in rows
+                         for p in (r.get('series') or [])
+                         if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014'))) ];
+      patient_has_two_studies python:(len(set([unicode(s) for s in _all_sids if s])) >= 2);
+
       hasrows python:(bool(rows_valid) and patient_has_two_studies)
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
@@ -763,36 +766,23 @@
              or {}
            );
            _series python:(trends_data and trends_data.get('series') or []);
-           _pairs_per_series python:[
-             [
-               (
-                 (isinstance(p,(list,tuple)) and (len(p)>1) and
-                  (p[0] not in (None, u'', u'\u2014')) and
-                  (p[1] not in (None, u'', u'\u2014')) and
-                  (p[0], p[1]))
-                 or
-                 (hasattr(p,'get') and
-                  (
-                    ( (p.get('ms') or p.get('x') or p.get('date') or u'') +
-                      u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
-                    (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)
-                  ))
-                 or
-                 None
-               )
-               for p in (s.get('data') or [])
-             ]
+
+           # >>> NUEVO: extraer SIDs de todos los puntos con valor
+           _all_sids python:[
+             unicode(
+               ( (isinstance(p,(list,tuple)) and (len(p)>1) and (None not in (p[0],p[1])) and u'') )
+               or ( (hasattr(p,'get') and (p.get('sid') or p.get('sample_id') or p.get('id') or u'')) )
+             )
              for s in _series
+             for p in (s.get('data') or [])
+             if (
+               (isinstance(p,(list,tuple)) and (len(p)>1) and (p[1] not in (None, u'', u'\u2014')))
+               or (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014')))
+             )
            ];
-           _all_points python:[
-             ( (pp and (pp[0] or u'')), (pp and pp[1]) )
-             for ser in _pairs_per_series for pp in ser
-             if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))
-           ];
-           _distinct_count python:len(set([unicode(k) for (k,_) in _all_points]));
-           has_two_points python:(_distinct_count >= 2)
+           has_two_sids python:(len(set([sid for sid in _all_sids if sid])) >= 2)
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
+         tal:condition="python:bool(trends_data) and bool(_series) and has_two_sids">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -839,33 +829,33 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            var seen = {};
-            var distinct = 0;
+            /* >>> NUEVO: contar SIDs únicos con valor para decidir visibilidad en navegador */
+            var seenSIDs = {};
+            var distinctSIDs = 0;
             try {
               trendsData.series.forEach(function(s){
                 var d = (s && s.data) ? s.data : [];
                 for (var i=0; i<d.length; i++){
                   var p = d[i];
-                  var x = (p && typeof p === 'object')
-                            ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
-                            : i;
+
+                  // Extrae y valida Y (valor); si no hay valor, no cuenta
                   var y = (p && typeof p === 'object')
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
+                  if (y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) continue;
 
-                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
+                  // Contabiliza por SID (muestra), no por (fecha|SID)
                   var sid = (p && typeof p === 'object' && !Array.isArray(p))
                               ? (p.sid || p.sample_id || p.id || '')
                               : '';
-                  var key = String(x) + '|' + String(sid);
+                  if (!sid) continue;
 
-                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                    if (!seen[key]) { seen[key] = true; distinct++; }
-                  }
+                  if (!seenSIDs[sid]) { seenSIDs[sid] = true; distinctSIDs++; }
                 }
               });
-            } catch(e) { distinct = 0; }
-            if (distinct < 2) return;
+            } catch(e) { distinctSIDs = 0; }
+
+            if (distinctSIDs < 2) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
