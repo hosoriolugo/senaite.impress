@@ -510,7 +510,7 @@
       rows_valid python:[ r for r in rows if _row_two_distinct(r) ];
       _all_dates python:[ d for r in rows for d in _series_dates(r) if d and (d not in (None, u'', u'\u2014')) ];
       _unique_total python:len(set(_all_dates));
-      patient_has_two_studies python:(_unique_total >= 2);
+      patient_has_two_studies python:(_unique_total >= 3);
       hasrows python:(bool(rows_valid) and patient_has_two_studies)
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
@@ -733,7 +733,7 @@
              if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))
            ];
            _distinct_count python:len(set([unicode(k) for (k,_) in _all_points]));
-           has_two_points python:(_distinct_count >= 2)
+           has_two_points python:(_distinct_count >= 3)
          "
          tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
 
@@ -802,7 +802,7 @@
                 }
               });
             } catch(e) { distinct = 0; }
-            if (distinct < 2) return;
+            if (distinct < 3) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
