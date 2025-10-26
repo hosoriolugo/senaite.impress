@@ -551,22 +551,26 @@
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
 
-      # >>> NUEVO: sids por fila (solo si el punto tiene valor)
-      _row_sids python:lambda r: [
-        unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
-        for p in (r.get('series') or [])
-        if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))
+      rows_valid python:[
+        r for r in rows
+        if len(set([
+          unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
+          for p in (r.get('series') or [])
+          if (hasattr(p,'get')
+              and (p.get('value') not in (None, u'', u'\u2014'))
+              and (p.get('sid') or p.get('sample_id') or p.get('id')))
+        ])) >= 2
       ];
 
-      # >>> NUEVO: filtrar filas que tengan ≥ 2 SIDs distintos
-      rows_valid python:[ r for r in rows if len(set([s for s in _row_sids(r) if s])) >= 2 ];
-
-      # >>> NUEVO: visibilidad global: el paciente debe tener ≥ 2 SIDs distintos en total
-      _all_sids python:[ (p.get('sid') or p.get('sample_id') or p.get('id') or u'')
-                         for r in rows
-                         for p in (r.get('series') or [])
-                         if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014'))) ];
-      patient_has_two_studies python:(len(set([unicode(s) for s in _all_sids if s])) >= 2);
+      _all_sids python:[
+        (p.get('sid') or p.get('sample_id') or p.get('id') or u'')
+        for r in rows
+        for p in (r.get('series') or [])
+        if (hasattr(p,'get')
+            and (p.get('value') not in (None, u'', u'\u2014'))
+            and (p.get('sid') or p.get('sample_id') or p.get('id')))
+      ];
+      patient_has_two_studies python:(len(set([unicode(s) for s in _all_sids])) >= 2);
 
       hasrows python:(bool(rows_valid) and patient_has_two_studies)
     ">
@@ -767,18 +771,13 @@
            );
            _series python:(trends_data and trends_data.get('series') or []);
 
-           # >>> NUEVO: extraer SIDs de todos los puntos con valor
            _all_sids python:[
-             unicode(
-               ( (isinstance(p,(list,tuple)) and (len(p)>1) and (None not in (p[0],p[1])) and u'') )
-               or ( (hasattr(p,'get') and (p.get('sid') or p.get('sample_id') or p.get('id') or u'')) )
-             )
+             unicode((hasattr(p,'get') and (p.get('sid') or p.get('sample_id') or p.get('id') or u'')) or u'')
              for s in _series
              for p in (s.get('data') or [])
-             if (
-               (isinstance(p,(list,tuple)) and (len(p)>1) and (p[1] not in (None, u'', u'\u2014')))
-               or (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014')))
-             )
+             if (hasattr(p,'get')
+                 and (p.get('y') not in (None, u'', u'\u2014'))
+                 and (p.get('sid') or p.get('sample_id') or p.get('id')))
            ];
            has_two_sids python:(len(set([sid for sid in _all_sids if sid])) >= 2)
          "
@@ -829,7 +828,7 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            /* >>> NUEVO: contar SIDs únicos con valor para decidir visibilidad en navegador */
+            /* Contar SIDs únicos con valor para decidir visibilidad en navegador */
             var seenSIDs = {};
             var distinctSIDs = 0;
             try {
@@ -838,13 +837,11 @@
                 for (var i=0; i<d.length; i++){
                   var p = d[i];
 
-                  // Extrae y valida Y (valor); si no hay valor, no cuenta
                   var y = (p && typeof p === 'object')
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
                   if (y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) continue;
 
-                  // Contabiliza por SID (muestra), no por (fecha|SID)
                   var sid = (p && typeof p === 'object' && !Array.isArray(p))
                               ? (p.sid || p.sample_id || p.id || '')
                               : '';
