@@ -329,7 +329,7 @@
               <td class="label" i18n:translate="">Edad</td>
               <td>
                 <span tal:condition="python:(age_years_int not in (None,0))"
-                      tal:content="python:u'%s años' % age_years_int">-</span>
+                      tal:content="python:u'%s a\u00F1os' % age_years_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int not in (None,0)))"
                       tal:content="python:u'%s meses' % age_months_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)))"
@@ -337,7 +337,7 @@
               </td>
             </tr>
             <tr>
-              <td class="label" i18n:translate="">Género</td>
+              <td class="label" i18n:translate="">G\u00E9nero</td>
               <td><span tal:content="gender_norm|nothing">-</span></td>
               <td class="label"></td>
               <td></td>
@@ -441,9 +441,9 @@
               <td><span tal:content="stype|nothing">-</span></td>
             </tr>
             <tr>
-              <td class="label">Recepción</td>
+              <td class="label">Recepci\u00F3n</td>
               <td><span tal:content="rec_txt|nothing">-</span></td>
-              <td class="label">Verificación</td>
+              <td class="label">Verificaci\u00F3n</td>
               <td><span tal:content="ver_txt|nothing">-</span></td>
             </tr>
           </table>
@@ -504,7 +504,7 @@
           }
           for d in depts
           if _bydept and (_rich((_bydept(d) or {}).get('richtext')) or u'')
-             and (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'química', u'química clínica'))))
+             and (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'qu\u00EDmica', u'qu\u00EDmica cl\u00EDnica'))))
         ]
       );
       has_dept python:any([i.get('text') for i in dept_items]);
@@ -513,7 +513,7 @@
     ">
       <div class="row section-interp no-gutters pagebreak-before" tal:condition="show">
         <div class="w-100">
-          <h2 class="mb-1 section-title" i18n:translate="">Interpretación de resultados</h2>
+          <h2 class="mb-1 section-title" i18n:translate="">Interpretaci\u00F3n de resultados</h2>
 
           <tal:gen tal:condition="gen">
             <h3 class="mb-0" i18n:translate="">General</h3>
@@ -521,7 +521,7 @@
           </tal:gen>
 
           <tal:qc tal:condition="qc">
-            <h3 class="mb-0">Química clínica</h3>
+            <h3 class="mb-0">Qu\u00EDmica cl\u00EDnica</h3>
             <div tal:content="structure qc">-</div>
           </tal:qc>
 
@@ -556,14 +556,15 @@
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
 
-      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if ( (hasattr(p,'get') and (p.get('value') not in (None, u'', u'—'))) )];
+      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if ( (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014'))) )];
       _row_series_dates python:lambda r: [ ( (p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'' ) for p in _row_series_clean(r) ];
-      _row_distinct_count python:lambda r: len([d for i,d in enumerate(_row_series_dates(r)) if (d not in (None, u'', u'—')) and (d not in _row_series_dates(r)[:i])]);
+      _row_distinct_count python:lambda r: len([d for i,d in enumerate(_row_series_dates(r)) if (d not in (None, u'', u'\u2014')) and (d not in _row_series_dates(r)[:i])]);
 
-      rows_valid python:[ r for r in rows if ( (_row_distinct_count(r) >= 2) or ( (r.get('prev_value') not in (None, u'', u'—')) and (r.get('prev_date') not in (None, u'', u'—')) ) ) ];
+      rows_valid python:[ r for r in rows if ( (_row_distinct_count(r) >= 2) or ( (r.get('prev_value') not in (None, u'', u'\u2014')) and (r.get('prev_date') not in (None, u'', u'\u2014')) ) ) ];
 
+      <!-- CORRECCIÓN SIMPLIFICADA: Contar estudios únicos -->
       _all_valid_dates python:[];
-      python:_all_valid_dates.extend([d for r in rows for d in _row_series_dates(r) if d and d not in (None, u'', u'—')]);
+      python:_all_valid_dates.extend([d for r in rows for d in _row_series_dates(r) if d and d not in (None, u'', u'\u2014')]);
       _unique_dates python:len(set(_all_valid_dates));
       patient_has_two_studies python:(_unique_dates >= 2);
 
@@ -573,7 +574,7 @@
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Tendencia (Delta check)</h2>
           <div class="small" tal:condition="delta/period_label">
-            <span i18n:translate="">Período considerado:</span>
+            <span i18n:translate="">Per\u00EDodo considerado:</span>
             <strong tal:content="delta/period_label">6 meses</strong>
             &#8226; <span i18n:translate="">Fuente:</span> <span i18n:translate="">historial de muestras del paciente</span>
           </div>
@@ -599,12 +600,12 @@
 
                   _now_val_raw python:r.get('value_now');
                   _prev_val_raw python:r.get('prev_value');
-                  _now_val python:((_now_val_raw not in (None, u'', u'—')) and float(_now_val_raw) or None);
-                  _prev_val python:((_prev_val_raw not in (None, u'', u'—')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
+                  _now_val python:((_now_val_raw not in (None, u'', u'\u2014')) and float(_now_val_raw) or None);
+                  _prev_val python:((_prev_val_raw not in (None, u'', u'\u2014')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
 
                   delta_abs_val python:((_now_val is not None and _prev_val is not None) and (_now_val - _prev_val) or None);
                   delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
-                  delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—');
+                  delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'\u2014');
 
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
@@ -615,11 +616,11 @@
                   rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
 
                   dir_sym python:(r.get('delta_dir') or u'');
-                  trend_arrow python:((dir_sym==u'▲' or dir_sym==u'△' or dir_sym==u'▴' or dir_sym==u'▵') and u'↑' or (dir_sym==u'▼' or dir_sym==u'▽' or dir_sym==u'▾' or dir_sym==u'▿') and u'↓' or u'→');
+                  trend_arrow python:((dir_sym==u'\u25B2' or dir_sym==u'\u25B3' or dir_sym==u'\u25B4' or dir_sym==u'\u25B5') and u'\u2191' or (dir_sym==u'\u25BC' or dir_sym==u'\u25BD' or dir_sym==u'\u25BE' or dir_sym==u'\u25BF') and u'\u2193' or u'\u2192');
 
-                  prev_val_display python:((_prev_val is not None) and (u'%s' % _prev_val) or u'—');
-                  prev_date_display python:( (r.get('prev_date_fmt') not in (None, u'', u'—')) and r.get('prev_date_fmt') or ( (n>=2 and has_distinct) and ( (hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or u'' ) or u'—') );
-                  prev_id_display python:(r.get('prev_sample_id') or u'—');
+                  prev_val_display python:((_prev_val is not None) and (u'%s' % _prev_val) or u'\u2014');
+                  prev_date_display python:( (r.get('prev_date_fmt') not in (None, u'', u'\u2014')) and r.get('prev_date_fmt') or ( (n>=2 and has_distinct) and ( (hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or u'' ) or u'\u2014') );
+                  prev_id_display python:(r.get('prev_sample_id') or u'\u2014');
                 ">
                   <tr>
                     <td>
@@ -628,7 +629,7 @@
                     </td>
 
                     <td>
-                      <div tal:content="python:(_now_val is not None and u'%s' % _now_val) or u'—'">—</div>
+                      <div tal:content="python:(_now_val is not None and u'%s' % _now_val) or u'\u2014'">—</div>
                       <div class="small"
                            tal:content="python:view.to_localized_time(
                              (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
@@ -651,16 +652,16 @@
 
                     <td>
                       <div tal:condition="python:(r.get('delta_pct') is not None or delta_abs_val_norm is not None)">
-                        <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
-                              tal:content="python:u'%s %s (%s)' % ((r.get('delta_dir') or u'Δ'), (delta_abs_str), (delta_pct_str))">&Delta; +0.00 (+0%)</span>
+                        <span tal:attributes="class python:(r.get('delta_dir')==u'\u25B2' and 'delta-up' or (r.get('delta_dir')==u'\u25BC' and 'delta-down' or ''))"
+                              tal:content="python:u'%s %s (%s)' % ((r.get('delta_dir') or u'\u0394'), (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
                       </div>
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
                     <td>
                       <div class="trend-arrow"
-                           tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'↑') and 'trend-up' or (trend_arrow==u'↓') and 'trend-down' or 'trend-flat')"
-                           tal:content="python:trend_arrow">&#8594;</div>
+                           tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'\u2191') and 'trend-up' or (trend_arrow==u'\u2193') and 'trend-down' or 'trend-flat')"
+                           tal:content="python:trend_arrow">→</div>
 
                       <canvas class="spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
@@ -766,11 +767,12 @@
            );
            _series python:trends_data and trends_data.get('series') or [];
            
+           <!-- CORRECCIÓN SIMPLIFICADA: Validar que haya al menos 2 puntos de datos -->
            _all_data_points python:[];
            python:[_all_data_points.extend(s.get('data') or []) for s in _series];
            _valid_points python:[p for p in _all_data_points if p and 
-                ((isinstance(p, (list, tuple)) and len(p)>1 and p[0] and p[1] not in (None, '', u'—')) or
-                 (hasattr(p, 'get') and p.get('x') and p.get('y') not in (None, '', u'—')))];
+                ((isinstance(p, (list, tuple)) and len(p)>1 and p[0] and p[1] not in (None, '', u'\u2014')) or
+                 (hasattr(p, 'get') and p.get('x') and p.get('y') not in (None, '', u'\u2014')))];
            _unique_dates python:len(set([p[0] if isinstance(p, (list, tuple)) else p.get('x', '') for p in _valid_points]));
            has_two_points python:(_unique_dates >= 2);
          "
@@ -800,7 +802,7 @@
            ">
         <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
         <div class="fallback-message">
-          <img alt="Gráfico de tendencias (PNG)"
+          <img alt="Gr\u00E1fico de tendencias (PNG)"
                style="width:180mm; height:auto;"
                tal:attributes="
                  src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
@@ -866,13 +868,13 @@
               chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
               title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
                        style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
-              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los \u00FAltimos 365 d\u00EDas (m\u00E1ximo).', y: 30,
                           style: { color: '#6c757d', fontSize: '12px' } },
               xAxis: {
                 categories: cats,
                 tickPositions: tickPositions,
                 labels: { style: { color: '#333' }, rotation: -45, step: step },
-                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                title: { text: 'Fecha de An\u00E1lisis', style: { color: '#000', fontWeight: 'bold' } },
                 tickmarkPlacement: 'on'
               },
               yAxis: {
