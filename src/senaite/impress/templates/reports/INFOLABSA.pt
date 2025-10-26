@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
-  <!-- INFOLABSA.pt :: DELTA-GUARD v3 :: 2025-10-26 -->
+  <!-- INFOLABSA.pt :: FINAL -->
 
   <!-- Assets estándar de Impress -->
   <tal:t replace="structure python:view.render_controls(context, **options)" />
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  <!-- Cargar Highcharts (usado solo en navegador, no en WeasyPrint) -->
+  <!-- Highcharts (solo navegador) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
   <!-- Afinado visual + control de paginado -->
@@ -45,7 +45,6 @@
 
     .results-center-cells table.table tbody td:nth-child(n+2):nth-child(-n+6) { text-align: center !important; vertical-align: middle; }
     .results-center-cells table.table thead th:nth-child(n+2):nth-child(-n+6) { text-align: center !important; }
-
     .results-center-cells table.table.table-condensed { border-collapse: collapse; border-spacing: 0; }
     .results-center-cells table.table.table-condensed thead th { border-bottom: 0 !important; padding-top: 2px; padding-bottom: 2px; vertical-align: bottom; }
     .results-center-cells table.table.table-condensed thead tr { border-bottom: 1px solid #dee2e6 !important; }
@@ -79,42 +78,13 @@
     .section-delta .trend-flat { color:#6c757d; }
 
     /* ===== SECCIÓN TENDENCIAS ===== */
-    .section-trends { 
-      margin: 30px 0; 
-      page-break-inside: avoid;
-      clear: both;
-      text-align: initial !important;
-      direction: ltr !important;
-    }
+    .section-trends { margin: 30px 0; page-break-inside: avoid; clear: both; text-align: initial !important; direction: ltr !important; }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
-
-    .section-trends .chart-center-wrap {
-      width: 180mm;
-      max-width: 100%;
-      margin: 0 auto !important;
-      float: none !important;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-    }
-
-    .section-trends .chart-container {
-      width: 100% !important;
-      height: 560px;
-      margin: 20px 0;
-      border: 1px solid #e9ecef;
-      border-radius: 4px;
-      padding: 0;
-      background: #fff;
-      overflow: visible;
-      display: none; /* se activa tras render en JS */
-      float: none !important;
-    }
-
+    .section-trends .chart-center-wrap { width: 180mm; max-width: 100%; margin: 0 auto !important; float: none !important; display: flex; justify-content: center; align-items: flex-start; }
+    .section-trends .chart-container { width: 100% !important; height: 560px; margin: 20px 0; border: 1px solid #e9ecef; border-radius: 4px; padding: 0; background: #fff; overflow: visible; display: none; float: none !important; }
     .section-trends .chart-container .highcharts-title,
     .section-trends .chart-container .highcharts-subtitle { display: block !important; opacity: 1 !important; visibility: visible !important; }
     .section-trends .chart-container svg { overflow: visible !important; }
-
     .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
     .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
@@ -128,65 +98,38 @@
     .section-trends { page-break-inside: avoid; }
     .section-delta { page-break-before: auto; break-before: auto; margin-top: 8mm; }
 
-    /* Cola del informe: Firmas + Observaciones (juntas) */
+    /* Cola del informe */
     .tail-pack { break-inside: avoid; page-break-inside: avoid; margin-bottom: 8mm; }
-    .tail-pack .section-signatures,
-    .tail-pack .section-remarks { break-inside: avoid; page-break-inside: avoid; }
+    .tail-pack .section-signatures, .tail-pack .section-remarks { break-inside: avoid; page-break-inside: avoid; }
 
     /* Anexos finales */
     .attachments-end { page-break-before: auto; margin-top: 8mm; }
     .attachments-end .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
-
-    /* Ajuste específico para ANEXOS */
-    .section-attachments h1:first-of-type,
-    .section-attachments h2:first-of-type,
-    .section-attachments h3:first-of-type { display: none !important; }
+    .section-attachments h1:first-of-type, .section-attachments h2:first-of-type, .section-attachments h3:first-of-type { display: none !important; }
     .section-attachments img { max-width: 180mm; width: 100%; height: auto; }
 
     @media print {
       .tail-pack { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
-      .tail-pack .section-signatures,
-      .tail-pack .section-remarks { page-break-inside: avoid; break-inside: avoid; }
-
+      .tail-pack .section-signatures, .tail-pack .section-remarks { page-break-inside: avoid; break-inside: avoid; }
       .pagebreak { page-break-before: always; }
       .pagebreak-before { page-break-before: always; }
       .avoid-break-inside { page-break-inside: avoid; }
-
       .section-interp, .section-signatures { break-inside: avoid; }
       .section-delta { page-break-before: auto; margin-top: 8mm; }
-
       .no-weasyprint { display: none !important; }
       .weasy-fallback { display: block !important; }
-
       .section-trends { page-break-inside: avoid; break-inside: avoid; }
-      .section-trends .weasy-fallback,
-      .section-trends .weasy-fallback .fallback-message,
-      .section-trends .weasy-fallback .section-title { page-break-inside: avoid; break-inside: avoid; }
+      .section-trends .weasy-fallback, .section-trends .weasy-fallback .fallback-message, .section-trends .weasy-fallback .section-title { page-break-inside: avoid; break-inside: avoid; }
       .section-trends .weasy-fallback .section-title { page-break-after: avoid; break-after: avoid; margin-bottom: 8px !important; }
       .section-trends .weasy-fallback .fallback-message img { display: block; page-break-inside: avoid; break-inside: avoid; max-width: 180mm; height: auto; }
-
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
     }
 
-    /* EXTRA: Centrado PNG en preview/PDF (WeasyPrint) */
+    /* Centrado PNG en preview/PDF (WeasyPrint) */
     .section-trends { float: none !important; clear: both !important; }
     .section-trends .weasy-fallback { display: block !important; text-align: center !important; }
-    .section-trends .weasy-fallback .fallback-message {
-      display: block !important;
-      max-width: 180mm;
-      margin: 0 auto !important;
-      float: none !important;
-      padding: 0;
-      border: 0;
-      background: transparent;
-    }
-    .section-trends .weasy-fallback .fallback-message img {
-      display: block !important;
-      width: 100% !important;
-      max-width: 180mm !important;
-      height: auto !important;
-      margin: 0 auto !important;
-    }
+    .section-trends .weasy-fallback .fallback-message { display: block !important; max-width: 180mm; margin: 0 auto !important; float: none !important; padding: 0; border: 0; background: transparent; }
+    .section-trends .weasy-fallback .fallback-message img { display: block !important; width: 100% !important; max-width: 180mm !important; height: auto !important; margin: 0 auto !important; }
   </style>
 
   <!-- AR robusto (model.instance -> view.context -> context) -->
@@ -536,7 +479,7 @@
       </div>
     </tal:interp>
 
-    <!-- ===== Cola del informe: Firmas + Observaciones (siempre juntas) ===== -->
+    <!-- ===== Cola del informe: Firmas + Observaciones ===== -->
     <div class="tail-pack">
       <div class="section-signatures">
         <tal:t replace="structure python:view.render_signatures(ar, **options)" />
@@ -550,29 +493,25 @@
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (con margen arriba) =========== -->
+    <!-- =========== Delta Check (con guardas de 2 estudios) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
-
-      _safe_dt python:lambda p: (hasattr(p,'get') and (p.get('ms') or p.get('date')) or None);
-      _val_ok  python:lambda p: (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')));
-      _series_clean python:lambda s: [p for p in (s or []) if (_val_ok(p) and (_safe_dt(p) not in (None, u'', u'\u2014')))];
-      _row_distinct_dates python:lambda r: set([_safe_dt(p) for p in _series_clean(r.get('series'))]);
-
-      rows_valid python:[
-        r for r in rows
-        if (len(_row_distinct_dates(r)) >= 2)
+      _series_dates python:lambda r: [
+        ((hasattr(p,'get') and (p.get('ms') or p.get('date'))) or None)
+        for p in (r.get('series') or [])
+        if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))
       ];
-
-      /* criterio paciente: al menos 2 fechas distintas en TOTAL */
-      _all_dates python:set();
-      python:[_all_dates.update(_row_distinct_dates(r)) for r in rows];
-      patient_has_two_studies python:(len(_all_dates) >= 2);
-
-      hasrows python:(bool(rows_valid) and patient_has_two_studies);
+      _row_two_distinct python:lambda r: (
+        len([d for i,d in enumerate(_series_dates(r)) if (d not in (None, u'', u'\u2014')) and (d not in _series_dates(r)[:i])]) >= 2
+      );
+      rows_valid python:[ r for r in rows if _row_two_distinct(r) ];
+      _all_dates python:[ d for r in rows for d in _series_dates(r) if d and (d not in (None, u'', u'\u2014')) ];
+      _unique_total python:len(set(_all_dates));
+      patient_has_two_studies python:(_unique_total >= 2);
+      hasrows python:(bool(rows_valid) and patient_has_two_studies)
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
         <div class="w-100">
@@ -580,7 +519,7 @@
           <div class="small" tal:condition="delta/period_label">
             <span i18n:translate="">Período considerado:</span>
             <strong tal:content="delta/period_label">6 meses</strong>
-            • <span i18n:translate="">Fuente:</span> <span i18n:translate="">historial de muestras del paciente</span>
+            &bull; <span i18n:translate="">Fuente:</span> <span i18n:translate="">historial de muestras del paciente</span>
           </div>
 
           <table class="table table-sm table-condensed mt-1">
@@ -589,7 +528,7 @@
                 <th i18n:translate="">Analito</th>
                 <th i18n:translate="">Actual</th>
                 <th i18n:translate="">Analito previo</th>
-                <th i18n:translate="">Δ vs. previo</th>
+                <th i18n:translate="">&Delta; vs. previo</th>
                 <th i18n:translate="">Tendencia</th>
               </tr>
             </thead>
@@ -756,7 +695,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (DESPUÉS DEL DELTA CHECK) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (con guardas de 2 puntos) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -769,18 +708,18 @@
              or (_delta and (_delta.get('chart_v2') or _delta.get('chart')))
              or {}
            );
-           _series python:trends_data and trends_data.get('series') or [];
-
-           /* Validar puntos (x,y) con y válido y al menos 2 x distintos */
-           _valid_pairs python:[
+           _series python:(trends_data and trends_data.get('series') or []);
+           _pairs_per_series python:[
              [
                (
-                 (isinstance(p, (list, tuple)) and len(p)>1 and
+                 (isinstance(p,(list,tuple)) and (len(p)>1) and
                   (p[0] not in (None, u'', u'\u2014')) and
-                  ((isinstance(p[1], (int,float)) or (p[1] not in (None, u'', u'\u2014')))) and
+                  (p[1] not in (None, u'', u'\u2014')) and
                   (p[0], p[1]))
                  or
-                 ((hasattr(p,'get') and ((p.get('ms') or p.get('x') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None))))
+                 (hasattr(p,'get') and
+                  ((p.get('ms') or p.get('x') or p.get('date') or u''),
+                   (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)))
                  or
                  None
                )
@@ -788,7 +727,11 @@
              ]
              for s in _series
            ];
-           _all_points python:[(((pp and (pp[0] or u''))), (pp and pp[1])) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))];
+           _all_points python:[
+             ( (pp and (pp[0] or u'')), (pp and pp[1]) )
+             for ser in _pairs_per_series for pp in ser
+             if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))
+           ];
            _distinct_count python:len(set([unicode(k) for (k,_) in _all_points]));
            has_two_points python:(_distinct_count >= 2)
          "
@@ -945,15 +888,13 @@
               var fb = document.querySelector('.section-trends .weasy-fallback');
               if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
-            } else {
-              console.error('Highcharts no está cargado');
             }
           }
         })();
       </script>
     </div>
 
-    <!-- =========== Anexos (AL FINAL, solo si hay contenido renderizable) =========== -->
+    <!-- =========== Anexos (al final, solo si hay contenido) =========== -->
     <tal:attachments_end define="
       get python:getattr;
       atts_html python:(get(view,'render_attachments',None) and view.render_attachments(ar, **options) or u'');
