@@ -556,17 +556,16 @@
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
 
-      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if ( (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014'))) )];
+      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if ( (hasattr(p,'get') and (p.get('value') not in (None, u'', u'—'))) )];
       _row_series_dates python:lambda r: [ ( (p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'' ) for p in _row_series_clean(r) ];
-      _row_distinct_count python:lambda r: len([d for i,d in enumerate(_row_series_dates(r)) if (d not in (None, u'', u'\u2014')) and (d not in _row_series_dates(r)[:i])]);
+      _row_distinct_count python:lambda r: len([d for i,d in enumerate(_row_series_dates(r)) if (d not in (None, u'', u'—')) and (d not in _row_series_dates(r)[:i])]);
 
-      /* === NUEVO: verificar que el paciente tenga al menos 2 fechas distintas (>= 2 estudios) === */
-      _all_dates python:[ ( (p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'' )
-                          for r in (rows or []) for p in (r.get('series') or []) ];
-      _distinct_study_dates python:[ d for i,d in enumerate(_all_dates) if (d not in (None, u'', u'\u2014')) and (d not in _all_dates[:i]) ];
-      patient_has_two_studies python:bool(len(_distinct_study_dates) >= 2);
+      rows_valid python:[ r for r in rows if ( (_row_distinct_count(r) >= 2) or ( (r.get('prev_value') not in (None, u'', u'—')) and (r.get('prev_date') not in (None, u'', u'—')) ) ) ];
 
-      rows_valid python:[ r for r in rows if ( (_row_distinct_count(r) >= 2) or ( (r.get('prev_value') not in (None, u'', u'\u2014')) and (r.get('prev_date') not in (None, u'', u'\u2014')) ) ) ];
+      _all_dates python:[ ((p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'') for r in (rows or []) for p in (r.get('series') or []) ];
+      _distinct_dates python:[ d for i,d in enumerate(_all_dates) if (d not in (None, u'', u'—')) and (d not in _all_dates[:i]) ];
+      patient_has_two_studies python:bool(len(_distinct_dates) >= 2);
+
       hasrows python:(bool(rows_valid) and patient_has_two_studies);
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
@@ -599,12 +598,12 @@
 
                   _now_val_raw python:r.get('value_now');
                   _prev_val_raw python:r.get('prev_value');
-                  _now_val python:((_now_val_raw not in (None, u'', u'\u2014')) and float(_now_val_raw) or None);
-                  _prev_val python:((_prev_val_raw not in (None, u'', u'\u2014')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
+                  _now_val python:((_now_val_raw not in (None, u'', u'—')) and float(_now_val_raw) or None);
+                  _prev_val python:((_prev_val_raw not in (None, u'', u'—')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
 
                   delta_abs_val python:((_now_val is not None and _prev_val is not None) and (_now_val - _prev_val) or None);
                   delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
-                  delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'\u2014');
+                  delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—');
 
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
@@ -615,11 +614,11 @@
                   rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
 
                   dir_sym python:(r.get('delta_dir') or u'');
-                  trend_arrow python:((dir_sym==u'\u25b2' or dir_sym==u'\u25b3' or dir_sym==u'\u25b4' or dir_sym==u'\u25b5') and u'\u2191' or (dir_sym==u'\u25bc' or dir_sym==u'\u25bd' or dir_sym==u'\u25be' or dir_sym==u'\u25bf') and u'\u2193' or u'\u2192');
+                  trend_arrow python:((dir_sym==u'▲' or dir_sym==u'△' or dir_sym==u'▴' or dir_sym==u'▵') and u'↑' or (dir_sym==u'▼' or dir_sym==u'▽' or dir_sym==u'▾' or dir_sym==u'▿') and u'↓' or u'→');
 
-                  prev_val_display python:((_prev_val is not None) and (u'%s' % _prev_val) or u'\u2014');
-                  prev_date_display python:( (r.get('prev_date_fmt') not in (None, u'', u'\u2014')) and r.get('prev_date_fmt') or ( (n>=2 and has_distinct) and ( (hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or u'' ) or u'\u2014') );
-                  prev_id_display python:(r.get('prev_sample_id') or u'\u2014');
+                  prev_val_display python:((_prev_val is not None) and (u'%s' % _prev_val) or u'—');
+                  prev_date_display python:( (r.get('prev_date_fmt') not in (None, u'', u'—')) and r.get('prev_date_fmt') or ( (n>=2 and has_distinct) and ( (hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or u'' ) or u'—') );
+                  prev_id_display python:(r.get('prev_sample_id') or u'—');
                 ">
                   <tr>
                     <td>
@@ -628,7 +627,7 @@
                     </td>
 
                     <td>
-                      <div tal:content="python:(_now_val is not None and u'%s' % _now_val) or u'\u2014'">\u2014</div>
+                      <div tal:content="python:(_now_val is not None and u'%s' % _now_val) or u'—'">—</div>
                       <div class="small"
                            tal:content="python:view.to_localized_time(
                              (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
@@ -636,31 +635,31 @@
                              (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
                              (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
                              get(ar,'created',None)
-                           )">\u2014</div>
+                           )">—</div>
                     </td>
 
                     <td>
-                      <div tal:content="python:prev_val_display">\u2014</div>
+                      <div tal:content="python:prev_val_display">—</div>
                       <div class="small">
                         <span i18n:translate="">ID</span>:
-                        <strong tal:content="python:prev_id_display">\u2014</strong>
+                        <strong tal:content="python:prev_id_display">—</strong>
                         &nbsp;|&nbsp;
-                        <span tal:content="python:prev_date_display">\u2014</span>
+                        <span tal:content="python:prev_date_display">—</span>
                       </div>
                     </td>
 
                     <td>
                       <div tal:condition="python:(r.get('delta_pct') is not None or delta_abs_val_norm is not None)">
-                        <span tal:attributes="class python:(r.get('delta_dir')==u'\u25b2' and 'delta-up' or (r.get('delta_dir')==u'\u25bc' and 'delta-down' or ''))"
-                              tal:content="python:u'%s %s (%s)' % ((r.get('delta_dir') or u'\u0394'), (delta_abs_str), (delta_pct_str))">\u0394 +0.00 (+0%)</span>
+                        <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
+                              tal:content="python:u'%s %s (%s)' % ((r.get('delta_dir') or u'Δ'), (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
                       </div>
-                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">\u2014</div>
+                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
                     <td>
                       <div class="trend-arrow"
-                           tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'\u2191') and 'trend-up' or (trend_arrow==u'\u2193') and 'trend-down' or 'trend-flat')"
-                           tal:content="python:trend_arrow">\u2192</div>
+                           tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'↑') and 'trend-up' or (trend_arrow==u'↓') and 'trend-down' or 'trend-flat')"
+                           tal:content="python:trend_arrow">→</div>
 
                       <canvas class="spark"
                               tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
@@ -766,14 +765,14 @@
            );
            _series python:trends_data and trends_data.get('series') or [];
            _valid_pairs python:[
-             [ ( (isinstance(p, (list, tuple)) and len(p)>1 and (p[0] not in (None, u'', u'\u2014')) and ( (isinstance(p[1], (int,float)) or (p[1] not in (None, u'', u'\u2014'))) ) and (p[0], p[1]) )
-               or ( (hasattr(p,'get') and ((p.get('ms') or p.get('x') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None))) )
+             [ ( (isinstance(p, (list, tuple)) and len(p)>1 and (p[0] not in (None, u'', u'—')) and ( (isinstance(p[1], (int,float)) or (p[1] not in (None, u'', u'—'))) ) and (p[0], p[1]) )
+               or ( (hasattr(p,'get') and ((p.get('ms') or p.get('x') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'—')) else None))) )
                or None )
                for p in (s.get('data') or [])
              ]
              for s in _series
            ];
-           _all_points python:[ ( (pp and (pp[0] or u'')), (pp and pp[1]) ) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014')) ];
+           _all_points python:[ ( (pp and (pp[0] or u'')), (pp and pp[1]) ) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'—')) and (pp[1] not in (None, u'', u'—')) ];
            _distinct_keys python:[ k for i,(k,_) in enumerate(_all_points) if (k not in _all_points[:i][0] if _all_points[:i] else True) ];
            _distinct_count python:len(set([k for (k,_) in _all_points]));
            has_two_points python:(_distinct_count >= 2)
