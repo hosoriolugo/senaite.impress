@@ -1,3 +1,4 @@
+[file content begin]
 <?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
   <!-- Assets estandar de Impress -->
@@ -564,7 +565,15 @@
 
       _all_dates python:[ ((p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'') for r in (rows or []) for p in (r.get('series') or []) ];
       _distinct_dates python:[ d for i,d in enumerate(_all_dates) if (d not in (None, u'', u'—')) and (d not in _all_dates[:i]) ];
-      patient_has_two_studies python:bool(len(_distinct_dates) >= 2);
+      
+      <!-- CORRECCIÓN: Validar que haya al menos 2 estudios distintos para el mismo tipo de muestra -->
+      _valid_series_dates python:[
+        d for r in rows 
+        for d in _row_series_dates(r) 
+        if d and d not in (None, u'', u'—')
+      ];
+      _unique_valid_dates python:len(set(_valid_series_dates));
+      patient_has_two_studies python:(_unique_valid_dates >= 2);
 
       hasrows python:(bool(rows_valid) and patient_has_two_studies);
     ">
@@ -774,8 +783,15 @@
            ];
            _all_points python:[ ( (pp and (pp[0] or u'')), (pp and pp[1]) ) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'—')) and (pp[1] not in (None, u'', u'—')) ];
            _distinct_keys python:[ k for i,(k,_) in enumerate(_all_points) if (k not in _all_points[:i][0] if _all_points[:i] else True) ];
-           _distinct_count python:len(set([k for (k,_) in _all_points]));
-           has_two_points python:(_distinct_count >= 2)
+           
+           <!-- CORRECCIÓN: Validar que haya al menos 2 puntos distintos para el mismo tipo de muestra -->
+           _valid_dates_by_analyte python:[
+             set([p[0] for p in ser if p and p[0] and p[0] not in (None, u'', u'—')])
+             for ser in _valid_pairs
+             if ser
+           ];
+           _analytes_with_two_studies python:[dates for dates in _valid_dates_by_analyte if len(dates) >= 2];
+           has_two_points python:bool(_analytes_with_two_studies);
          "
          tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
 
@@ -967,3 +983,4 @@
 
   </div> <!-- cierre del contenedor que define 'ar' -->
 </tal:report>
+[file content end]
