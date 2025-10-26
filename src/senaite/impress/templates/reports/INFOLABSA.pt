@@ -198,7 +198,7 @@
     <div class="row section-header no-gutters">
       <div class="w-100 mb-2">
         <table class="w-100 mb-0 noborder">
-          <colgroup><col style=&quot;width:65%&quot;/><col style=&quot;width:35%&quot;/></colgroup>
+          <colgroup><col style="width:65%"/><col style="width:35%"/></colgroup>
           <tr>
             <td class="align-middle text-left">
               <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
@@ -227,9 +227,9 @@
       idents python:(patient and (get(patient,'getIdentifiers',None) and patient.getIdentifiers()) or []) ;
 
       mrn_from_ids python:(
-        u''.join([ i.get('value','') for i in (idents or [])
+        ''.join([ i.get('value','') for i in (idents or [])
                    if (i.get('key','').strip().lower() in
-                       ('mrn','medical record','medical record #','medical record number','expediente')) ]) or u''
+                       ('mrn','medical record','medical record #','medical record number','expediente')) ]) or ''
       );
 
       mrn_raw python:(
@@ -253,12 +253,12 @@
           ( (hasattr(mrn_raw,'decode') and (isinstance(mrn_raw, str) and mrn_raw.decode('utf-8','ignore') or mrn_raw)) or
             (hasattr(mrn_raw,'strip') and mrn_raw.strip()) or
             unicode(mrn_raw) )
-        ) or u''
+        ) or ''
       );
 
       p_first python:(patient and get(patient,'getFirstname',None) and patient.getFirstname() or '');
       p_last  python:(patient and get(patient,'getSurname',None) and patient.getSurname() or (patient and get(patient,'getLastname',None) and patient.getLastname()) or '');
-      fullname_comp python:((p_last and p_first) and u'%s, %s' % (p_last, p_first) or (p_first or p_last));
+      fullname_comp python:((p_last and p_first) and '%s, %s' % (p_last, p_first) or (p_first or p_last));
       patient_name python:(
         (get(ar,'getPatientFullName',None) and ar.getPatientFullName()) or
         (patient and get(patient,'getFullname',None) and patient.getFullname()) or
@@ -299,8 +299,8 @@
         ''
       );
       gender_norm python:(
-        (gender_raw in ('m','M','male','Male')) and u'Masculino' or
-        (gender_raw in ('f','F','female','Female')) and u'Femenino' or
+        (gender_raw in ('m','M','male','Male')) and 'Masculino' or
+        (gender_raw in ('f','F','female','Female')) and 'Femenino' or
         gender_raw
       );
 
@@ -329,9 +329,9 @@
               <td class="label" i18n:translate="">Edad</td>
               <td>
                 <span tal:condition="python:(age_years_int not in (None,0))"
-                      tal:content="python:u'%s años' % age_years_int">-</span>
+                      tal:content="python:'%s años' % age_years_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int not in (None,0)))"
-                      tal:content="python:u'%s meses' % age_months_int">-</span>
+                      tal:content="python:'%s meses' % age_months_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)))"
                       tal:content="age_raw|nothing">-</span>
               </td>
@@ -354,12 +354,12 @@
         (get(ar,'getId',None) and ar.getId()) or
         (hasattr(ar,'id') and ar.id) or
         (get(ar,'getRequestID',None) and ar.getRequestID()) or
-        u''
+        ''
       );
       stype python:(
         (get(ar,'getSampleTypeTitle',None) and ar.getSampleTypeTitle()) or
         (get(ar,'getSampleType',None) and ar.getSampleType() and ar.getSampleType().Title()) or
-        u''
+        ''
       );
       rec_dt python:(
         (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
@@ -371,8 +371,8 @@
         (get(ar,'getDateVerified',None) and ar.getDateVerified()) or
         None
       );
-      rec_txt python:(rec_dt and view.to_localized_time(rec_dt) or u'');
-      ver_txt python:(ver_dt and view.to_localized_time(ver_dt) or u'');
+      rec_txt python:(rec_dt and view.to_localized_time(rec_dt) or '');
+      ver_txt python:(ver_dt and view.to_localized_time(ver_dt) or '');
       show_sample python:any([sid, stype, rec_dt, ver_dt]);
     ">
       <div class="row section-summary no-gutters" tal:condition="show_sample">
@@ -466,7 +466,7 @@
         (hasattr(x,'raw') and x.raw) or
         (isinstance(x, dict) and (x.get('richtext') or x.get('output') or x.get('raw') or x.get('data') or x.get('text'))) or
         (isinstance(x, basestring) and x) or
-        u''
+        ''
       );
 
       _bydept0 python:(get(ar,'getResultsInterpretationByDepartment',None) and ar.getResultsInterpretationByDepartment or None);
@@ -478,19 +478,19 @@
         (get(ar,'getInterpretationGeneral',None) and ar.getInterpretationGeneral()) or
         (get(ar,'getGeneralInterpretation',None) and ar.getGeneralInterpretation()) or
         (get(ar,'getInterpretation',None) and ar.getInterpretation()) or
-        u''
+        ''
       );
       gen_html_legacy python:_rich(gen_raw);
       gen_html python:(gen_dept_html or gen_html_legacy);
-      gen python:((gen_html and (hasattr(gen_html,'strip') and gen_html.strip() or gen_html)) or u'');
+      gen python:((gen_html and (hasattr(gen_html,'strip') and gen_html.strip() or gen_html)) or '');
 
       qc_raw  python:(
         (get(ar,'getInterpretationChemistry',None) and ar.getInterpretationChemistry()) or
         (get(ar,'getChemistryInterpretation',None) and ar.getChemistryInterpretation()) or
-        u''
+        ''
       );
       qc_html python:_rich(qc_raw);
-      qc  python:((qc_html and (hasattr(qc_html,'strip') and qc_html.strip() or qc_html)) or u'');
+      qc  python:((qc_html and (hasattr(qc_html,'strip') and qc_html.strip() or qc_html)) or '');
       qc_shown python:bool(qc);
 
       depts python:(get(ar,'getDepartments',None) and ar.getDepartments() or []);
@@ -499,12 +499,12 @@
       dept_items python:(
         [
           {
-            'title': (get(d,'Title',None) and d.Title() or u''),
-            'text': (_bydept and _rich((_bydept(d) or {}).get('richtext')) or u'')
+            'title': (get(d,'Title',None) and d.Title() or ''),
+            'text': (_bydept and _rich((_bydept(d) or {}).get('richtext')) or '')
           }
           for d in depts
-          if _bydept and (_rich((_bydept(d) or {}).get('richtext')) or u'')
-             and (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'química', u'química clínica'))))
+          if _bydept and (_rich((_bydept(d) or {}).get('richtext')) or '')
+             and (not qc_shown or not (((get(d,'Title',None) and d.Title() or '').strip().lower() in ('chemistry', 'química', 'química clínica'))))
         ]
       );
       has_dept python:any([i.get('text') for i in dept_items]);
@@ -527,7 +527,7 @@
 
           <tal:dept tal:condition="has_dept">
             <tal:loop tal:repeat="item dept_items">
-              <h3 class="mb-0" tal:content="python:item.get('title') or u'Departamento'">Departamento</h3>
+              <h3 class="mb-0" tal:content="python:item.get('title') or 'Departamento'">Departamento</h3>
               <div tal:content="structure python:item.get('text')">-</div>
             </tal:loop>
           </tal:dept>
@@ -556,15 +556,15 @@
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
 
-      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if ( (hasattr(p,'get') and (p.get('value') not in (None, u'', u'—'))) )];
-      _row_series_dates python:lambda r: [ ( (p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'' ) for p in _row_series_clean(r) ];
-      _row_distinct_count python:lambda r: len([d for i,d in enumerate(_row_series_dates(r)) if (d not in (None, u'', u'—')) and (d not in _row_series_dates(r)[:i])]);
+      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if ( (hasattr(p,'get') and (p.get('value') not in (None, '', '—'))) )];
+      _row_series_dates python:lambda r: [ ( (p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or '' ) for p in _row_series_clean(r) ];
+      _row_distinct_count python:lambda r: len([d for i,d in enumerate(_row_series_dates(r)) if (d not in (None, '', '—')) and (d not in _row_series_dates(r)[:i])]);
 
-      rows_valid python:[ r for r in rows if ( (_row_distinct_count(r) >= 2) or ( (r.get('prev_value') not in (None, u'', u'—')) and (r.get('prev_date') not in (None, u'', u'—')) ) ) ];
+      rows_valid python:[ r for r in rows if ( (_row_distinct_count(r) >= 2) or ( (r.get('prev_value') not in (None, '', '—')) and (r.get('prev_date') not in (None, '', '—')) ) ) ];
 
-      <!-- CORRECCIÓN SIMPLIFICADA: Contar estudios únicos -->
+      <!-- CORRECCIÓN: Contar estudios únicos de forma segura -->
       _all_valid_dates python:[];
-      python:_all_valid_dates.extend([d for r in rows for d in _row_series_dates(r) if d and d not in (None, u'', u'—')]);
+      python:[_all_valid_dates.append(d) for r in rows for d in _row_series_dates(r) if d and d not in (None, '', '—')];
       _unique_dates python:len(set(_all_valid_dates));
       patient_has_two_studies python:(_unique_dates >= 2);
 
@@ -594,33 +594,33 @@
                 <tal:calc define="
                   ser python:r.get('series') or [];
                   n python:len(ser);
-                  t_last python:(ser and ((hasattr(ser[-1],'get') and (ser[-1].get('ms') or ser[-1].get('date'))) or u'') or u'');
-                  t_prev python:((n>=2) and ((hasattr(ser[-2],'get') and (ser[-2].get('ms') or ser[-2].get('date'))) or u'') or u'');
+                  t_last python:(ser and ((hasattr(ser[-1],'get') and (ser[-1].get('ms') or ser[-1].get('date'))) or '') or '');
+                  t_prev python:((n>=2) and ((hasattr(ser[-2],'get') and (ser[-2].get('ms') or ser[-2].get('date'))) or '') or '');
                   has_distinct python:(bool(t_last) and bool(t_prev) and (t_last != t_prev));
 
                   _now_val_raw python:r.get('value_now');
                   _prev_val_raw python:r.get('prev_value');
-                  _now_val python:((_now_val_raw not in (None, u'', u'—')) and float(_now_val_raw) or None);
-                  _prev_val python:((_prev_val_raw not in (None, u'', u'—')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
+                  _now_val python:((_now_val_raw not in (None, '', '—')) and float(_now_val_raw) or None);
+                  _prev_val python:((_prev_val_raw not in (None, '', '—')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
 
                   delta_abs_val python:((_now_val is not None and _prev_val is not None) and (_now_val - _prev_val) or None);
                   delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
-                  delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'—');
+                  delta_abs_str python:((delta_abs_val_norm is not None) and ('%+.2f' % delta_abs_val_norm) or '—');
 
-                  delta_pct_str python:(r.get('delta_pct') or u'N/A');
-                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
-                  delta_pct_val python:((_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None);
+                  delta_pct_str python:(r.get('delta_pct') or 'N/A');
+                  _pct_clean python:((delta_pct_str or '').replace('%', '').strip());
+                  delta_pct_val python:((_pct_clean not in ('', 'N/A')) and abs(float(_pct_clean)) or None);
 
                   rcv python:r.get('rcv_pct');
                   has_rcv python:(rcv is not None);
                   rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
 
-                  dir_sym python:(r.get('delta_dir') or u'');
-                  trend_arrow python:((dir_sym==u'▲' or dir_sym==u'△' or dir_sym==u'▴' or dir_sym==u'▵') and u'↑' or (dir_sym==u'▼' or dir_sym==u'▽' or dir_sym==u'▾' or dir_sym==u'▿') and u'↓' or u'→');
+                  dir_sym python:(r.get('delta_dir') or '');
+                  trend_arrow python:((dir_sym=='▲' or dir_sym=='△' or dir_sym=='▴' or dir_sym=='▵') and '↑' or (dir_sym=='▼' or dir_sym=='▽' or dir_sym=='▾' or dir_sym=='▿') and '↓' or '→');
 
-                  prev_val_display python:((_prev_val is not None) and (u'%s' % _prev_val) or u'—');
-                  prev_date_display python:( (r.get('prev_date_fmt') not in (None, u'', u'—')) and r.get('prev_date_fmt') or ( (n>=2 and has_distinct) and ( (hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or u'' ) or u'—') );
-                  prev_id_display python:(r.get('prev_sample_id') or u'—');
+                  prev_val_display python:((_prev_val is not None) and ('%s' % _prev_val) or '—');
+                  prev_date_display python:( (r.get('prev_date_fmt') not in (None, '', '—')) and r.get('prev_date_fmt') or ( (n>=2 and has_distinct) and ( (hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or '' ) or '—') );
+                  prev_id_display python:(r.get('prev_sample_id') or '—');
                 ">
                   <tr>
                     <td>
@@ -629,7 +629,7 @@
                     </td>
 
                     <td>
-                      <div tal:content="python:(_now_val is not None and u'%s' % _now_val) or u'—'">—</div>
+                      <div tal:content="python:(_now_val is not None and '%s' % _now_val) or '—'">—</div>
                       <div class="small"
                            tal:content="python:view.to_localized_time(
                              (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
@@ -652,22 +652,22 @@
 
                     <td>
                       <div tal:condition="python:(r.get('delta_pct') is not None or delta_abs_val_norm is not None)">
-                        <span tal:attributes="class python:(r.get('delta_dir')==u'▲' and 'delta-up' or (r.get('delta_dir')==u'▼' and 'delta-down' or ''))"
-                              tal:content="python:u'%s %s (%s)' % ((r.get('delta_dir') or u'Δ'), (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
+                        <span tal:attributes="class python:(r.get('delta_dir')=='▲' and 'delta-up' or (r.get('delta_dir')=='▼' and 'delta-down' or ''))"
+                              tal:content="python:'%s %s (%s)' % ((r.get('delta_dir') or 'Δ'), (delta_abs_str), (delta_pct_str))">Δ +0.00 (+0%)</span>
                       </div>
                       <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">—</div>
                     </td>
 
                     <td>
                       <div class="trend-arrow"
-                           tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'↑') and 'trend-up' or (trend_arrow==u'↓') and 'trend-down' or 'trend-flat')"
+                           tal:attributes="class python:'trend-arrow ' + ((trend_arrow=='↑') and 'trend-up' or (trend_arrow=='↓') and 'trend-down' or 'trend-flat')"
                            tal:content="python:trend_arrow">→</div>
 
                       <canvas class="spark"
-                              tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
+                              tal:attributes="id python:'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
                       <input type="hidden"
-                             tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
-                                             value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
+                             tal:attributes="id python:'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
+                                             value python:'|'.join(['%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
                     </td>
                   </tr>
                 </tal:calc>
@@ -767,13 +767,12 @@
            );
            _series python:trends_data and trends_data.get('series') or [];
            
-           <!-- CORRECCIÓN SIMPLIFICADA: Validar que haya al menos 2 puntos de datos -->
-           _all_data_points python:[];
-           python:[_all_data_points.extend(s.get('data') or []) for s in _series];
-           _valid_points python:[p for p in _all_data_points if p and 
-                ((isinstance(p, (list, tuple)) and len(p)>1 and p[0] and p[1] not in (None, '', u'—')) or
-                 (hasattr(p, 'get') and p.get('x') and p.get('y') not in (None, '', u'—')))];
-           _unique_dates python:len(set([p[0] if isinstance(p, (list, tuple)) else p.get('x', '') for p in _valid_points]));
+           <!-- CORRECCIÓN: Validación simplificada sin caracteres especiales -->
+           _all_points python:[];
+           python:[_all_points.extend(s.get('data') or []) for s in _series];
+           _valid_dates python:[];
+           python:[_valid_dates.append(p[0] if isinstance(p, (list, tuple)) else p.get('x', '')) for p in _all_points if p and ((isinstance(p, (list, tuple)) and p[0] and p[1] not in (None, '', '—')) or (hasattr(p, 'get') and p.get('x') and p.get('y') not in (None, '', '—')))];
+           _unique_dates python:len(set(_valid_dates));
            has_two_points python:(_unique_dates >= 2);
          "
          tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
@@ -941,10 +940,10 @@
     <!-- =========== Anexos (AL FINAL, solo si hay contenido renderizable) =========== -->
     <tal:attachments_end define="
       get python:getattr;
-      atts_html python:(get(view,'render_attachments',None) and view.render_attachments(ar, **options) or u'');
-      atts_str  python:(atts_html and (hasattr(atts_html,'strip') and atts_html.strip() or atts_html) or u'');
+      atts_html python:(get(view,'render_attachments',None) and view.render_attachments(ar, **options) or '');
+      atts_str  python:(atts_html and (hasattr(atts_html,'strip') and atts_html.strip() or atts_html) or '');
       atts_lc   python:(isinstance(atts_str, basestring) and atts_str.lower() or unicode(atts_str).lower());
-      has_media python:(u'<img' in atts_lc or u'<object' in atts_lc or u'<embed' in atts_lc or u'<figure' in atts_lc or u'<iframe' in atts_lc);
+      has_media python:('<img' in atts_lc or '<object' in atts_lc or '<embed' in atts_lc or '<figure' in atts_lc or '<iframe' in atts_lc);
       has_atts_end python:bool(has_media);
       rid python:(
         (get(ar,'getId',None) and ar.getId()) or
