@@ -571,7 +571,27 @@
         for r in rows for p in (r.get('series') or [])
         if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))
       ];
-      _distinct_sids_count python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
+      _distinct_sids_count_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
+
+      /* ===== AJUSTE: Fallback de SIDs cuando la serie no trae sid ===== */
+      _prev_ids_fallback python:set([
+        unicode(r.get('prev_sample_id') or u'')
+        for r in rows
+        if r.get('prev_sample_id') not in (None, u'', u'\u2014')
+      ]);
+      _cur_sid_fallback python:set([
+        unicode(
+          (get(ar,'getId',None) and ar.getId()) or
+          (hasattr(ar,'id') and ar.id) or
+          (get(ar,'getRequestID',None) and ar.getRequestID()) or
+          u''
+        )
+      ]);
+      _distinct_sids_count python:(
+        _distinct_sids_count_base if _distinct_sids_count_base else len(_prev_ids_fallback | _cur_sid_fallback)
+      );
+      /* ===== FIN AJUSTE ===== */
+
       patient_has_two_sids python:(_distinct_sids_count >= 2);
 
       hasrows python:(bool(rows_valid) and patient_has_two_sids)
@@ -805,7 +825,25 @@
              for s in _series for p in (s.get('data') or [])
              if (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014')))
            ];
-           _distinct_sids python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
+           _distinct_sids_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
+
+           /* ===== AJUSTE: Fallback de SIDs cuando la serie no trae sid ===== */
+           _delta_rows python:(_delta.get('rows') or []);
+           _delta_prev_ids python:set([
+             unicode(r.get('prev_sample_id') or u'')
+             for r in _delta_rows
+             if (hasattr(r,'get') and r.get('prev_sample_id') not in (None, u'', u'\u2014'))
+           ]);
+           _rid_current python:(
+             (get(ar,'getId',None) and ar.getId()) or
+             (hasattr(ar,'id') and ar.id) or
+             (get(ar,'getRequestID',None) and ar.getRequestID()) or
+             options.get('rid','') or u''
+           );
+           _sid_current_set python:set([unicode(_rid_current)]);
+           _distinct_sids_fallback_count python:len(_delta_prev_ids | _sid_current_set);
+           _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
+           /* ===== FIN AJUSTE ===== */
 
            has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2)
