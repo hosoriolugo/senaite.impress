@@ -424,7 +424,6 @@
             'sample_received': 'Muestra recibida'
           };
           var keys = Object.keys(map);
-          // Reemplazo directo (case-insensitive) sin RegExp global del servidor
           var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
           var node;
           while ((node = walker.nextNode())) {
@@ -435,7 +434,6 @@
             keys.forEach(function(k){
               var idx = tLower.indexOf(k);
               if (idx !== -1) {
-                // Reemplazo seguro por segmentos
                 var before = t.slice(0, idx);
                 var after  = t.slice(idx + k.length);
                 t = before + map[k] + after;
@@ -552,18 +550,21 @@
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
-      _series_dates python:lambda r: [
-        ((hasattr(p,'get') and (p.get('ms') or p.get('date'))) or None)
+      _series_keys python:lambda r: [
+        (
+          (hasattr(p,'get') and ((p.get('ms') or p.get('date') or u''))) and
+          ((p.get('ms') or p.get('date') or u'') + u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u''))
+        )
         for p in (r.get('series') or [])
         if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))
       ];
       _row_two_distinct python:lambda r: (
-        len([d for i,d in enumerate(_series_dates(r)) if (d not in (None, u'', u'\u2014')) and (d not in _series_dates(r)[:i])]) >= 2
+        len([k for i,k in enumerate(_series_keys(r)) if (k not in (None, u'', u'\u2014')) and (k not in _series_keys(r)[:i])]) >= 2
       );
       rows_valid python:[ r for r in rows if _row_two_distinct(r) ];
-      _all_dates python:[ d for r in rows for d in _series_dates(r) if d and (d not in (None, u'', u'\u2014')) ];
-      _unique_total python:len(set(_all_dates));
-      patient_has_two_studies python:(_unique_total >= 3);
+      _all_keys python:[ k for r in rows for k in _series_keys(r) if k and (k not in (None, u'', u'\u2014')) ];
+      _unique_total python:len(set(_all_keys));
+      patient_has_two_studies python:(_unique_total >= 2);
       hasrows python:(bool(rows_valid) and patient_has_two_studies)
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
@@ -771,8 +772,11 @@
                   (p[0], p[1]))
                  or
                  (hasattr(p,'get') and
-                  ((p.get('ms') or p.get('x') or p.get('date') or u''),
-                   (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)))
+                  (
+                    ( (p.get('ms') or p.get('x') or p.get('date') or u'') +
+                      u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
+                    (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)
+                  ))
                  or
                  None
                )
@@ -786,7 +790,7 @@
              if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))
            ];
            _distinct_count python:len(set([unicode(k) for (k,_) in _all_points]));
-           has_two_points python:(_distinct_count >= 3)
+           has_two_points python:(_distinct_count >= 2)
          "
          tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
 
@@ -848,14 +852,20 @@
                   var y = (p && typeof p === 'object')
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
+
+                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
+                  var sid = (p && typeof p === 'object' && !Array.isArray(p))
+                              ? (p.sid || p.sample_id || p.id || '')
+                              : '';
+                  var key = String(x) + '|' + String(sid);
+
                   if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                    var key = String(x);
                     if (!seen[key]) { seen[key] = true; distinct++; }
                   }
                 }
               });
             } catch(e) { distinct = 0; }
-            if (distinct < 3) return;
+            if (distinct < 2) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
