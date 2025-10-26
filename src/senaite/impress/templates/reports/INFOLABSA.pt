@@ -158,6 +158,7 @@
     <tal:t replace="structure python:view.render_alerts(ar, **options)" />
 
     <!-- Datos del Paciente -->
+    <!-- Ajuste: cálculo de días para RN y sin comentarios dentro de atributos -->
     <tal:patient define="
       get python:getattr;
 
@@ -233,7 +234,6 @@
         None
       );
       age_months_int python:(hasattr(age_raw,'months') and int(age_raw.months) or None);
-      <!-- AÑADIDO: días para recién nacidos -->
       age_days_int python:(hasattr(age_raw,'days') and int(age_raw.days) or None);
 
       gender_raw python:(
@@ -278,7 +278,6 @@
                       tal:content="python:u'%s a\u00f1os' % age_years_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int not in (None,0)))"
                       tal:content="python:u'%s meses' % age_months_int">-</span>
-                <!-- AÑADIDO: cuando no hay años ni meses pero sí días -->
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)) and (age_days_int not in (None,0)))"
                       tal:content="python:u'%s d\u00edas' % age_days_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)) and (age_days_int in (None,0)))"
@@ -406,7 +405,7 @@
       <tal:t replace="structure python:ar.restrictedTraverse('@@infolabsa-results-with-state')()" />
     </div>
 
-    <!-- AÑADIDO: Traducción de estados en la tabla de resultados -->
+    <!-- Traducción de estados en la tabla de resultados (solo UI, no toca datos) -->
     <script type="text/javascript">
       (function(){
         function run(){
@@ -535,7 +534,7 @@
     <tal:t replace="structure python:view.render_discreeter(ar, **options)" />
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
-    <!-- =========== Delta Check (con guardas de 2 estudios) =========== -->
+    <!-- =========== Delta Check (>=3 estudios únicos para tendencia) =========== -->
     <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
@@ -737,7 +736,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (con guardas de 2 puntos) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (>=3 puntos) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
