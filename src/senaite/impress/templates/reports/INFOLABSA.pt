@@ -573,7 +573,6 @@
       ];
       _distinct_sids_count_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
 
-      /* ===== AJUSTE: Fallback de SIDs cuando la serie no trae sid ===== */
       _prev_ids_fallback python:set([
         unicode(r.get('prev_sample_id') or u'')
         for r in rows
@@ -590,7 +589,6 @@
       _distinct_sids_count python:(
         _distinct_sids_count_base if _distinct_sids_count_base else len(_prev_ids_fallback | _cur_sid_fallback)
       );
-      /* ===== FIN AJUSTE ===== */
 
       patient_has_two_sids python:(_distinct_sids_count >= 2);
 
@@ -827,7 +825,6 @@
            ];
            _distinct_sids_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
 
-           /* ===== AJUSTE: Fallback de SIDs cuando la serie no trae sid ===== */
            _delta_rows python:(_delta.get('rows') or []);
            _delta_prev_ids python:set([
              unicode(r.get('prev_sample_id') or u'')
@@ -843,7 +840,6 @@
            _sid_current_set python:set([unicode(_rid_current)]);
            _distinct_sids_fallback_count python:len(_delta_prev_ids | _sid_current_set);
            _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
-           /* ===== FIN AJUSTE ===== */
 
            has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2)
