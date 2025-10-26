@@ -1,4 +1,3 @@
-[file content begin]
 <?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
   <!-- Assets estandar de Impress -->
@@ -563,17 +562,11 @@
 
       rows_valid python:[ r for r in rows if ( (_row_distinct_count(r) >= 2) or ( (r.get('prev_value') not in (None, u'', u'—')) and (r.get('prev_date') not in (None, u'', u'—')) ) ) ];
 
-      _all_dates python:[ ((p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'') for r in (rows or []) for p in (r.get('series') or []) ];
-      _distinct_dates python:[ d for i,d in enumerate(_all_dates) if (d not in (None, u'', u'—')) and (d not in _all_dates[:i]) ];
-      
-      <!-- CORRECCIÓN: Validar que haya al menos 2 estudios distintos para el mismo tipo de muestra -->
-      _valid_series_dates python:[
-        d for r in rows 
-        for d in _row_series_dates(r) 
-        if d and d not in (None, u'', u'—')
-      ];
-      _unique_valid_dates python:len(set(_valid_series_dates));
-      patient_has_two_studies python:(_unique_valid_dates >= 2);
+      <!-- CORRECCIÓN SIMPLIFICADA: Contar estudios únicos -->
+      _all_valid_dates python:[];
+      python:_all_valid_dates.extend([d for r in rows for d in _row_series_dates(r) if d and d not in (None, u'', u'—')]);
+      _unique_dates python:len(set(_all_valid_dates));
+      patient_has_two_studies python:(_unique_dates >= 2);
 
       hasrows python:(bool(rows_valid) and patient_has_two_studies);
     ">
@@ -773,25 +766,15 @@
              or {}
            );
            _series python:trends_data and trends_data.get('series') or [];
-           _valid_pairs python:[
-             [ ( (isinstance(p, (list, tuple)) and len(p)>1 and (p[0] not in (None, u'', u'—')) and ( (isinstance(p[1], (int,float)) or (p[1] not in (None, u'', u'—'))) ) and (p[0], p[1]) )
-               or ( (hasattr(p,'get') and ((p.get('ms') or p.get('x') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'—')) else None))) )
-               or None )
-               for p in (s.get('data') or [])
-             ]
-             for s in _series
-           ];
-           _all_points python:[ ( (pp and (pp[0] or u'')), (pp and pp[1]) ) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'—')) and (pp[1] not in (None, u'', u'—')) ];
-           _distinct_keys python:[ k for i,(k,_) in enumerate(_all_points) if (k not in _all_points[:i][0] if _all_points[:i] else True) ];
            
-           <!-- CORRECCIÓN: Validar que haya al menos 2 puntos distintos para el mismo tipo de muestra -->
-           _valid_dates_by_analyte python:[
-             set([p[0] for p in ser if p and p[0] and p[0] not in (None, u'', u'—')])
-             for ser in _valid_pairs
-             if ser
-           ];
-           _analytes_with_two_studies python:[dates for dates in _valid_dates_by_analyte if len(dates) >= 2];
-           has_two_points python:bool(_analytes_with_two_studies);
+           <!-- CORRECCIÓN SIMPLIFICADA: Validar que haya al menos 2 puntos de datos -->
+           _all_data_points python:[];
+           python:[_all_data_points.extend(s.get('data') or []) for s in _series];
+           _valid_points python:[p for p in _all_data_points if p and 
+                ((isinstance(p, (list, tuple)) and len(p)>1 and p[0] and p[1] not in (None, '', u'—')) or
+                 (hasattr(p, 'get') and p.get('x') and p.get('y') not in (None, '', u'—')))];
+           _unique_dates python:len(set([p[0] if isinstance(p, (list, tuple)) else p.get('x', '') for p in _valid_points]));
+           has_two_points python:(_unique_dates >= 2);
          "
          tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
 
@@ -983,4 +966,3 @@
 
   </div> <!-- cierre del contenedor que define 'ar' -->
 </tal:report>
-[file content end]
