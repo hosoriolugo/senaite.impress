@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
-  <!-- INFOLABSA.pt :: DELTA-GUARD v3 :: 2025-10-26 00:15 -->
+  <!-- INFOLABSA.pt :: DELTA-GUARD v3 :: 2025-10-26 -->
 
-  <!-- Assets estandar de Impress -->
+  <!-- Assets estándar de Impress -->
   <tal:t replace="structure python:view.render_controls(context, **options)" />
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
@@ -79,8 +79,8 @@
     .section-delta .trend-flat { color:#6c757d; }
 
     /* ===== SECCIÓN TENDENCIAS ===== */
-    .section-trends {
-      margin: 30px 0;
+    .section-trends { 
+      margin: 30px 0; 
       page-break-inside: avoid;
       clear: both;
       text-align: initial !important;
@@ -118,21 +118,26 @@
     .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
     .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
+    /* Visibilidad navegador/PDF */
     .no-weasyprint { display: none !important; }
     .weasy-fallback { display: block !important; }
     body.has-highcharts .weasy-fallback { display: none !important; }
 
+    /* Paginación */
     .section-interp { page-break-before: always; }
     .section-trends { page-break-inside: avoid; }
     .section-delta { page-break-before: auto; break-before: auto; margin-top: 8mm; }
 
+    /* Cola del informe: Firmas + Observaciones (juntas) */
     .tail-pack { break-inside: avoid; page-break-inside: avoid; margin-bottom: 8mm; }
     .tail-pack .section-signatures,
     .tail-pack .section-remarks { break-inside: avoid; page-break-inside: avoid; }
 
+    /* Anexos finales */
     .attachments-end { page-break-before: auto; margin-top: 8mm; }
     .attachments-end .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
 
+    /* Ajuste específico para ANEXOS */
     .section-attachments h1:first-of-type,
     .section-attachments h2:first-of-type,
     .section-attachments h3:first-of-type { display: none !important; }
@@ -163,6 +168,7 @@
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
     }
 
+    /* EXTRA: Centrado PNG en preview/PDF (WeasyPrint) */
     .section-trends { float: none !important; clear: both !important; }
     .section-trends .weasy-fallback { display: block !important; text-align: center !important; }
     .section-trends .weasy-fallback .fallback-message {
@@ -551,20 +557,22 @@
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
 
-      _distinct_dates python:lambda series: set([
-        (hasattr(p,'get') and (p.get('ms') or p.get('date')) or None)
-        for p in (series or [])
-        if (hasattr(p,'get') and
-            (p.get('value') not in (None, u'', u'\u2014')) and
-            (p.get('ms') or p.get('date')) not in (None, u'', u'\u2014'))
-      ]);
+      _safe_dt python:lambda p: (hasattr(p,'get') and (p.get('ms') or p.get('date')) or None);
+      _val_ok  python:lambda p: (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')));
+      _series_clean python:lambda s: [p for p in (s or []) if (_val_ok(p) and (_safe_dt(p) not in (None, u'', u'\u2014')))];
+      _row_distinct_dates python:lambda r: set([_safe_dt(p) for p in _series_clean(r.get('series'))]);
 
       rows_valid python:[
         r for r in rows
-        if (len(_distinct_dates(r.get('series'))) >= 2)
+        if (len(_row_distinct_dates(r)) >= 2)
       ];
 
-      hasrows python:bool(rows_valid);
+      /* criterio paciente: al menos 2 fechas distintas en TOTAL */
+      _all_dates python:set();
+      python:[_all_dates.update(_row_distinct_dates(r)) for r in rows];
+      patient_has_two_studies python:(len(_all_dates) >= 2);
+
+      hasrows python:(bool(rows_valid) and patient_has_two_studies);
     ">
       <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
         <div class="w-100">
@@ -762,6 +770,8 @@
              or {}
            );
            _series python:trends_data and trends_data.get('series') or [];
+
+           /* Validar puntos (x,y) con y válido y al menos 2 x distintos */
            _valid_pairs python:[
              [
                (
