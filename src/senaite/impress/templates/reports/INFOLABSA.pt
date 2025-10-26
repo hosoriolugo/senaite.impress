@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
-  <!-- INFOLABSA.pt :: DELTA-GUARD v3 :: 2025-10-26 00:15 -->
-
   <!-- Assets estandar de Impress -->
   <tal:t replace="structure python:view.render_controls(context, **options)" />
   <tal:t replace="structure python:view.render_js(context, **options)" />
@@ -79,8 +77,8 @@
     .section-delta .trend-flat { color:#6c757d; }
 
     /* ===== SECCIÓN TENDENCIAS ===== */
-    .section-trends {
-      margin: 30px 0;
+    .section-trends { 
+      margin: 30px 0; 
       page-break-inside: avoid;
       clear: both;
       text-align: initial !important;
@@ -88,6 +86,7 @@
     }
     .section-trends .section-title { color: #000; font-weight: 800; margin-bottom: 15px !important; border-bottom: 2px solid #2c3e50; padding-bottom: 5px; }
 
+    /* Wrapper centrador para la vista previa */
     .section-trends .chart-center-wrap {
       width: 180mm;
       max-width: 100%;
@@ -118,21 +117,26 @@
     .section-trends .fallback-message { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 5px; border: 1px dashed #dee2e6; }
     .section-trends .fallback-message img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
+    /* Visibilidad navegador/PDF */
     .no-weasyprint { display: none !important; }
     .weasy-fallback { display: block !important; }
     body.has-highcharts .weasy-fallback { display: none !important; }
 
+    /* --- Paginación inteligente (CSS) --- */
     .section-interp { page-break-before: always; }
     .section-trends { page-break-inside: avoid; }
     .section-delta { page-break-before: auto; break-before: auto; margin-top: 8mm; }
 
+    /* Cola del informe: Firmas + Observaciones (juntas) */
     .tail-pack { break-inside: avoid; page-break-inside: avoid; margin-bottom: 8mm; }
     .tail-pack .section-signatures,
     .tail-pack .section-remarks { break-inside: avoid; page-break-inside: avoid; }
 
+    /* Anexos finales */
     .attachments-end { page-break-before: auto; margin-top: 8mm; }
     .attachments-end .tail-title { font-weight: 800; color: #000; margin: 8px 0 6px; }
 
+    /* Ajuste específico para ANEXOS */
     .section-attachments h1:first-of-type,
     .section-attachments h2:first-of-type,
     .section-attachments h3:first-of-type { display: none !important; }
@@ -163,6 +167,7 @@
       .attachments-end { display:inline-block; width:100%; page-break-inside: avoid; break-inside: avoid; }
     }
 
+    /* EXTRA: Centrado PNG en preview/PDF (WeasyPrint) */
     .section-trends { float: none !important; clear: both !important; }
     .section-trends .weasy-fallback { display: block !important; text-align: center !important; }
     .section-trends .weasy-fallback .fallback-message {
@@ -324,7 +329,7 @@
               <td class="label" i18n:translate="">Edad</td>
               <td>
                 <span tal:condition="python:(age_years_int not in (None,0))"
-                      tal:content="python:u'%s a\u00f1os' % age_years_int">-</span>
+                      tal:content="python:u'%s años' % age_years_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int not in (None,0)))"
                       tal:content="python:u'%s meses' % age_months_int">-</span>
                 <span tal:condition="python:((age_years_int in (None,0)) and (age_months_int in (None,0)))"
@@ -499,7 +504,7 @@
           }
           for d in depts
           if _bydept and (_rich((_bydept(d) or {}).get('richtext')) or u'')
-             and (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'qu\u00edmica', u'qu\u00edmica cl\u00ednica'))))
+             and (not qc_shown or not (((get(d,'Title',None) and d.Title() or u'').strip().lower() in ('chemistry', u'química', u'química clínica'))))
         ]
       );
       has_dept python:any([i.get('text') for i in dept_items]);
@@ -545,408 +550,240 @@
     <tal:t replace="structure python:view.render_footer(ar, **options)" />
 
     <!-- =========== Delta Check (con margen arriba) =========== -->
-<tal:delta define="
+    <tal:delta define="
       get python:getattr;
       _trv python:getattr(ar, 'restrictedTraverse', None);
       delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
       rows python:(delta and delta.get('rows') or []);
 
-      # contar puntos válidos distintos por fila (sin lambdas)
-      rows_with_two_points python:[
-        r for r in (rows or [])
-        if (
-          len([
-            ( (p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'' )
-            for i,p in enumerate((r.get('series') or []))
-            if hasattr(p,'get')
-               and (p.get('value') not in (None, u'', u'\u2014'))
-               and ( ((p.get('ms') or p.get('date') or u'') not in (None, u'', u'\u2014')) )
-               and ( ((r.get('series') or [])[:i].count(p)) == 0 )
-          ]) >= 2
-        )
-      ];
+      _row_series_clean python:lambda r: [p for p in (r.get('series') or []) if ( (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014'))) )];
+      _row_series_dates python:lambda r: [ ( (p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'' ) for p in _row_series_clean(r) ];
+      _row_distinct_count python:lambda r: len([d for i,d in enumerate(_row_series_dates(r)) if (d not in (None, u'', u'\u2014')) and (d not in _row_series_dates(r)[:i])]);
 
-      # filas con valor previo explícito (por si 'series' viene incompleto)
-      rows_with_prev python:[
-        r for r in (rows or [])
-        if (r.get('prev_value') not in (None, u'', u'\u2014')) and (r.get('prev_date') not in (None, u'', u'\u2014'))
-      ];
+      /* === NUEVO: verificar que el paciente tenga al menos 2 fechas distintas (>= 2 estudios) === */
+      _all_dates python:[ ( (p.get('ms') if hasattr(p,'get') else None) or (p.get('date') if hasattr(p,'get') else None) or u'' )
+                          for r in (rows or []) for p in (r.get('series') or []) ];
+      _distinct_study_dates python:[ d for i,d in enumerate(_all_dates) if (d not in (None, u'', u'\u2014')) and (d not in _all_dates[:i]) ];
+      patient_has_two_studies python:bool(len(_distinct_study_dates) >= 2);
 
-      rows_valid python: (rows_with_two_points or rows_with_prev);
-      hasrows python: bool(rows_valid);
+      rows_valid python:[ r for r in rows if ( (_row_distinct_count(r) >= 2) or ( (r.get('prev_value') not in (None, u'', u'\u2014')) and (r.get('prev_date') not in (None, u'', u'\u2014')) ) ) ];
+      hasrows python:(bool(rows_valid) and patient_has_two_studies);
     ">
-  <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
-    <div class="w-100">
-      <h2 class="mb-1 section-title" i18n:translate="">Tendencia (Delta check)</h2>
-      <div class="small" tal:condition="delta/period_label">
-        <span i18n:translate="">Período considerado:</span>
-        <strong tal:content="delta/period_label">6 meses</strong>
-        • <span i18n:translate="">Fuente:</span> <span i18n:translate="">historial de muestras del paciente</span>
+      <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
+        <div class="w-100">
+          <h2 class="mb-1 section-title" i18n:translate="">Tendencia (Delta check)</h2>
+          <div class="small" tal:condition="delta/period_label">
+            <span i18n:translate="">Período considerado:</span>
+            <strong tal:content="delta/period_label">6 meses</strong>
+            • <span i18n:translate="">Fuente:</span> <span i18n:translate="">historial de muestras del paciente</span>
+          </div>
+
+          <table class="table table-sm table-condensed mt-1">
+            <thead>
+              <tr>
+                <th i18n:translate="">Analito</th>
+                <th i18n:translate="">Actual</th>
+                <th i18n:translate="">Analito previo</th>
+                <th i18n:translate="">Δ vs. previo</th>
+                <th i18n:translate="">Tendencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tal:loop repeat="r rows_valid">
+                <tal:calc define="
+                  ser python:r.get('series') or [];
+                  n python:len(ser);
+                  t_last python:(ser and ((hasattr(ser[-1],'get') and (ser[-1].get('ms') or ser[-1].get('date'))) or u'') or u'');
+                  t_prev python:((n>=2) and ((hasattr(ser[-2],'get') and (ser[-2].get('ms') or ser[-2].get('date'))) or u'') or u'');
+                  has_distinct python:(bool(t_last) and bool(t_prev) and (t_last != t_prev));
+
+                  _now_val_raw python:r.get('value_now');
+                  _prev_val_raw python:r.get('prev_value');
+                  _now_val python:((_now_val_raw not in (None, u'', u'\u2014')) and float(_now_val_raw) or None);
+                  _prev_val python:((_prev_val_raw not in (None, u'', u'\u2014')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
+
+                  delta_abs_val python:((_now_val is not None and _prev_val is not None) and (_now_val - _prev_val) or None);
+                  delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
+                  delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'\u2014');
+
+                  delta_pct_str python:(r.get('delta_pct') or u'N/A');
+                  _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
+                  delta_pct_val python:((_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None);
+
+                  rcv python:r.get('rcv_pct');
+                  has_rcv python:(rcv is not None);
+                  rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
+
+                  dir_sym python:(r.get('delta_dir') or u'');
+                  trend_arrow python:((dir_sym==u'\u25b2' or dir_sym==u'\u25b3' or dir_sym==u'\u25b4' or dir_sym==u'\u25b5') and u'\u2191' or (dir_sym==u'\u25bc' or dir_sym==u'\u25bd' or dir_sym==u'\u25be' or dir_sym==u'\u25bf') and u'\u2193' or u'\u2192');
+
+                  prev_val_display python:((_prev_val is not None) and (u'%s' % _prev_val) or u'\u2014');
+                  prev_date_display python:( (r.get('prev_date_fmt') not in (None, u'', u'\u2014')) and r.get('prev_date_fmt') or ( (n>=2 and has_distinct) and ( (hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or u'' ) or u'\u2014') );
+                  prev_id_display python:(r.get('prev_sample_id') or u'\u2014');
+                ">
+                  <tr>
+                    <td>
+                      <div><strong tal:content="r/name">Analito</strong></div>
+                      <div class="small" tal:condition="python:r.get('unit')" tal:content="python:r.get('unit')">U</div>
+                    </td>
+
+                    <td>
+                      <div tal:content="python:(_now_val is not None and u'%s' % _now_val) or u'\u2014'">\u2014</div>
+                      <div class="small"
+                           tal:content="python:view.to_localized_time(
+                             (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
+                             (get(ar,'getDateVerified',None) and ar.getDateVerified()) or
+                             (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
+                             (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
+                             get(ar,'created',None)
+                           )">\u2014</div>
+                    </td>
+
+                    <td>
+                      <div tal:content="python:prev_val_display">\u2014</div>
+                      <div class="small">
+                        <span i18n:translate="">ID</span>:
+                        <strong tal:content="python:prev_id_display">\u2014</strong>
+                        &nbsp;|&nbsp;
+                        <span tal:content="python:prev_date_display">\u2014</span>
+                      </div>
+                    </td>
+
+                    <td>
+                      <div tal:condition="python:(r.get('delta_pct') is not None or delta_abs_val_norm is not None)">
+                        <span tal:attributes="class python:(r.get('delta_dir')==u'\u25b2' and 'delta-up' or (r.get('delta_dir')==u'\u25bc' and 'delta-down' or ''))"
+                              tal:content="python:u'%s %s (%s)' % ((r.get('delta_dir') or u'\u0394'), (delta_abs_str), (delta_pct_str))">\u0394 +0.00 (+0%)</span>
+                      </div>
+                      <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">\u2014</div>
+                    </td>
+
+                    <td>
+                      <div class="trend-arrow"
+                           tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'\u2191') and 'trend-up' or (trend_arrow==u'\u2193') and 'trend-down' or 'trend-flat')"
+                           tal:content="python:trend_arrow">\u2192</div>
+
+                      <canvas class="spark"
+                              tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
+                      <input type="hidden"
+                             tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
+                                             value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
+                    </td>
+                  </tr>
+                </tal:calc>
+              </tal:loop>
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <table class="table table-sm table-condensed mt-1">
-        <thead>
-          <tr>
-            <th i18n:translate="">Analito</th>
-            <th i18n:translate="">Actual</th>
-            <th i18n:translate="">Analito previo</th>
-            <th i18n:translate="">Δ vs. previo</th>
-            <th i18n:translate="">Tendencia</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tal:loop repeat="r rows_valid">
-            <tal:calc define="
-              ser python:r.get('series') or [];
-              n python:len(ser);
-              t_last python:(ser and ((hasattr(ser[-1],'get') and (ser[-1].get('ms') or ser[-1].get('date'))) or u'') or u'');
-              t_prev python:((n>=2) and ((hasattr(ser[-2],'get') and (ser[-2].get('ms') or ser[-2].get('date'))) or u'') or u'');
-              has_distinct python:(bool(t_last) and bool(t_prev) and (t_last != t_prev));
-
-              _now_val_raw python:r.get('value_now');
-              _prev_val_raw python:r.get('prev_value');
-              _now_val python:((_now_val_raw not in (None, u'', u'\u2014')) and float(_now_val_raw) or None);
-              _prev_val python:((_prev_val_raw not in (None, u'', u'\u2014')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
-
-              delta_abs_val python:((_now_val is not None and _prev_val is not None) and (_now_val - _prev_val) or None);
-              delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
-              delta_abs_str python:((delta_abs_val_norm is not None) and (u'%+.2f' % delta_abs_val_norm) or u'\u2014');
-
-              delta_pct_str python:(r.get('delta_pct') or u'N/A');
-              _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
-              delta_pct_val python:((_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None);
-
-              rcv python:r.get('rcv_pct');
-              has_rcv python:(rcv is not None);
-              rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
-
-              dir_sym python:(r.get('delta_dir') or u'');
-              trend_arrow python:((dir_sym==u'\u25b2' or dir_sym==u'\u25b3' or dir_sym==u'\u25b4' or dir_sym==u'\u25b5') and u'\u2191' or (dir_sym==u'\u25bc' or dir_sym==u'\u25bd' or dir_sym==u'\u25be' or dir_sym==u'\u25bf') and u'\u2193' or u'\u2192');
-
-              prev_val_display python:((_prev_val is not None) and (u'%s' % _prev_val) or u'\u2014');
-              prev_date_display python:( (r.get('prev_date_fmt') not in (None, u'', u'\u2014')) and r.get('prev_date_fmt') or ( (n>=2 and has_distinct) and ( (hasattr(ser[-2],'get') and (ser[-2].get('date') or ser[-2].get('ms'))) or u'' ) or u'\u2014') );
-              prev_id_display python:(r.get('prev_sample_id') or u'\u2014');
-            ">
-              <tr>
-                <td>
-                  <div><strong tal:content="r/name">Analito</strong></div>
-                  <div class="small" tal:condition="python:r.get('unit')" tal:content="python:r.get('unit')">U</div>
-                </td>
-
-                <td>
-                  <div tal:content="python:(_now_val is not None and u'%s' % _now_val) or u'\u2014'">\u2014</div>
-                  <div class="small"
-                       tal:content="python:view.to_localized_time(
-                         (get(view,'verification_datetime',None) and view.verification_datetime(ar)) or
-                         (get(ar,'getDateVerified',None) and ar.getDateVerified()) or
-                         (get(ar,'getDatePublished',None) and ar.getDatePublished()) or
-                         (get(ar,'getDateReceived',None) and ar.getDateReceived()) or
-                         get(ar,'created',None)
-                       )">\u2014</div>
-                </td>
-
-                <td>
-                  <div tal:content="python:prev_val_display">\u2014</div>
-                  <div class="small">
-                    <span i18n:translate="">ID</span>:
-                    <strong tal:content="python:prev_id_display">\u2014</strong>
-                    &nbsp;|&nbsp;
-                    <span tal:content="python:prev_date_display">\u2014</span>
-                  </div>
-                </td>
-
-                <td>
-                  <div tal:condition="python:(r.get('delta_pct') is not None or delta_abs_val_norm is not None)">
-                    <span tal:attributes="class python:(r.get('delta_dir')==u'\u25b2' and 'delta-up' or (r.get('delta_dir')==u'\u25bc' and 'delta-down' or ''))"
-                          tal:content="python:u'%s %s (%s)' % ((r.get('delta_dir') or u'\u0394'), (delta_abs_str), (delta_pct_str))">\u0394 +0.00 (+0%)</span>
-                  </div>
-                  <div class="small" tal:condition="python:r.get('delta_note')" tal:content="python:r.get('delta_note')">\u2014</div>
-                </td>
-
-                <td>
-                  <div class="trend-arrow"
-                       tal:attributes="class python:u'trend-arrow ' + ((trend_arrow==u'\u2191') and 'trend-up' or (trend_arrow==u'\u2193') and 'trend-down' or 'trend-flat')"
-                       tal:content="python:trend_arrow">\u2192</div>
-
-                  <canvas class="spark"
-                          tal:attributes="id python:u'spark-'+(r.get('uid') or unicode(repeat['r'].index))"></canvas>
-                  <input type="hidden"
-                         tal:attributes="id python:u'spark-data-'+(r.get('uid') or unicode(repeat['r'].index));
-                                         value python:u'|'.join([u'%s,%s' % (p.get('date'), p.get('value')) for p in (r.get('series') or [])])" />
-                </td>
-              </tr>
-            </tal:calc>
-          </tal:loop>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Dibujo de mini-sparklines -->
-  <script type="text/javascript" tal:condition="hasrows">
-  (function(){
-    function parseTime(s){
-      if (!s) return 0;
-      var st = String(s).trim();
-      if (/^\d{9,}$/.test(st)) {
-        var num = parseInt(st,10);
-        return (st.length<=10) ? (num*1000) : num;
-      }
-      if (st.indexOf(' ')>0 && st.indexOf('T')<0) st = st.replace(' ', 'T');
-      var t = Date.parse(st);
-      return isNaN(t) ? 0 : t;
-    }
-    function drawSpark(canvas, points){
-      if (!canvas || !points || points.length<2) return;
-      var ctx = canvas.getContext('2d');
-      var W = canvas.width, H = canvas.height;
-      var xs = points.map(function(p){return p[0];});
-      var ys = points.map(function(p){return p[1];});
-      var xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
-      var ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
-      if (xmin===xmax) { xmin -= 1; xmax += 1; }
-      if (ymin===ymax) { ymin -= 1; ymax += 1; }
-      var pad = 3;
-      var sx = function(x){ return pad + (x - xmin) * (W-2*pad) / (xmax - xmin); };
-      var sy = function(y){ return H - pad - (y - ymin) * (H-2*pad) / (ymax - ymin); };
-      ctx.clearRect(0,0,W,H);
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = '#343a40';
-      ctx.beginPath();
-      ctx.moveTo(sx(points[0][0]), sy(points[0][1]));
-      for (var i=1;i<points.length;i++){ ctx.lineTo(sx(points[i][0]), sy(points[i][1])); }
-      ctx.stroke();
-      var last = points[points.length-1];
-      ctx.fillStyle = '#343a40';
-      ctx.beginPath();
-      ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true);
-      ctx.fill();
-    }
-    function parseHiddenSpark(id){
-      var el = document.getElementById(id);
-      if (!el) return null;
-      var raw = (el.value || '').trim();
-      if (!raw) return null;
-      var pts = raw.split('|').map(function(s){
-        var kv = s.split(',');
-        var t = parseTime(kv[0]);
-        var v = parseFloat(kv[1]);
-        return [t, isFinite(v)?v:NaN];
-      }).filter(function(p){ return p[0] && isFinite(p[1]); });
-      return pts.length ? pts : null;
-    }
-    function initSparks(){
-      var rows = document.querySelectorAll('#delta-check-panel canvas.spark');
-      for (var i=0;i<rows.length;i++){
-        var c = rows[i];
-        if (!c.getAttribute('width'))  c.setAttribute('width', 120);
-        if (!c.getAttribute('height')) c.setAttribute('height', 36);
-        var uid = c.id.replace('spark-','');
-        var pts = parseHiddenSpark('spark-data-'+uid);
-        if (pts) drawSpark(c, pts);
-      }
-    }
-    function init(){ initSparks(); }
-    if (document.readyState === 'loading'){
-      document.addEventListener('DOMContentLoaded', init);
-    } else {
-      init();
-    }
-  })();
-  </script>
-</tal:delta>
-<!-- =========== FIN: Delta Check =========== -->
+      <!-- Dibujo de mini-sparklines -->
+      <script type="text/javascript" tal:condition="hasrows">
+      (function(){
+        function parseTime(s){
+          if (!s) return 0;
+          var st = String(s).trim();
+          if (/^\d{9,}$/.test(st)) {
+            var num = parseInt(st,10);
+            return (st.length<=10) ? (num*1000) : num;
+          }
+          if (st.indexOf(' ')>0 && st.indexOf('T')<0) st = st.replace(' ', 'T');
+          var t = Date.parse(st);
+          return isNaN(t) ? 0 : t;
+        }
+        function drawSpark(canvas, points){
+          if (!canvas || !points || points.length<2) return;
+          var ctx = canvas.getContext('2d');
+          var W = canvas.width, H = canvas.height;
+          var xs = points.map(function(p){return p[0];});
+          var ys = points.map(function(p){return p[1];});
+          var xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+          var ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+          if (xmin===xmax) { xmin -= 1; xmax += 1; }
+          if (ymin===ymax) { ymin -= 1; ymax += 1; }
+          var pad = 3;
+          var sx = function(x){ return pad + (x - xmin) * (W-2*pad) / (xmax - xmin); };
+          var sy = function(y){ return H - pad - (y - ymin) * (H-2*pad) / (ymax - ymin); };
+          ctx.clearRect(0,0,W,H);
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = '#343a40';
+          ctx.beginPath();
+          ctx.moveTo(sx(points[0][0]), sy(points[0][1]));
+          for (var i=1;i<points.length;i++){ ctx.lineTo(sx(points[i][0]), sy(points[i][1])); }
+          ctx.stroke();
+          var last = points[points.length-1];
+          ctx.fillStyle = '#343a40';
+          ctx.beginPath();
+          ctx.arc(sx(last[0]), sy(last[1]), 2, 0, Math.PI*2, true);
+          ctx.fill();
+        }
+        function parseHiddenSpark(id){
+          var el = document.getElementById(id);
+          if (!el) return null;
+          var raw = (el.value || '').trim();
+          if (!raw) return null;
+          var pts = raw.split('|').map(function(s){
+            var kv = s.split(',');
+            var t = parseTime(kv[0]);
+            var v = parseFloat(kv[1]);
+            return [t, isFinite(v)?v:NaN];
+          }).filter(function(p){ return p[0] && isFinite(p[1]); });
+          return pts.length ? pts : null;
+        }
+        function initSparks(){
+          var rows = document.querySelectorAll('#delta-check-panel canvas.spark');
+          for (var i=0;i<rows.length;i++){
+            var c = rows[i];
+            if (!c.getAttribute('width'))  c.setAttribute('width', 120);
+            if (!c.getAttribute('height')) c.setAttribute('height', 36);
+            var uid = c.id.replace('spark-','');
+            var pts = parseHiddenSpark('spark-data-'+uid);
+            if (pts) drawSpark(c, pts);
+          }
+        }
+        function init(){ initSparks(); }
+        if (document.readyState === 'loading'){
+          document.addEventListener('DOMContentLoaded', init);
+        } else {
+          init();
+        }
+      })();
+      </script>
+    </tal:delta>
+    <!-- =========== FIN: Delta Check =========== -->
 
     <!-- =========== GRÁFICO DE TENDENCIAS (DESPUÉS DEL DELTA CHECK) =========== -->
-<div class="section-trends"
-     tal:define="
-       get python:getattr;
-       json modules/json;
-       _get_trends python:get(view,'get_trends_data', None);
-       _trv python:getattr(ar, 'restrictedTraverse', None);
-       _delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
-       trends_data python:(
-         (_get_trends and (callable(_get_trends) and _get_trends() or _get_trends))
-         or (_delta and (_delta.get('chart_v2') or _delta.get('chart')))
-         or {}
-       );
-       _series python:trends_data and trends_data.get('series') or [];
-       # contar puntos válidos únicos (por clave x/ms/date o por categoría)
-       _valid_pairs python:[
-         [
-           ( (isinstance(p, (list, tuple)) and len(p)>1 and (p[0] not in (None, u'', u'\u2014')) and ( (isinstance(p[1], (int,float)) or (p[1] not in (None, u'', u'\u2014'))) ) and (p[0], p[1]) )
-             or ( (hasattr(p,'get') and ((p.get('ms') or p.get('x') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None))) )
-             or None )
-           for p in (s.get('data') or [])
-         ]
-         for s in _series
-       ];
-       _all_points python:[ ( (pp and (pp[0] or u'')), (pp and pp[1]) ) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014')) ];
-       _distinct_count python:len(set([k for (k,_) in _all_points]));
-       has_two_points python:(_distinct_count &gt;= 2)
-     "
-     tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
+    <div class="section-trends"
+         tal:define="
+           get python:getattr;
+           json modules/json;
+           _get_trends python:get(view,'get_trends_data', None);
+           _trv python:getattr(ar, 'restrictedTraverse', None);
+           _delta python:(_trv and ar.restrictedTraverse('@@infolabsa-delta-check')() or {});
+           trends_data python:(
+             (_get_trends and (callable(_get_trends) and _get_trends() or _get_trends))
+             or (_delta and (_delta.get('chart_v2') or _delta.get('chart')))
+             or {}
+           );
+           _series python:trends_data and trends_data.get('series') or [];
+           _valid_pairs python:[
+             [ ( (isinstance(p, (list, tuple)) and len(p)>1 and (p[0] not in (None, u'', u'\u2014')) and ( (isinstance(p[1], (int,float)) or (p[1] not in (None, u'', u'\u2014'))) ) and (p[0], p[1]) )
+               or ( (hasattr(p,'get') and ((p.get('ms') or p.get('x') or p.get('date') or u''), (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None))) )
+               or None )
+               for p in (s.get('data') or [])
+             ]
+             for s in _series
+           ];
+           _all_points python:[ ( (pp and (pp[0] or u'')), (pp and pp[1]) ) for ser in _valid_pairs for pp in ser if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014')) ];
+           _distinct_keys python:[ k for i,(k,_) in enumerate(_all_points) if (k not in _all_points[:i][0] if _all_points[:i] else True) ];
+           _distinct_count python:len(set([k for (k,_) in _all_points]));
+           has_two_points python:(_distinct_count >= 2)
+         "
+         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
 
-  <!-- Contenedor para Highcharts (solo navegador) -->
-  <div class="chart-center-wrap no-weasyprint">
-    <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
-  </div>
-
-  <!-- Fallback (PNG) para PDF/WeasyPrint -->
-  <div class="weasy-fallback"
-       tal:define="
-         get python:getattr;
-         ar_uid python:(
-           (get(ar,'UID',None) and ar.UID()) or
-           (get(ar,'getUID',None) and ar.getUID()) or
-           (get(model,'UID',None) and model.UID()) or
-           options.get('uid','')
-         );
-         rid python:(
-           (get(ar,'getId',None) and ar.getId()) or
-           (hasattr(ar,'id') and ar.id) or
-           (get(ar,'getRequestID',None) and ar.getRequestID()) or
-           options.get('rid','')
-         );
-       ">
-    <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
-    <div class="fallback-message">
-      <img alt="Gráfico de tendencias (PNG)"
-           style="width:180mm; height:auto;"
-           tal:attributes="
-             src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
-               uid=ar_uid, rid=rid,
-               w=680, h=340, dpi=96,
-               scale=3,
-               max_points=6, days=365,
-               note=1,
-               even=1,
-               sharpen=1
-             )" />
-    </div>
-  </div>
-
-  <script type="text/javascript">
-    (function() {
-      if (typeof window.WeasyPrint === 'undefined') {
-        var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
-        if (!trendsData || !trendsData.series || !trendsData.series.length) return;
-
-        // Contar puntos únicos válidos
-        var seen = {};
-        var distinct = 0;
-        try {
-          trendsData.series.forEach(function(s){
-            var d = (s && s.data) ? s.data : [];
-            for (var i=0; i<d.length; i++){
-              var p = d[i];
-              var x = (p && typeof p === 'object')
-                        ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
-                        : i;
-              var y = (p && typeof p === 'object')
-                        ? (Array.isArray(p) ? p[1] : p.y)
-                        : p;
-              if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                var key = String(x);
-                if (!seen[key]) { seen[key] = true; distinct++; }
-              }
-            }
-          });
-        } catch(e) { distinct = 0; }
-        if (distinct < 2) return;
-
-        var cats = trendsData.categories || [];
-        var n = cats.length || 0;
-        var series = (trendsData.series || []).map(function(s){
-          var d = s.data || [];
-          var mapped = d.map(function(p, i){
-            var y = (p && typeof p === 'object')
-                      ? (Array.isArray(p) ? p[1] : p.y)
-                      : p;
-            return [i, y];
-          });
-          var copy = Object.assign({}, s);
-          copy.data = mapped;
-          return copy;
-        });
-
-        var step = (n <= 6) ? 1 : Math.ceil(n / 6);
-        var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
-
-        var options = {
-          chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
-          title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
-                   style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
-          subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
-                      style: { color: '#6c757d', fontSize: '12px' } },
-          xAxis: {
-            categories: cats,
-            tickPositions: tickPositions,
-            labels: { style: { color: '#333' }, rotation: -45, step: step },
-            title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
-            tickmarkPlacement: 'on'
-          },
-          yAxis: {
-            title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
-            labels: { style: { color: '#333' } },
-            min: trendsData.yMin,
-            max: trendsData.yMax,
-            gridLineColor: '#f0f0f0'
-          },
-          legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
-                    itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
-          plotOptions: {
-            line: {
-              marker: { enabled: true, radius: 4 },
-              dataLabels: {
-                enabled: true,
-                formatter: function(){
-                  var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
-                  return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
-                },
-                style: { textOutline: '1px contrast' }
-              },
-              enableMouseTracking: true
-            }
-          },
-          tooltip: {
-            shared: true, crosshairs: true,
-            formatter: function() {
-              var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
-              var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
-              var s = '<b>' + fecha + '</b>';
-              this.points.forEach(function(p) {
-                var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
-                s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
-                     ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
-              });
-              return s;
-            }
-          },
-          series: series,
-          credits: { enabled: false },
-          exporting: { enabled: false }
-        };
-
-        if (typeof Highcharts !== 'undefined') {
-          var chart = Highcharts.chart('trends-chart-container', options);
-          var el = document.getElementById('trends-chart-container');
-          if (el) { el.style.display = 'block'; }
-          if (Highcharts.charts && Highcharts.charts.length) {
-            var c = Highcharts.charts[Highcharts.charts.length - 1];
-            if (c && c.reflow) c.reflow();
-          }
-          var fb = document.querySelector('.section-trends .weasy-fallback');
-          if (fb) fb.style.display = 'none';
-          try { document.body.classList.add('has-highcharts'); } catch(e){}
-        } else {
-          console.error('Highcharts no está cargado');
-        }
-      }
-    })();
-  </script>
-</div>
-</div>
+      <!-- Contenedor para Highcharts (solo navegador) -->
+      <div class="chart-center-wrap no-weasyprint">
+        <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
+      </div>
 
       <!-- Fallback (PNG) para PDF/WeasyPrint -->
       <div class="weasy-fallback"
@@ -988,6 +825,7 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
+            // Contar puntos únicos (por categoría/tiempo) con y válido
             var seen = {};
             var distinct = 0;
             try {
