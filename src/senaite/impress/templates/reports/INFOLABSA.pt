@@ -742,7 +742,7 @@
         <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
       </div>
 
-      <!-- Fallback (PNG) para PDF/WeasyPrint -->
+      <!-- Fallback (PNG) para PDF/WeasyPrint) -->
       <div class="weasy-fallback"
            tal:define="
              get python:getattr;
