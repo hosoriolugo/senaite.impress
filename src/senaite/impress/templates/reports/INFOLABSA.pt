@@ -844,7 +844,7 @@
            has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
+         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -889,57 +889,35 @@
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
-            // Helper: robust timestamp (ms) from point object + index fallback.
-            function _toMs(p, i) {
-              try {
-                if (p && typeof p === 'object') {
-                  if (Array.isArray(p)) {
-                    // [x,y] -> if x looks like date string or ms
-                    var x0 = p[0];
-                    var parsed = Date.parse(x0);
-                    return isFinite(parsed) ? parsed : (isFinite(+x0) ? (+x0) : (i * 60000));
-                  } else {
-                    if (p.ms != null) { var v = Number(p.ms); if (isFinite(v)) return v; }
-                    if (p.ts != null)  { var v2 = Date.parse(p.ts); if (isFinite(v2)) return v2; }
-                    if (p.datetime != null) { var v3 = Date.parse(p.datetime); if (isFinite(v3)) return v3; }
-                    if (p.date && p.time) {
-                      var v4 = Date.parse(String(p.date) + ' ' + String(p.time));
-                      if (isFinite(v4)) return v4;
-                    }
-                    if (p.date) {
-                      var v5 = Date.parse(p.date);
-                      if (isFinite(v5)) return (v5 + i * 60000); // minute offset to disambiguate same-day multiples
-                    }
-                    if (p.x != null) {
-                      var vx = Number(p.x);
-                      if (isFinite(vx)) return vx;
-                      var v6 = Date.parse(p.x);
-                      if (isFinite(v6)) return v6;
-                    }
-                  }
-                }
-              } catch(e) {}
-              return (i * 60000);
-            }
-
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            
-            // Recuento robusto por índice de tiempo (i): basta con 2 índices con cualquier valor válido en cualquier serie
-            var validIdx = {};
+            var seen = {};
+            var distinct = 0;
             try {
-              (trendsData.series || []).forEach(function(s){
-                (s.data || []).forEach(function(p, i){
-                  var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
-                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                    validIdx[i] = true;
-                  }
-                });
-              });
-            } catch(e) {}
-            var distinct = Object.keys(validIdx).length;
-            if (distinct < 2) return;
+              trendsData.series.forEach(function(s){
+                var d = (s && s.data) ? s.data : [];
+                for (var i=0; i<d.length; i++){
+                  var p = d[i];
+                  var x = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
+                            : i;
+                  var y = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[1] : p.y)
+                            : p;
 
+                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
+                  var sid = (p && typeof p === 'object' && !Array.isArray(p))
+                              ? (p.sid || p.sample_id || p.id || '')
+                              : '';
+                  var key = String(x) + '|' + String(sid);
+
+                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
+                    if (!seen[key]) { seen[key] = true; distinct++; }
+                  }
+                }
+              });
+            } catch(e) { distinct = 0; }
+            if (distinct < 2) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
