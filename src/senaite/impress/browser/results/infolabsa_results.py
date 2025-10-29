@@ -44,6 +44,42 @@ def _to_num(x):
         return None
 
 
+# ------------------------- logging seguro en Py2 -------------------------
+
+def _uformat(fmt, *args):
+    """Interpolación segura en Unicode (evita UnicodeDecodeError en Py2 logging)."""
+    ufmt = _to_unicode(fmt)
+    if not args:
+        return ufmt
+    uargs = tuple(_to_unicode(a) for a in args)
+    try:
+        return ufmt % uargs
+    except Exception:
+        # Si el % falla por tipos raros, devolvemos fallback simple
+        return ufmt + u" " + u" ".join(uargs)
+
+
+def log_info(fmt, *args):
+    try:
+        logger.info(_uformat(fmt, *args))
+    except Exception:
+        pass
+
+
+def log_warn(fmt, *args):
+    try:
+        logger.warning(_uformat(fmt, *args))
+    except Exception:
+        pass
+
+
+def log_exc(fmt, *args):
+    try:
+        logger.exception(_uformat(fmt, *args))
+    except Exception:
+        pass
+
+
 # ------------------------- helpers de presentación -------------------------
 
 def _pretty_src(ref_src, debug=False):
@@ -99,6 +135,103 @@ def _sanitize_unit_for_flags(unit):
     # También “por L” y variantes con espacios finos
     u = u.replace(u" L", u" L\u2060")
     return u
+
+
+# ------------------------- helpers de fecha/hora para tendencia -------------------------
+
+def _as_DateTime_any(x):
+    """
+    Convierte múltiples tipos a DateTime (con hora:min:seg) sin perder resolución.
+    Acepta: Zope DateTime, datetime.*, num timestamp (segundos), str ISO, dict{'date'...'time'...}
+    """
+    if x is None or x == u"":
+        return None
+    try:
+        if isinstance(x, DateTime):
+            return x
+    except Exception:
+        pass
+    # Zope DateTime admite construir desde ISO YYYY-MM-DD HH:MM:SS
+    try:
+        import datetime as _dt
+        # python datetime
+        if isinstance(x, _dt.datetime):
+            return DateTime(x.year, x.month, x.day, x.hour, x.minute, x.second)
+        if isinstance(x, _dt.date):
+            # fecha sin hora -> dejamos 00:00:00 para conservar orden relativo
+            return DateTime(x.year, x.month, x.day, 0, 0, 0)
+    except Exception:
+        pass
+    # timestamp numérico
+    try:
+        if isinstance(x, (int, float)):
+            return DateTime(x)
+    except Exception:
+        pass
+    # dict con claves comunes
+    if isinstance(x, dict):
+        for key in (u"datetime", u"dt", u"x", u"date", u"sampled", u"verified", u"created"):
+            v = x.get(key)
+            if v:
+                dt = _as_DateTime_any(v)
+                if dt:
+                    # ¿hay 'time' separado?
+                    t = x.get(u"time")
+                    if isinstance(t, (str, unicode)) and t and ":" in t:
+                        try:
+                            parts = [int(p) for p in t.split(":")]
+                            while len(parts) < 3:
+                                parts.append(0)
+                            h, m, s = parts[:3]
+                            return DateTime(dt.year(), dt.month(), dt.day(), h, m, s)
+                        except Exception:
+                            pass
+                    return dt
+    # cadena
+    try:
+        import re as _re
+        s = _to_unicode(x).strip()
+        if not s:
+            return None
+        # si solo trae fecha YYYY-MM-DD, no perdemos, ponemos 00:00:00
+        if _re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+            y, m, d = [int(p) for p in s.split("-")]
+            return DateTime(y, m, d, 0, 0, 0)
+        # Dejar que DateTime parsee cadenas variadas (incluye zona)
+        return DateTime(s)
+    except Exception:
+        return None
+
+
+def _sort_points_by_fulltime(points):
+    """
+    Orden estable por fecha+hora+seg, sin colapsar puntos del mismo día.
+    Si varios puntos comparten el mismo segundo, se añade un micro-desplazamiento estable.
+    """
+    enriched = []
+    for idx, p in enumerate(points):
+        dt = None
+        if isinstance(p, dict):
+            # Campos de fecha más habituales
+            for k in (u"datetime", u"dt", u"x", u"date", u"sampled", u"verified", u"created"):
+                if k in p and p.get(k) not in (None, u"", ""):
+                    dt = _as_DateTime_any(p.get(k))
+                    if dt:
+                        break
+        if dt is None:
+            # punto simple (num/string)
+            dt = _as_DateTime_any(p)
+        # fallback duro: si no hay nada, lo mandamos al final respetando orden
+        if dt is None:
+            key = (0, idx)
+        else:
+            try:
+                key = (float(dt), idx)
+            except Exception:
+                key = (0, idx)
+        enriched.append((key, p))
+    enriched.sort(key=lambda x: x[0])
+    return [p for _, p in enriched]
 
 
 class InfolabsaResultsWithState(BrowserView):
@@ -694,7 +827,7 @@ class InfolabsaResultsWithState(BrowserView):
                 lo = _read(spec, "min") or _read(spec, "minimum")
                 hi = _read(spec, "max") or _read(spec, "maximum")
                 if lo is not None or hi is not None:
-                    logger.info("[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
+                    log_info(u"[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
                     return lo, hi, u"dynamic"
         except Exception:
             pass
@@ -704,9 +837,7 @@ class InfolabsaResultsWithState(BrowserView):
     def _extract_specs_minmax_for_analysis(self, a):
         try:
             service = self._get_service(a)
-            keyword = (getattr(service, "getKeyword", lambda: None)() if service else None) \
-                      or self._get(a, "getKeyword") \
-                      or self._get(a, "getServiceKeyword")
+            keyword = (getattr(service, "getKeyword", lambda: None)() if service else None)                       or self._get(a, "getKeyword")                       or self._get(a, "getServiceKeyword")
             if not keyword:
                 return None, None, None
             ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
@@ -779,7 +910,7 @@ class InfolabsaResultsWithState(BrowserView):
                 lo = _read("min") or _read("minimum")
                 hi = _read("max") or _read("maximum")
                 if lo is not None or hi is not None:
-                    logger.info("[impress] RefRange via AnalysisSpecifications (%s)", origin)
+                    log_info(u"[impress] RefRange via AnalysisSpecifications (%s)", origin)
                     return lo, hi, u"spec"
         except Exception:
             pass
@@ -886,7 +1017,7 @@ class InfolabsaResultsWithState(BrowserView):
                     continue
             return None, None, None
         except Exception as e:
-            logger.exception("[impress] _extract_refdef_minmax error: %s", e)
+            log_exc(u"[impress] _extract_refdef_minmax error: %s", e)
             return None, None, None
 
     # ---------- 4) límites del análisis o del servicio ----------
@@ -1003,9 +1134,7 @@ class InfolabsaResultsWithState(BrowserView):
                 ar_spec = self._get(ar, "getSpecification")
                 if ar_spec:
                     service = self._get_service(a)
-                    keyword = (self._get(service, "getKeyword") if service else None) \
-                              or self._get(a, "getKeyword") \
-                              or self._get(a, "getServiceKeyword")
+                    keyword = (self._get(service, "getKeyword") if service else None)                               or self._get(a, "getKeyword")                               or self._get(a, "getServiceKeyword")
                     if keyword and hasattr(ar_spec, "getResultsRange"):
                         rr = ar_spec.getResultsRange(keyword)
                         if rr and isinstance(rr, dict):
@@ -1016,9 +1145,7 @@ class InfolabsaResultsWithState(BrowserView):
             pass
 
         service = self._get_service(a)
-        kw = (self._get(service, "getKeyword") if service else None) \
-             or self._get(a, "getKeyword") \
-             or self._get(a, "getServiceKeyword")
+        kw = (self._get(service, "getKeyword") if service else None)              or self._get(a, "getKeyword")              or self._get(a, "getServiceKeyword")
         if kw:
             dlo, dhi, dsrc = self._extract_dynamic_specs_minmax(a, kw)
             if dlo is not None or dhi is not None:
@@ -1050,7 +1177,7 @@ class InfolabsaResultsWithState(BrowserView):
                        or self._get(a, "getKeyword") or "UNKNOWN")
             title = self._get(a, "Title") or "UNKNOWN"
             uid = self._get(a, "UID")
-            logger.warning("[impress] NO RANGO para '%s' (kw=%s, uid=%s)", title, keyword, uid)
+            log_warn(u"[impress] NO RANGO para '%s' (kw=%s, uid=%s)", title, keyword, uid)
         except Exception:
             pass
         return u"", None, None, u"not_found"
@@ -1251,21 +1378,33 @@ class InfolabsaResultsWithState(BrowserView):
     def _trend_points(self, a):
         """
         Intenta recuperar puntos históricos de tendencia.
-        No imponemos formato; retornamos una lista cualquiera si existe.
+        Ajuste: aceptar múltiples estudios con la misma FECHA (día) diferenciando HORA:MIN:SEG
+        y ordenar por tiempo completo. No se colapsan puntos del mismo día.
         """
-        for name in ("getTrendData", "getHistoricalResults", "getResultsHistory", "getTrendPoints"):
+        providers = ("getTrendData", "getHistoricalResults", "getResultsHistory", "getTrendPoints")
+        pts = []
+        for name in providers:
             fn = getattr(a, name, None)
             if callable(fn):
                 try:
-                    pts = fn()
-                    if pts:
+                    cand = fn()
+                    if cand:
+                        # Algunos proveedores devuelven generadores/BTrees: forzamos lista
                         try:
-                            return list(pts)
+                            pts = list(cand)
                         except Exception:
-                            return pts
+                            pts = cand
+                        break
                 except Exception:
-                    pass
-        return []
+                    continue
+
+        if not pts:
+            return []
+
+        # Ordenar por fecha/hora completa sin eliminar duplicados del mismo día
+        pts_sorted = _sort_points_by_fulltime(pts)
+
+        return pts_sorted
 
     def row(self, a):
         name = (
@@ -1284,7 +1423,7 @@ class InfolabsaResultsWithState(BrowserView):
         ref_text, low, high, ref_src = self._compute_ref_range(a)
 
         try:
-            logger.info("[impress] RefRange SRC=%s → %s (lo=%s hi=%s)", ref_src, ref_text or u"", low, high)
+            log_info(u"[impress] RefRange SRC=%s → %s (lo=%s hi=%s)", ref_src, ref_text or u"", low, high)
         except Exception:
             pass
 
@@ -1297,8 +1436,7 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             delta_flag = None
 
-        estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title = \
-            self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
+        estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title =             self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
 
         alerts = alert_text or u'—'
 
@@ -1382,7 +1520,7 @@ class InfolabsaResultsWithState(BrowserView):
             data = {'items': self.rows()}
             self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
             return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-        logger.info("[infolabsa] Render COOL table via results_with_state.pt")
+        log_info(u"[infolabsa] Render COOL table via results_with_state.pt")
         return self.index()
 
 
