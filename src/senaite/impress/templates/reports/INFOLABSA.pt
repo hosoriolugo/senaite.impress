@@ -924,20 +924,22 @@
 
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            var seen = {};
-            var distinct = 0;
+            
+            // Recuento robusto por índice de tiempo (i): basta con 2 índices con cualquier valor válido en cualquier serie
+            var validIdx = {};
             try {
-              trendsData.series.forEach(function(s){
-                var d = (s && s.data) ? s.data : [];
-                for (var i=0; i<d.length; i++){
-                  var p = d[i];
-                  var x = _toMs(p, i);if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                    if (!seen[key]) { seen[key] = true; distinct++; }
+              (trendsData.series || []).forEach(function(s){
+                (s.data || []).forEach(function(p, i){
+                  var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
+                    validIdx[i] = true;
                   }
-                }
+                });
               });
-            } catch(e) { distinct = 0; }
+            } catch(e) {}
+            var distinct = Object.keys(validIdx).length;
             if (distinct < 2) return;
+
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
