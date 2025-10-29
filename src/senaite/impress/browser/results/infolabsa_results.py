@@ -44,42 +44,6 @@ def _to_num(x):
         return None
 
 
-# ------------------------- logging seguro en Py2 -------------------------
-
-def _uformat(fmt, *args):
-    """Interpolación segura en Unicode (evita UnicodeDecodeError en Py2 logging)."""
-    ufmt = _to_unicode(fmt)
-    if not args:
-        return ufmt
-    uargs = tuple(_to_unicode(a) for a in args)
-    try:
-        return ufmt % uargs
-    except Exception:
-        # Si el % falla por tipos raros, devolvemos fallback simple
-        return ufmt + u" " + u" ".join(uargs)
-
-
-def log_info(fmt, *args):
-    try:
-        logger.info(_uformat(fmt, *args))
-    except Exception:
-        pass
-
-
-def log_warn(fmt, *args):
-    try:
-        logger.warning(_uformat(fmt, *args))
-    except Exception:
-        pass
-
-
-def log_exc(fmt, *args):
-    try:
-        logger.exception(_uformat(fmt, *args))
-    except Exception:
-        pass
-
-
 # ------------------------- helpers de presentación -------------------------
 
 def _pretty_src(ref_src, debug=False):
@@ -730,7 +694,7 @@ class InfolabsaResultsWithState(BrowserView):
                 lo = _read(spec, "min") or _read(spec, "minimum")
                 hi = _read(spec, "max") or _read(spec, "maximum")
                 if lo is not None or hi is not None:
-                    log_info(u"[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
+                    logger.info("[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
                     return lo, hi, u"dynamic"
         except Exception:
             pass
@@ -815,7 +779,7 @@ class InfolabsaResultsWithState(BrowserView):
                 lo = _read("min") or _read("minimum")
                 hi = _read("max") or _read("maximum")
                 if lo is not None or hi is not None:
-                    log_info(u"[impress] RefRange via AnalysisSpecifications (%s)", origin)
+                    logger.info("[impress] RefRange via AnalysisSpecifications (%s)", origin)
                     return lo, hi, u"spec"
         except Exception:
             pass
@@ -922,7 +886,7 @@ class InfolabsaResultsWithState(BrowserView):
                     continue
             return None, None, None
         except Exception as e:
-            log_exc(u"[impress] _extract_refdef_minmax error: %s", e)
+            logger.exception("[impress] _extract_refdef_minmax error: %s", e)
             return None, None, None
 
     # ---------- 4) límites del análisis o del servicio ----------
@@ -1086,7 +1050,7 @@ class InfolabsaResultsWithState(BrowserView):
                        or self._get(a, "getKeyword") or "UNKNOWN")
             title = self._get(a, "Title") or "UNKNOWN"
             uid = self._get(a, "UID")
-            log_warn(u"[impress] NO RANGO para '%s' (kw=%s, uid=%s)", title, keyword, uid)
+            logger.warning("[impress] NO RANGO para '%s' (kw=%s, uid=%s)", title, keyword, uid)
         except Exception:
             pass
         return u"", None, None, u"not_found"
@@ -1320,7 +1284,7 @@ class InfolabsaResultsWithState(BrowserView):
         ref_text, low, high, ref_src = self._compute_ref_range(a)
 
         try:
-            log_info(u"[impress] RefRange SRC=%s → %s (lo=%s hi=%s)", ref_src, ref_text or u"", low, high)
+            logger.info("[impress] RefRange SRC=%s → %s (lo=%s hi=%s)", ref_src, ref_text or u"", low, high)
         except Exception:
             pass
 
@@ -1418,7 +1382,7 @@ class InfolabsaResultsWithState(BrowserView):
             data = {'items': self.rows()}
             self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
             return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-        log_info(u"[infolabsa] Render COOL table via results_with_state.pt")
+        logger.info("[infolabsa] Render COOL table via results_with_state.pt")
         return self.index()
 
 
