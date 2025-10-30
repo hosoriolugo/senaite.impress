@@ -887,7 +887,7 @@
 
       <!-- JSON de tendencias seguro para JS -->
       <script type="application/json" id="trends-json">
-        <tal:span tal:replace="python:json.dumps(trends_data)" />
+        <tal:span tal:replace="structure python:json.dumps(trends_data, allow_nan=False)" />
       </script>
 
       <script type="text/javascript">
@@ -897,7 +897,10 @@
             var trendsData = (function () {
               try {
                 var el = document.getElementById('trends-json');
-                return el ? JSON.parse(el.textContent || el.innerText || 'null') : null;
+                if (!el) return null;
+                var raw = (el.textContent || el.innerText || '').trim();
+                if (!raw) return null;
+                return JSON.parse(raw);
               } catch (e) {
                 return null;
               }
@@ -919,7 +922,7 @@
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
 
-                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
+                  // desempate por ID de muestra para distinguir puntos del mismo día
                   var sid = (p && typeof p === 'object' && !Array.isArray(p))
                               ? (p.sid || p.sample_id || p.id || '')
                               : '';
