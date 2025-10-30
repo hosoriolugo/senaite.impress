@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
-  <!-- INFOLABSA.pt :: FINAL -->
+  <!-- INFOLABSA.pt :: FINAL CORREGIDO -->
 
   <!-- Assets estándar de Impress -->
   <tal:t replace="structure python:view.render_controls(context, **options)" />
@@ -142,7 +142,7 @@
     <div class="row section-header no-gutters">
       <div class="w-100 mb-2">
         <table class="w-100 mb-0 noborder">
-          <colgroup><col style=&quot;width:65%&quot;/><col style=&quot;width:35%&quot;/></colgroup>
+          <colgroup><col style="width:65%"/><col style="width:35%"/></colgroup>
           <tr>
             <td class="align-middle text-left">
               <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
@@ -776,7 +776,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (visibilidad: ≥2 SIDs y ordenado por HH:MM:SS) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (visibilidad: ≥2 SIDs distintos considerando fecha completa) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -790,302 +790,270 @@
              or {}
            );
            _series python:(trends_data and trends_data.get('series') or []);
-           _pairs_per_series python:[
-             [
-               (
-                 (isinstance(p,(list,tuple)) and (len(p)>1) and
-                  (p[0] not in (None, u'', u'\u2014')) and
-                  (p[1] not in (None, u'', u'\u2014')) and
-                  (p[0], p[1]))
-                 or
-                 (hasattr(p,'get') and
-                  (
-                    ( (p.get('ms') or p.get('x') or p.get('date') or u'') +
-                      u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
-                    (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)
-                  ))
-                 or
-                 None
-               )
-               for p in (s.get('data') or [])
-             ]
-             for s in _series
-           ];
-           _all_points python:[
-             ( (pp and (pp[0] or u'')), (pp and pp[1]) )
-             for ser in _pairs_per_series for pp in ser
-             if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))
-           ];
-           _distinct_points python:len(set([unicode(k) for (k,_) in _all_points]));
 
-           _all_sids python:[
-             unicode((p.get('sid') or p.get('sample_id') or p.get('id') or u''))
-             for s in _series for p in (s.get('data') or [])
-             if (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014')))
-           ];
-           _distinct_sids_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
-
-           _delta_rows python:(_delta.get('rows') or []);
-           _delta_prev_ids python:set([
-             unicode(r.get('prev_sample_id') or u'')
-             for r in _delta_rows
-             if (hasattr(r,'get') and r.get('prev_sample_id') not in (None, u'', u'\u2014'))
-           ]);
-           _rid_current python:(
-             (get(ar,'getId',None) and ar.getId()) or
-             (hasattr(ar,'id') and ar.id) or
-             (get(ar,'getRequestID',None) and ar.getRequestID()) or
-             options.get('rid','') or u''
-           );
-           _sid_current_set python:set([unicode(_rid_current)]);
-           _distinct_sids_fallback_count python:len(_delta_prev_ids | _sid_current_set);
-           _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
-
-           has_two_points python:(_distinct_points >= 2);
-           has_two_sids python:(_distinct_sids >= 2)
+           _all_points python:[];
+           _all_sids python:[];
+           _distinct_timestamps python:set();
+           _distinct_sids python:set();
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
+         tal:condition="python:bool(trends_data) and bool(_series)">
 
-      <!-- Contenedor para Highcharts (solo navegador) -->
-      <div class="chart-center-wrap no-weasyprint">
-        <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
-      </div>
+      <!-- Procesar datos para contar SIDs distintos considerando fecha completa -->
+      <tal:process_trends condition="python:_series">
+        <tal:process define="
+          process_series python:[_all_points.extend([
+            (p.get('ms') or p.get('x') or p.get('date') or u'',
+             p.get('sid') or p.get('sample_id') or p.get('id') or u'')
+            for p in (s.get('data') or [])
+            if (hasattr(p, 'get') and p.get('y') not in (None, u'', u'\u2014'))
+          ]) for s in _series];
 
-      <!-- Fallback (PNG) para PDF/WeasyPrint) -->
-      <div class="weasy-fallback"
-           tal:define="
-             get python:getattr;
-             ar_uid python:(
-               (get(ar,'UID',None) and ar.UID()) or
-               (get(ar,'getUID',None) and ar.getUID()) or
-               (get(model,'UID',None) and model.UID()) or
-               options.get('uid','')
-             );
-             rid python:(
-               (get(ar,'getId',None) and ar.getId()) or
-               (hasattr(ar,'id') and ar.id) or
-               (get(ar,'getRequestID',None) and ar.getRequestID()) or
-               options.get('rid','')
-             );
-           ">
-        <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
-        <div class="fallback-message">
-          <img alt="Gráfico de tendencias (PNG)"
-               style="width:180mm; height:auto;"
-               tal:attributes="
-                 src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
-                   uid=ar_uid, rid=rid,
-                   w=680, h=340, dpi=96,
-                   scale=3,
-                   max_points=6, days=365,
-                   note=1,
-                   even=1,
-                   sharpen=1
-                 )" />
+          process_sids python:[_all_sids.extend([
+            unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
+            for p in (s.get('data') or [])
+            if (hasattr(p, 'get') and p.get('y') not in (None, u'', u'\u2014'))
+          ]) for s in _series];
+
+          distinct_timestamps python:_distinct_timestamps.update([pt[0] for pt in _all_points if pt[0]]);
+          distinct_sids python:_distinct_sids.update([sid for sid in _all_sids if sid]);
+
+          has_two_points python:len(_distinct_timestamps) >= 2;
+          has_two_sids python:len(_distinct_sids) >= 2;
+        " />
+      </tal:process_trends>
+
+      <!-- Mostrar solo si hay al menos 2 SIDs distintos y 2 puntos temporales -->
+      <div tal:condition="python:has_two_points and has_two_sids">
+        <!-- Contenedor para Highcharts (solo navegador) -->
+        <div class="chart-center-wrap no-weasyprint">
+          <div id="trends-chart-container" class="chart-container no-weasyprint"></div>
         </div>
-      </div>
 
-      <!-- NUEVO: JSON seguro para evitar SyntaxError al inyectar -->
-      <script type="application/json" id="trends-json">
-        <tal:span tal:replace="structure python:json.dumps(trends_data, allow_nan=False)" />
-      </script>
+        <!-- Fallback (PNG) para PDF/WeasyPrint) -->
+        <div class="weasy-fallback"
+             tal:define="
+               get python:getattr;
+               ar_uid python:(
+                 (get(ar,'UID',None) and ar.UID()) or
+                 (get(ar,'getUID',None) and ar.getUID()) or
+                 (get(model,'UID',None) and model.UID()) or
+                 options.get('uid','')
+               );
+               rid python:(
+                 (get(ar,'getId',None) and ar.getId()) or
+                 (hasattr(ar,'id') and ar.id) or
+                 (get(ar,'getRequestID',None) and ar.getRequestID()) or
+                 options.get('rid','')
+               );
+             ">
+          <h2 class="section-title">Tendencias de Resultados en el Tiempo</h2>
+          <div class="fallback-message">
+            <img alt="Gráfico de tendencias (PNG)"
+                 style="width:180mm; height:auto;"
+                 tal:attributes="
+                   src python:ar.restrictedTraverse('@@infolabsa-trend-chart-datauri')(
+                     uid=ar_uid, rid=rid,
+                     w=680, h=340, dpi=96,
+                     scale=3,
+                     max_points=6, days=365,
+                     note=1,
+                     even=1,
+                     sharpen=1
+                   )" />
+          </div>
+        </div>
 
-      <!-- JS: contar ≥2 SIDs (mismo día cuenta) y ordenar por HH:MM:SS -->
-      <script type="text/javascript">
-        (function() {
-          if (typeof window.WeasyPrint !== 'undefined') return; // solo navegador
+        <!-- JSON seguro para evitar SyntaxError al inyectar -->
+        <script type="application/json" id="trends-json">
+          <tal:span tal:replace="structure python:json.dumps(trends_data, allow_nan=False)" />
+        </script>
 
-          function parseTs(p, i){
-            // preferimos milisegundos reales
-            var x = null;
-            if (p && typeof p === 'object'){
-              if (Array.isArray(p)) { x = p[0]; }
-              else { x = (p.ms != null ? p.ms : (p.x != null ? p.x : p.date)); }
-            } else {
-              x = null;
-            }
-            if (typeof x === 'number' && isFinite(x)) {
-              // si parece segundos, eleva a ms
-              return (x < 2e10 ? x*1000 : x);
-            }
-            if (typeof x === 'string' && x.trim()){
-              var s = x.trim();
-              if (s.indexOf(' ')>0 && s.indexOf('T')<0) s = s.replace(' ','T');
-              var t = Date.parse(s);
-              if (!isNaN(t)) return t;
-            }
-            // último recurso: índice (estable por serie)
-            return i;
-          }
+        <!-- JS: contar ≥2 SIDs y ordenar por fecha/hora completa -->
+        <script type="text/javascript">
+          (function() {
+            if (typeof window.WeasyPrint !== 'undefined') return; // solo navegador
 
-          function fmt(ts){
-            if (!ts || !isFinite(ts)) return '';
-            var d = new Date(ts);
-            var dd = ('0'+d.getDate()).slice(-2);
-            var mm = ('0'+(d.getMonth()+1)).slice(-2);
-            var yyyy = d.getFullYear();
-            var HH = ('0'+d.getHours()).slice(-2);
-            var MM = ('0'+d.getMinutes()).slice(-2);
-            var SS = ('0'+d.getSeconds()).slice(-2);
-            return dd + '/' + mm + '/' + yyyy + ' ' + HH + ':' + MM + ':' + SS;
-          }
-
-          function getJson(){
-            // 1) desde <script type="application/json" id="trends-json">
-            try {
-              var el = document.getElementById('trends-json');
-              if (el) {
-                var raw = (el.textContent || el.innerText || '').trim();
-                if (raw) return JSON.parse(raw);
+            function parseTs(p, i){
+              var x = null;
+              if (p && typeof p === 'object'){
+                if (Array.isArray(p)) { x = p[0]; }
+                else { x = (p.ms != null ? p.ms : (p.x != null ? p.x : p.date)); }
+              } else {
+                x = null;
               }
-            } catch(e){}
-            // 2) fallback: si existiese una variable inline (evitamos romper si no está)
-            try {
-              /* eslint-disable no-new-func */
-              return (new Function('return null;'))(); // no hay inline fiable aquí, retornamos null
-            } catch(e){}
-            return null;
-          }
-
-          var trendsData = getJson();
-          if (!trendsData || !trendsData.series || !trendsData.series.length) return;
-
-          // Contar SIDs distintos (y válidos)
-          var sidSet = Object.create(null);
-          var totalValidPts = 0;
-
-          trendsData.series.forEach(function(s){
-            var d = s && s.data ? s.data : [];
-            d.forEach(function(p){
-              var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
-              if (y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) return;
-              totalValidPts++;
-              var sid = (p && typeof p === 'object' && !Array.isArray(p)) ? (p.sid || p.sample_id || p.id || '') : '';
-              if (sid) sidSet[String(sid)] = true;
-            });
-          });
-
-          var distinctSIDs = Object.keys(sidSet).length;
-          if (distinctSIDs < 2 || totalValidPts < 2) return; // exige ≥2 SIDs y ≥2 puntos en total
-
-          // Construir línea de tiempo ordenada por ts (ms/x/date → HH:MM:SS)
-          var stamps = [];
-          trendsData.series.forEach(function(s){
-            var d = s && s.data ? s.data : [];
-            d.forEach(function(p,i){
-              var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
-              if (y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) return;
-              var ts = parseTs(p,i);
-              if (isFinite(ts)) stamps.push(ts);
-            });
-          });
-
-          if (!stamps.length) return;
-          // timestamps únicos y ordenados
-          var uniqMap = Object.create(null);
-          stamps.forEach(function(t){ uniqMap[String(t)] = t; });
-          var timeline = Object.keys(uniqMap).map(function(k){return uniqMap[k];}).sort(function(a,b){return a-b;});
-          var idxByTs = Object.create(null);
-          for (var i=0;i<timeline.length;i++) idxByTs[String(timeline[i])] = i;
-
-          // Categorías con fecha y hora completas
-          var categories = timeline.map(fmt);
-
-          // Remapear cada serie a [index, y]
-          var remapped = (trendsData.series || []).map(function(s){
-            var d = s.data || [];
-            var mapped = [];
-            for (var i=0;i<d.length;i++){
-              var p = d[i];
-              var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
-              if (y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) continue;
-              var ts = parseTs(p,i);
-              var idx = idxByTs[String(ts)];
-              if (typeof idx === 'number') mapped.push([idx, parseFloat(y)]);
+              if (typeof x === 'number' && isFinite(x)) {
+                return (x < 2e10 ? x*1000 : x);
+              }
+              if (typeof x === 'string' && x.trim()){
+                var s = x.trim();
+                if (s.indexOf(' ')>0 && s.indexOf('T')<0) s = s.replace(' ','T');
+                var t = Date.parse(s);
+                if (!isNaN(t)) return t;
+              }
+              return i;
             }
-            var c = {};
-            for (var k in s) { if (Object.prototype.hasOwnProperty.call(s,k)) c[k] = s[k]; }
-            c.data = mapped;
-            return c;
-          });
 
-          // Si después del remapeo no hay al menos 2 puntos totales, salimos
-          var totalPts = remapped.reduce(function(acc,s){ return acc + (s.data ? s.data.length : 0); }, 0);
-          if (totalPts < 2) return;
+            function fmt(ts){
+              if (!ts || !isFinite(ts)) return '';
+              var d = new Date(ts);
+              var dd = ('0'+d.getDate()).slice(-2);
+              var mm = ('0'+(d.getMonth()+1)).slice(-2);
+              var yyyy = d.getFullYear();
+              var HH = ('0'+d.getHours()).slice(-2);
+              var MM = ('0'+d.getMinutes()).slice(-2);
+              var SS = ('0'+d.getSeconds()).slice(-2);
+              return dd + '/' + mm + '/' + yyyy + ' ' + HH + ':' + MM + ':' + SS;
+            }
 
-          var n = categories.length;
-          var step = (n <= 6) ? 1 : Math.ceil(n / 6);
-          var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
+            function getJson(){
+              try {
+                var el = document.getElementById('trends-json');
+                if (el) {
+                  var raw = (el.textContent || el.innerText || '').trim();
+                  if (raw) return JSON.parse(raw);
+                }
+              } catch(e){}
+              return null;
+            }
 
-          var options = {
-            chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
-            title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
-                     style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
-            subtitle: { text: 'Ordenado por fecha y hora; se muestran hasta 6 puntos en 365 días.', y: 30,
-                        style: { color: '#6c757d', fontSize: '12px' } },
-            xAxis: {
-              categories: categories,
-              tickPositions: tickPositions,
-              labels: { style: { color: '#333' }, rotation: -45, step: step },
-              title: { text: 'Fecha y hora', style: { color: '#000', fontWeight: 'bold' } },
-              tickmarkPlacement: 'on'
-            },
-            yAxis: {
-              title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
-              labels: { style: { color: '#333' } },
-              min: trendsData.yMin,
-              max: trendsData.yMax,
-              gridLineColor: '#f0f0f0'
-            },
-            legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
-                      itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
-            plotOptions: {
-              line: {
-                marker: { enabled: true, radius: 4 },
-                dataLabels: {
-                  enabled: true,
-                  formatter: function(){
-                    var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
-                    return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
+            var trendsData = getJson();
+            if (!trendsData || !trendsData.series || !trendsData.series.length) return;
+
+            // Contar SIDs distintos considerando fecha completa
+            var sidSet = Object.create(null);
+            var totalValidPts = 0;
+
+            trendsData.series.forEach(function(s){
+              var d = s && s.data ? s.data : [];
+              d.forEach(function(p){
+                var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+                if (y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) return;
+                totalValidPts++;
+                var sid = (p && typeof p === 'object' && !Array.isArray(p)) ? (p.sid || p.sample_id || p.id || '') : '';
+                if (sid) sidSet[String(sid)] = true;
+              });
+            });
+
+            var distinctSIDs = Object.keys(sidSet).length;
+            if (distinctSIDs < 2 || totalValidPts < 2) return;
+
+            // Construir línea de tiempo ordenada por timestamp completo
+            var stamps = [];
+            trendsData.series.forEach(function(s){
+              var d = s && s.data ? s.data : [];
+              d.forEach(function(p,i){
+                var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+                if (y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) return;
+                var ts = parseTs(p,i);
+                if (isFinite(ts)) stamps.push(ts);
+              });
+            });
+
+            if (!stamps.length) return;
+            
+            var uniqMap = Object.create(null);
+            stamps.forEach(function(t){ uniqMap[String(t)] = t; });
+            var timeline = Object.keys(uniqMap).map(function(k){return uniqMap[k];}).sort(function(a,b){return a-b;});
+            var idxByTs = Object.create(null);
+            for (var i=0;i<timeline.length;i++) idxByTs[String(timeline[i])] = i;
+
+            var categories = timeline.map(fmt);
+
+            // Remapear cada serie
+            var remapped = (trendsData.series || []).map(function(s){
+              var d = s.data || [];
+              var mapped = [];
+              for (var i=0;i<d.length;i++){
+                var p = d[i];
+                var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+                if (y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) continue;
+                var ts = parseTs(p,i);
+                var idx = idxByTs[String(ts)];
+                if (typeof idx === 'number') mapped.push([idx, parseFloat(y)]);
+              }
+              var c = {};
+              for (var k in s) { if (Object.prototype.hasOwnProperty.call(s,k)) c[k] = s[k]; }
+              c.data = mapped;
+              return c;
+            });
+
+            var totalPts = remapped.reduce(function(acc,s){ return acc + (s.data ? s.data.length : 0); }, 0);
+            if (totalPts < 2) return;
+
+            var n = categories.length;
+            var step = (n <= 6) ? 1 : Math.ceil(n / 6);
+            var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
+
+            var options = {
+              chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
+              title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
+                       style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
+              subtitle: { text: 'Ordenado por fecha y hora completa', y: 30,
+                          style: { color: '#6c757d', fontSize: '12px' } },
+              xAxis: {
+                categories: categories,
+                tickPositions: tickPositions,
+                labels: { style: { color: '#333' }, rotation: -45, step: step },
+                title: { text: 'Fecha y hora completa', style: { color: '#000', fontWeight: 'bold' } },
+                tickmarkPlacement: 'on'
+              },
+              yAxis: {
+                title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
+                labels: { style: { color: '#333' } },
+                min: trendsData.yMin,
+                max: trendsData.yMax,
+                gridLineColor: '#f0f0f0'
+              },
+              legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
+                        itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
+              plotOptions: {
+                line: {
+                  marker: { enabled: true, radius: 4 },
+                  dataLabels: {
+                    enabled: true,
+                    formatter: function(){
+                      var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
+                      return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
+                    },
+                    style: { textOutline: '1px contrast' }
                   },
-                  style: { textOutline: '1px contrast' }
-                },
-                enableMouseTracking: true
-              }
-            },
-            tooltip: {
-              shared: true, crosshairs: true,
-              formatter: function() {
-                var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
-                var fecha = categories && categories[idx] ? categories[idx] : (this.x || '');
-                var s = '<b>' + fecha + '</b>';
-                this.points.forEach(function(p) {
-                  var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
-                  s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
-                       ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
-                });
-                return s;
-              }
-            },
-            series: remapped,
-            credits: { enabled: false },
-            exporting: { enabled: false }
-          };
+                  enableMouseTracking: true
+                }
+              },
+              tooltip: {
+                shared: true, crosshairs: true,
+                formatter: function() {
+                  var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
+                  var fecha = categories && categories[idx] ? categories[idx] : (this.x || '');
+                  var s = '<b>' + fecha + '</b>';
+                  this.points.forEach(function(p) {
+                    var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
+                    s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
+                         ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
+                  });
+                  return s;
+                }
+              },
+              series: remapped,
+              credits: { enabled: false },
+              exporting: { enabled: false }
+            };
 
-          if (typeof Highcharts !== 'undefined') {
-            var chart = Highcharts.chart('trends-chart-container', options);
-            var el = document.getElementById('trends-chart-container');
-            if (el) el.style.display = 'block';
-            if (Highcharts.charts && Highcharts.charts.length) {
-              var c = Highcharts.charts[Highcharts.charts.length - 1];
-              if (c && c.reflow) c.reflow();
+            if (typeof Highcharts !== 'undefined') {
+              var chart = Highcharts.chart('trends-chart-container', options);
+              var el = document.getElementById('trends-chart-container');
+              if (el) el.style.display = 'block';
+              if (Highcharts.charts && Highcharts.charts.length) {
+                var c = Highcharts.charts[Highcharts.charts.length - 1];
+                if (c && c.reflow) c.reflow();
+              }
+              var fb = document.querySelector('.section-trends .weasy-fallback');
+              if (fb) fb.style.display = 'none';
+              try { document.body.classList.add('has-highcharts'); } catch(e){}
             }
-            var fb = document.querySelector('.section-trends .weasy-fallback');
-            if (fb) fb.style.display = 'none';
-            try { document.body.classList.add('has-highcharts'); } catch(e){}
-          }
-        })();
-      </script>
+          })();
+        </script>
+      </div>
     </div>
 
     <!-- =========== Anexos (al final, solo si hay contenido) =========== -->
