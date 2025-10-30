@@ -776,7 +776,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (visibilidad: ≥2 SIDs y ≥2 puntos) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (NUEVA LÓGICA: ≥2 estudios distintos) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -790,61 +790,33 @@
              or {}
            );
            _series python:(trends_data and trends_data.get('series') or []);
-           _pairs_per_series python:[
-             [
-               (
-                 (isinstance(p,(list,tuple)) and (len(p)>1) and
-                  (p[0] not in (None, u'', u'\u2014')) and
-                  (p[1] not in (None, u'', u'\u2014')) and
-                  (p[0], p[1]))
-                 or
-                 (hasattr(p,'get') and
-                  (
-                    ( (p.get('ms') or p.get('x') or p.get('date') or u'') +
-                      u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
-                    (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)
-                  ))
-                 or
-                 None
-               )
-               for p in (s.get('data') or [])
-             ]
-             for s in _series
-           ];
-           _all_points python:[
-             ( (pp and (pp[0] or u'')), (pp and pp[1]) )
-             for ser in _pairs_per_series for pp in ser
-             if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))
-           ];
-           _distinct_points python:len(set([unicode(k) for (k,_) in _all_points]));
-
-           _all_sids python:[
-             unicode((p.get('sid') or p.get('sample_id') or p.get('id') or u''))
+           
+           <!-- NUEVA LÓGICA: Contar estudios únicos por timestamp completo + SID -->
+           _all_studies python:[
+             (
+               unicode(p.get('timestamp') or p.get('ms') or p.get('x') or p.get('date') or u''),
+               unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u''),
+               p.get('y')
+             )
              for s in _series for p in (s.get('data') or [])
              if (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014')))
            ];
-           _distinct_sids_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
+           
+           _distinct_studies python:len(set([
+             u'%s|%s' % (timestamp, sid)
+             for (timestamp, sid, value) in _all_studies
+             if timestamp and sid
+           ]));
+           
+           _distinct_sids python:len(set([
+             sid for (timestamp, sid, value) in _all_studies
+             if sid and sid not in (None, u'', u'\u2014')
+           ]));
 
-           _delta_rows python:(_delta.get('rows') or []);
-           _delta_prev_ids python:set([
-             unicode(r.get('prev_sample_id') or u'')
-             for r in _delta_rows
-             if (hasattr(r,'get') and r.get('prev_sample_id') not in (None, u'', u'\u2014'))
-           ]);
-           _rid_current python:(
-             (get(ar,'getId',None) and ar.getId()) or
-             (hasattr(ar,'id') and ar.id) or
-             (get(ar,'getRequestID',None) and ar.getRequestID()) or
-             options.get('rid','') or u''
-           );
-           _sid_current_set python:set([unicode(_rid_current)]);
-           _distinct_sids_fallback_count python:len(_delta_prev_ids | _sid_current_set);
-           _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
-
-           has_two_points python:(_distinct_points >= 2);
-           has_two_sids python:(_distinct_sids >= 2)
+           <!-- Mostrar gráfico si hay al menos 2 estudios distintos -->
+           has_sufficient_data python:(_distinct_studies >= 2 or _distinct_sids >= 2)
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
+         tal:condition="python:bool(trends_data) and bool(_series) and has_sufficient_data">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -891,33 +863,44 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            var seen = {};
-            var distinct = 0;
+            <!-- NUEVA LÓGICA JS: Contar estudios únicos por timestamp + SID -->
+            var seenStudies = {};
+            var distinctStudies = 0;
+            var distinctSids = new Set();
+            
             try {
               trendsData.series.forEach(function(s){
                 var d = (s && s.data) ? s.data : [];
                 for (var i=0; i<d.length; i++){
                   var p = d[i];
-                  var x = (p && typeof p === 'object')
-                            ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
+                  var timestamp = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[0] : (p.timestamp || p.ms || p.x || p.date || i))
                             : i;
+                  var sid = (p && typeof p === 'object' && !Array.isArray(p))
+                            ? (p.sid || p.sample_id || p.id || '')
+                            : '';
                   var y = (p && typeof p === 'object')
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
 
-                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
-                  var sid = (p && typeof p === 'object' && !Array.isArray(p))
-                              ? (p.sid || p.sample_id || p.id || '')
-                              : '';
-                  var key = String(x) + '|' + String(sid);
-
+                  var studyKey = String(timestamp) + '|' + String(sid);
+                  
                   if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                    if (!seen[key]) { seen[key] = true; distinct++; }
+                    if (!seenStudies[studyKey]) {
+                      seenStudies[studyKey] = true;
+                      distinctStudies++;
+                    }
+                    if (sid) distinctSids.add(sid);
                   }
                 }
               });
-            } catch(e) { distinct = 0; }
-            if (distinct < 2) return;
+            } catch(e) { 
+              distinctStudies = 0;
+              distinctSids = new Set();
+            }
+            
+            <!-- Mostrar si hay al menos 2 estudios distintos O 2 SIDs distintos -->
+            if (distinctStudies < 2 && distinctSids.size < 2) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
@@ -947,7 +930,7 @@
                 categories: cats,
                 tickPositions: tickPositions,
                 labels: { style: { color: '#333' }, rotation: -45, step: step },
-                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                title: { text: 'Fecha y Hora de Análisis', style: { color: '#000', fontWeight: 'bold' } },
                 tickmarkPlacement: 'on'
               },
               yAxis: {
@@ -1037,4 +1020,3 @@
 
   </div> <!-- cierre del contenedor que define 'ar' -->
 </tal:report>
-
