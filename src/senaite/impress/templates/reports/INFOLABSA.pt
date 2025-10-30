@@ -1,95 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <tal:report i18n:domain="senaite.impress">
-  
-  <!-- Guardado global robusto contra JSON.parse(HTML) y jQuery.parseJSON -->
-  <script type="text/javascript">
-  (function(){
-    try {
-      // Evita doble-parcheo
-      if (window.__JSON_PARSE_PATCH_ACTIVE__) return;
-      function looksLikeHTML(s) {
-        if (typeof s !== 'string') return false;
-        var t = s.replace(/^\uFEFF/, '').trim().toLowerCase();
-        if (!t) return false;
-        return (
-          t[0] === '<' ||
-          t.indexOf('<!doctype') === 0 ||
-          t.indexOf('<html') === 0 ||
-          t.indexOf('<?xml') === 0 ||
-          t.indexOf('<body') !== -1 ||
-          // tokens comunes de páginas de error/login
-          t.indexOf('<head') !== -1 ||
-          t.indexOf('<title') !== -1 ||
-          t.indexOf('login_form') !== -1 ||
-          t.indexOf('unauthorized') !== -1 ||
-          t.indexOf('plone') !== -1
-        );
-      }
-      // Parche JSON.parse
-      if (window.JSON && typeof JSON.parse === 'function' && !JSON.parse.__patched) {
-        var _origParse = JSON.parse;
-        JSON.parse = function(text, reviver) {
-          try {
-            if (typeof text === 'string' && looksLikeHTML(text)) {
-              try { console.warn('JSON.parse blocked: HTML/XML detected; returning empty object'); } catch(_) {}
-              return {};
-            }
-            return _origParse.call(JSON, text, reviver);
-          } catch (e) {
-            try { console.warn('JSON.parse intercepted error:', e && e.message); } catch(_) {}
-            return {};
-          }
-        };
-        JSON.parse.__patched = true;
-      }
-      // Parche jQuery.parseJSON si existe (algunas libs antiguas)
-      var $ = window.jQuery || window.$;
-      if ($ && $.parseJSON && !$.parseJSON.__patched) {
-        var _origJqParse = $.parseJSON;
-        $.parseJSON = function(text) {
-          try {
-            if (typeof text === 'string' && looksLikeHTML(text)) {
-              try { console.warn('jQuery.parseJSON blocked: HTML/XML detected; returning empty object'); } catch(_) {}
-              return {};
-            }
-            // Use JSON.parse (ya parcheado) si existe
-            if (window.JSON && JSON.parse) return JSON.parse(text);
-            return _origJqParse.call($, text);
-          } catch (e) {
-            try { console.warn('jQuery.parseJSON intercepted error:', e && e.message); } catch(_) {}
-            return {};
-          }
-        };
-        $.parseJSON.__patched = true;
-      }
-      // Parche de converter ajax para texto->json (jQuery)
-      if ($ && $.ajaxSetup) {
-        try {
-          $.ajaxSetup({
-            converters: {
-              "text json": function(s) {
-                try {
-                  if (typeof s === 'string' && looksLikeHTML(s)) {
-                    try { console.warn('$.ajax text->json blocked: HTML/XML detected; returning empty object'); } catch(_) {}
-                    return {};
-                  }
-                  return window.JSON && JSON.parse ? JSON.parse(s) : s;
-                } catch(e) {
-                  try { console.warn('$.ajax converter error:', e && e.message); } catch(_) {}
-                  return {};
-                }
-              }
-            }
-          });
-        } catch(e){ /* ignore */ }
-      }
-      window.__JSON_PARSE_PATCH_ACTIVE__ = true;
-    } catch (e) {
-      try { console.warn('JSON guard patch failed:', e && e.message); } catch(_) {}
-    }
-  })();
-  </script>
-
   <!-- INFOLABSA.pt :: FINAL -->
 
   <!-- Assets estándar de Impress -->
@@ -97,7 +7,46 @@
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  
+  <!-- Guard GLOBAL MEJORADO contra JSON.parse(HTML) -->
+  <script type="text/javascript">
+  (function(){
+    try {
+      if (window.JSON && typeof JSON.parse === 'function' && !JSON.parse.__patched) {
+        var _origParse = JSON.parse;
+        JSON.parse = function(text, reviver) {
+          try {
+            if (typeof text === 'string') {
+              var s = text.replace(/^\uFEFF/, '').trim();
+              // Detección más robusta de respuestas HTML/XML
+              if (s.charAt(0) === '<' || 
+                  s.toLowerCase().indexOf('<!doctype') === 0 || 
+                  s.toLowerCase().indexOf('<html') === 0 ||
+                  s.toLowerCase().indexOf('<?xml') === 0 ||
+                  s.toLowerCase().indexOf('<body') !== -1 ||
+                  s.toLowerCase().indexOf('<head') !== -1) {
+                console.warn('JSON.parse: Se intentó parsear HTML/XML, devolviendo objeto vacío');
+                return {};
+              }
+              // Validación básica de JSON
+              if (s.charAt(0) !== '{' && s.charAt(0) !== '[' && 
+                  s.charAt(0) !== '"' && !/^-?\d/.test(s)) {
+                console.warn('JSON.parse: Texto no parece JSON válido, devolviendo objeto vacío');
+                return {};
+              }
+            }
+            return _origParse.call(JSON, text, reviver);
+          } catch (e) {
+            console.warn('JSON.parse interceptado error:', e && e.message);
+            return {};
+          }
+        };
+        JSON.parse.__patched = true;
+      }
+    } catch(e) { 
+      try { console.warn('JSON.parse patch failed:', e.message); } catch(_) {}
+    }
+  })();
+  </script>
 
   <!-- Highcharts (solo navegador) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
@@ -665,12 +614,12 @@
       ];
       _distinct_sids_count_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
 
-      _prev_ids_fallback python:set([
+      _prev_ids_fallback python:[
         unicode(r.get('prev_sample_id') or u'')
         for r in rows
         if r.get('prev_sample_id') not in (None, u'', u'\u2014')
       ]);
-      _cur_sid_fallback python:set([
+      _cur_sid_fallback python:[
         unicode(
           (get(ar,'getId',None) and ar.getId()) or
           (hasattr(ar,'id') and ar.id) or
@@ -918,7 +867,7 @@
            _distinct_sids_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
 
            _delta_rows python:(_delta.get('rows') or []);
-           _delta_prev_ids python:set([
+           _delta_prev_ids python:[
              unicode(r.get('prev_sample_id') or u'')
              for r in _delta_rows
              if (hasattr(r,'get') and r.get('prev_sample_id') not in (None, u'', u'\u2014'))
@@ -929,8 +878,8 @@
              (get(ar,'getRequestID',None) and ar.getRequestID()) or
              options.get('rid','') or u''
            );
-           _sid_current_set python:set([unicode(_rid_current)]);
-           _distinct_sids_fallback_count python:len(_delta_prev_ids | _sid_current_set);
+           _sid_current_set python:[unicode(_rid_current)]);
+           _distinct_sids_fallback_count python:len(set(_delta_prev_ids + _sid_current_set));
            _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
 
            has_two_points python:(_distinct_points >= 2);
@@ -1297,3 +1246,4 @@
 
   </div> <!-- cierre del contenedor que define 'ar' -->
 </tal:report>
+
