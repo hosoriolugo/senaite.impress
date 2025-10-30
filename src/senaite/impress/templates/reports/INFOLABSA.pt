@@ -573,12 +573,12 @@
       ];
       _distinct_sids_count_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
 
-      _prev_ids_fallback python:set([
+      _prev_ids_fallback python:[
         unicode(r.get('prev_sample_id') or u'')
         for r in rows
         if r.get('prev_sample_id') not in (None, u'', u'\u2014')
       ]);
-      _cur_sid_fallback python:set([
+      _cur_sid_fallback python:[
         unicode(
           (get(ar,'getId',None) and ar.getId()) or
           (hasattr(ar,'id') and ar.id) or
@@ -587,7 +587,7 @@
         )
       ]);
       _distinct_sids_count python:(
-        _distinct_sids_count_base if _distinct_sids_count_base else len(_prev_ids_fallback | _cur_sid_fallback)
+        _distinct_sids_count_base if _distinct_sids_count_base else len(set(_prev_ids_fallback + _cur_sid_fallback))
       );
 
       patient_has_two_sids python:(_distinct_sids_count >= 2);
@@ -841,7 +841,7 @@
            _distinct_sids_fallback_count python:len(set(_delta_prev_ids + _sid_current_set));
            _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
 
-           has_two_points python:( (_distinct_points >= 2) or (_distinct_sids >= 2) );
+           has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2)
          "
          tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
