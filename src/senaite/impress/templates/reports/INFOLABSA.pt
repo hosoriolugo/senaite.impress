@@ -776,7 +776,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (AJUSTE MÍNIMO: mostrar con 2 SIDs distintos) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (visibilidad: ≥2 SIDs y ≥2 puntos) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -841,10 +841,10 @@
            _distinct_sids_fallback_count python:len(_delta_prev_ids | _sid_current_set);
            _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
 
-           <!-- CAMBIO MÍNIMO: Mostrar gráfico si hay al menos 2 SIDs distintos, independientemente de los puntos -->
+           has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_sids">
+         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -905,12 +905,11 @@
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
 
-                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
+                  // AJUSTE: desempate por SID y, si falta, por índice
                   var sid = (p && typeof p === 'object' && !Array.isArray(p))
                               ? (p.sid || p.sample_id || p.id || '')
                               : '';
-                  var key = String(x) + '|' + String(sid);
-
+                  var key = String(x) + '|' + String(sid || i); // <--- fallback por índice
                   if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
                     if (!seen[key]) { seen[key] = true; distinct++; }
                   }
@@ -923,6 +922,7 @@
             var n = cats.length || 0;
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
+              // Conserva tu mapeo, no cambiamos orden de categorías
               var mapped = d.map(function(p, i){
                 var y = (p && typeof p === 'object')
                           ? (Array.isArray(p) ? p[1] : p.y)
