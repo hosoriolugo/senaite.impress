@@ -776,7 +776,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (visibilidad: ≥2 SIDs y ≥2 puntos) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (visibilidad: ≥2 SIDs y ≥2 datos en alguna serie) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -790,41 +790,14 @@
              or {}
            );
            _series python:(trends_data and trends_data.get('series') or []);
-           _pairs_per_series python:[
-             [
-               (
-                 (isinstance(p,(list,tuple)) and (len(p)>1) and
-                  (p[0] not in (None, u'', u'\u2014')) and
-                  (p[1] not in (None, u'', u'\u2014')) and
-                  (p[0], p[1]))
-                 or
-                 (hasattr(p,'get') and
-                  (
-                    ( (p.get('ms') or p.get('x') or p.get('date') or u'') +
-                      u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
-                    (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)
-                  ))
-                 or
-                 None
-               )
-               for p in (s.get('data') or [])
-             ]
-             for s in _series
-           ];
-           _all_points python:[
-             ( (pp and (pp[0] or u'')), (pp and pp[1]) )
-             for ser in _pairs_per_series for pp in ser
-             if pp and (pp[0] not in (None, u'', u'\u2014')) and (pp[1] not in (None, u'', u'\u2014'))
-           ];
-           _distinct_points python:len(set([unicode(k) for (k,_) in _all_points]));
 
+           /* ===== Cálculo de SIDs distintos ===== */
            _all_sids python:[
              unicode((p.get('sid') or p.get('sample_id') or p.get('id') or u''))
              for s in _series for p in (s.get('data') or [])
              if (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014')))
            ];
            _distinct_sids_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
-
            _delta_rows python:(_delta.get('rows') or []);
            _delta_prev_ids python:set([
              unicode(r.get('prev_sample_id') or u'')
@@ -841,10 +814,13 @@
            _distinct_sids_fallback_count python:len(_delta_prev_ids | _sid_current_set);
            _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
 
-           has_two_points python:(_distinct_points >= 2);
+           /* ===== Relajamos el requisito de puntos del lado servidor =====
+              Al menos 2 datos en alguna serie (luego JS valida 'puntos distintos' con índice) */
+           has_two_points_loose python:any([ len(s.get('data') or []) >= 2 for s in _series ]);
+
            has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
+         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points_loose and has_two_sids">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -892,135 +868,140 @@
 
       <script type="text/javascript">
         (function() {
-          if (typeof window.WeasyPrint === 'undefined') {
-            // === LECTURA SEGURA DEL JSON GENERADO POR TAL ===
-            var trendsData = (function () {
-              try {
-                var el = document.getElementById('trends-json');
-                if (!el) return null;
-                var raw = (el.textContent || el.innerText || '').trim();
-                if (!raw) return null;
-                return JSON.parse(raw);
-              } catch (e) {
-                return null;
-              }
-            })();
+          if (typeof window.WeasyPrint !== 'undefined') return; // no navegador
 
-            if (!trendsData || !trendsData.series || !trendsData.series.length) return;
-
-            var seen = {};
-            var distinct = 0;
+          // === LECTURA SEGURA DEL JSON GENERADO POR TAL ===
+          var trendsData = (function () {
             try {
-              trendsData.series.forEach(function(s){
-                var d = (s && s.data) ? s.data : [];
-                for (var i=0; i<d.length; i++){
-                  var p = d[i];
-                  var x = (p && typeof p === 'object')
-                            ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
-                            : i;
-                  var y = (p && typeof p === 'object')
-                            ? (Array.isArray(p) ? p[1] : p.y)
-                            : p;
+              var el = document.getElementById('trends-json');
+              if (!el) return null;
+              var raw = (el.textContent || el.innerText || '').trim();
+              if (!raw) return null;
+              return JSON.parse(raw);
+            } catch (e) {
+              return null;
+            }
+          })();
 
-                  // desempate por ID de muestra para distinguir puntos del mismo día
-                  var sid = (p && typeof p === 'object' && !Array.isArray(p))
-                              ? (p.sid || p.sample_id || p.id || '')
-                              : '';
-                  var key = String(x) + '|' + String(sid);
+          if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                    if (!seen[key]) { seen[key] = true; distinct++; }
-                  }
-                }
-              });
-            } catch(e) { distinct = 0; }
-            if (distinct < 2) return;
+          // === Validación de 'puntos distintos': ahora con índice 'i' como seguro ===
+          var seen = Object.create(null);
+          var distinct = 0;
+          try {
+            trendsData.series.forEach(function(s){
+              var d = (s && s.data) ? s.data : [];
+              for (var i=0; i<d.length; i++){
+                var p = d[i];
 
-            var cats = trendsData.categories || [];
-            var n = cats.length || 0;
-            var series = (trendsData.series || []).map(function(s){
-              var d = s.data || [];
-              var mapped = d.map(function(p, i){
+                // x preferido: ms -> x -> date -> i
+                var x = (p && typeof p === 'object')
+                          ? (Array.isArray(p) ? p[0] : (p.ms || p.x || p.date || i))
+                          : i;
+                // y
                 var y = (p && typeof p === 'object')
                           ? (Array.isArray(p) ? p[1] : p.y)
                           : p;
-                return [i, y];
-              });
-              var copy = Object.assign({}, s);
-              copy.data = mapped;
-              return copy;
-            });
 
-            var step = (n <= 6) ? 1 : Math.ceil(n / 6);
-            var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
+                // SID (si no viene, ''), y usamos 'i' para desempatar siempre
+                var sid = (p && typeof p === 'object' && !Array.isArray(p))
+                            ? (p.sid || p.sample_id || p.id || '')
+                            : '';
+                var key = String(x) + '|' + String(sid) + '|' + String(i);
 
-            var options = {
-              chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
-              title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
-                       style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
-              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
-                          style: { color: '#6c757d', fontSize: '12px' } },
-              xAxis: {
-                categories: cats,
-                tickPositions: tickPositions,
-                labels: { style: { color: '#333' }, rotation: -45, step: step },
-                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
-                tickmarkPlacement: 'on'
-              },
-              yAxis: {
-                title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
-                labels: { style: { color: '#333' } },
-                min: trendsData.yMin,
-                max: trendsData.yMax,
-                gridLineColor: '#f0f0f0'
-              },
-              legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
-                        itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
-              plotOptions: {
-                line: {
-                  marker: { enabled: true, radius: 4 },
-                  dataLabels: {
-                    enabled: true,
-                    formatter: function(){
-                      var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
-                      return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
-                    },
-                    style: { textOutline: '1px contrast' }
-                  },
-                  enableMouseTracking: true
+                if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
+                  if (!seen[key]) { seen[key] = true; distinct++; }
                 }
-              },
-              tooltip: {
-                shared: true, crosshairs: true,
-                formatter: function() {
-                  var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
-                  var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
-                  var s = '<b>' + fecha + '</b>';
-                  this.points.forEach(function(p) {
-                    var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
-                    s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
-                         ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
-                  });
-                  return s;
-                }
-              },
-              series: series,
-              credits: { enabled: false },
-              exporting: { enabled: false }
-            };
-
-            if (typeof Highcharts !== 'undefined') {
-              var chart = Highcharts.chart('trends-chart-container', options);
-              var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.display = 'block'; }
-              if (Highcharts.charts && Highcharts.charts.length) {
-                var c = Highcharts.charts[Highcharts.charts.length - 1];
-                if (c && c.reflow) c.reflow();
               }
-              var fb = document.querySelector('.section-trends .weasy-fallback');
-              if (fb) fb.style.display = 'none';
-              try { document.body.classList.add('has-highcharts'); } catch(e){}
+            });
+          } catch(e) { distinct = 0; }
+          if (distinct < 2) return;
+
+          // === Preparación de series (x = índice, y = valor) ===
+          var cats = trendsData.categories || [];
+          var n = cats.length || 0;
+          var series = (trendsData.series || []).map(function(s){
+            var d = s.data || [];
+            var mapped = d.map(function(p, i){
+              var y = (p && typeof p === 'object')
+                        ? (Array.isArray(p) ? p[1] : p.y)
+                        : p;
+              return [i, y];
+            });
+            var copy = Object.assign({}, s);
+            copy.data = mapped;
+            return copy;
+          });
+
+          var step = (n <= 6) ? 1 : Math.ceil(n / 6);
+          var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
+
+          var options = {
+            chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
+            title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
+                     style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
+            subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+                        style: { color: '#6c757d', fontSize: '12px' } },
+            xAxis: {
+              categories: cats,
+              tickPositions: tickPositions,
+              labels: { style: { color: '#333' }, rotation: -45, step: step },
+              title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+              tickmarkPlacement: 'on'
+            },
+            yAxis: {
+              title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
+              labels: { style: { color: '#333' } },
+              min: trendsData.yMin,
+              max: trendsData.yMax,
+              gridLineColor: '#f0f0f0'
+            },
+            legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
+                      itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
+            plotOptions: {
+              line: {
+                marker: { enabled: true, radius: 4 },
+                dataLabels: {
+                  enabled: true,
+                  formatter: function(){
+                    var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
+                    return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
+                  },
+                  style: { textOutline: '1px contrast' }
+                },
+                enableMouseTracking: true
+              }
+            },
+            tooltip: {
+              shared: true, crosshairs: true,
+              formatter: function() {
+                var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
+                var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
+                var s = '<b>' + fecha + '</b>';
+                this.points.forEach(function(p) {
+                  var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
+                  s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
+                       ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
+                });
+                return s;
+              }
+            },
+            series: series,
+            credits: { enabled: false },
+            exporting: { enabled: false }
+          };
+
+          if (typeof Highcharts !== 'undefined') {
+            var chart = Highcharts.chart('trends-chart-container', options);
+            var el = document.getElementById('trends-chart-container');
+            if (el) { el.style.display = 'block'; }
+            if (Highcharts.charts && Highcharts.charts.length) {
+              var c = Highcharts.charts[Highcharts.charts.length - 1];
+              if (c && c.reflow) c.reflow();
             }
+            var fb = document.querySelector('.section-trends .weasy-fallback');
+            if (fb) fb.style.display = 'none';
+            try { document.body.classList.add('has-highcharts'); } catch(e){}
           }
         })();
       </script>
