@@ -776,7 +776,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (NUEVA LÓGICA: ≥2 estudios distintos) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (SOLUCIÓN SIMPLE Y COMPATIBLE) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -791,30 +791,16 @@
            );
            _series python:(trends_data and trends_data.get('series') or []);
            
-           <!-- NUEVA LÓGICA: Contar estudios únicos por timestamp completo + SID -->
-           _all_studies python:[
-             (
-               unicode(p.get('timestamp') or p.get('ms') or p.get('x') or p.get('date') or u''),
-               unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u''),
-               p.get('y')
-             )
+           <!-- LÓGICA SIMPLE: Contar muestras únicas por SID -->
+           _all_sids python:[
+             unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
              for s in _series for p in (s.get('data') or [])
              if (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014')))
            ];
-           
-           _distinct_studies python:len(set([
-             u'%s|%s' % (timestamp, sid)
-             for (timestamp, sid, value) in _all_studies
-             if timestamp and sid
-           ]));
-           
-           _distinct_sids python:len(set([
-             sid for (timestamp, sid, value) in _all_studies
-             if sid and sid not in (None, u'', u'\u2014')
-           ]));
+           _distinct_sids python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
 
-           <!-- Mostrar gráfico si hay al menos 2 estudios distintos -->
-           has_sufficient_data python:(_distinct_studies >= 2 or _distinct_sids >= 2)
+           <!-- Mostrar gráfico si hay al menos 2 SIDs distintos -->
+           has_sufficient_data python:(_distinct_sids >= 2)
          "
          tal:condition="python:bool(trends_data) and bool(_series) and has_sufficient_data">
 
@@ -863,9 +849,7 @@
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            <!-- NUEVA LÓGICA JS: Contar estudios únicos por timestamp + SID -->
-            var seenStudies = {};
-            var distinctStudies = 0;
+            <!-- LÓGICA SIMPLE JS: Contar SIDs únicos -->
             var distinctSids = new Set();
             
             try {
@@ -873,9 +857,6 @@
                 var d = (s && s.data) ? s.data : [];
                 for (var i=0; i<d.length; i++){
                   var p = d[i];
-                  var timestamp = (p && typeof p === 'object')
-                            ? (Array.isArray(p) ? p[0] : (p.timestamp || p.ms || p.x || p.date || i))
-                            : i;
                   var sid = (p && typeof p === 'object' && !Array.isArray(p))
                             ? (p.sid || p.sample_id || p.id || '')
                             : '';
@@ -883,39 +864,45 @@
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
 
-                  var studyKey = String(timestamp) + '|' + String(sid);
-                  
                   if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                    if (!seenStudies[studyKey]) {
-                      seenStudies[studyKey] = true;
-                      distinctStudies++;
-                    }
                     if (sid) distinctSids.add(sid);
                   }
                 }
               });
             } catch(e) { 
-              distinctStudies = 0;
               distinctSids = new Set();
             }
             
-            <!-- Mostrar si hay al menos 2 estudios distintos O 2 SIDs distintos -->
-            if (distinctStudies < 2 && distinctSids.size < 2) return;
+            <!-- Mostrar si hay al menos 2 SIDs distintos -->
+            if (distinctSids.size < 2) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
-            var series = (trendsData.series || []).map(function(s){
-              var d = s.data || [];
-              var mapped = d.map(function(p, i){
-                var y = (p && typeof p === 'object')
-                          ? (Array.isArray(p) ? p[1] : p.y)
-                          : p;
-                return [i, y];
-              });
-              var copy = Object.assign({}, s);
-              copy.data = mapped;
-              return copy;
-            });
+            
+            <!-- Crear series de manera compatible -->
+            var series = [];
+            if (trendsData.series && trendsData.series.length) {
+              for (var i = 0; i < trendsData.series.length; i++) {
+                var s = trendsData.series[i];
+                var d = s.data || [];
+                var mappedData = [];
+                for (var j = 0; j < d.length; j++) {
+                  var p = d[j];
+                  var y = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[1] : p.y)
+                            : p;
+                  mappedData.push([j, y]);
+                }
+                var seriesCopy = {};
+                for (var key in s) {
+                  if (s.hasOwnProperty(key)) {
+                    seriesCopy[key] = s[key];
+                  }
+                }
+                seriesCopy.data = mappedData;
+                series.push(seriesCopy);
+              }
+            }
 
             var step = (n <= 6) ? 1 : Math.ceil(n / 6);
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
@@ -930,7 +917,7 @@
                 categories: cats,
                 tickPositions: tickPositions,
                 labels: { style: { color: '#333' }, rotation: -45, step: step },
-                title: { text: 'Fecha y Hora de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
                 tickmarkPlacement: 'on'
               },
               yAxis: {
