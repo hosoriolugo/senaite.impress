@@ -865,7 +865,12 @@
 
         <!-- JSON seguro para evitar SyntaxError al inyectar -->
         <script type="application/json" id="trends-json">
-          <tal:span tal:replace="structure python:json.dumps(trends_data, allow_nan=False)" />
+          <tal:block tal:condition="python:trends_data">
+            <tal:json tal:content="structure python:json.dumps(trends_data, allow_nan=False)" />
+          </tal:block>
+          <tal:block tal:condition="python:not trends_data">
+            {}
+          </tal:block>
         </script>
 
         <!-- JS: contar ≥2 SIDs y ordenar por fecha/hora completa -->
@@ -910,14 +915,25 @@
                 var el = document.getElementById('trends-json');
                 if (el) {
                   var raw = (el.textContent || el.innerText || '').trim();
-                  if (raw) return JSON.parse(raw);
+                  if (raw) {
+                    var parsed = JSON.parse(raw);
+                    // Verificar que es un objeto válido con series
+                    if (parsed && typeof parsed === 'object' && parsed.series) {
+                      return parsed;
+                    }
+                  }
                 }
-              } catch(e){}
+              } catch(e){
+                console.error('Error parsing trends JSON:', e);
+              }
               return null;
             }
 
             var trendsData = getJson();
-            if (!trendsData || !trendsData.series || !trendsData.series.length) return;
+            if (!trendsData || !trendsData.series || !trendsData.series.length) {
+              console.log('No valid trends data available');
+              return;
+            }
 
             // Contar SIDs distintos considerando fecha completa
             var sidSet = Object.create(null);
@@ -935,7 +951,10 @@
             });
 
             var distinctSIDs = Object.keys(sidSet).length;
-            if (distinctSIDs < 2 || totalValidPts < 2) return;
+            if (distinctSIDs < 2 || totalValidPts < 2) {
+              console.log('Insufficient data: need at least 2 distinct SIDs and 2 valid points');
+              return;
+            }
 
             // Construir línea de tiempo ordenada por timestamp completo
             var stamps = [];
