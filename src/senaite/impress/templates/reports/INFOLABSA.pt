@@ -7,33 +7,6 @@
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  <!-- Guard GLOBAL contra JSON.parse(HTML) de otros scripts -->
-  <script type="text/javascript">
-  (function(){
-    try {
-      if (window.JSON && typeof JSON.parse === 'function') {
-        var _origParse = JSON.parse;
-        JSON.parse = function(text, reviver) {
-          try {
-            if (typeof text === 'string') {
-              var s = text.replace(/^\uFEFF/, '').trim().toLowerCase();
-              if (s.indexOf('<!doctype') === 0 || s.indexOf('<html') === 0) {
-                // Se intentó parsear una página HTML (login, 302, error, etc.)
-                return {};
-              }
-            }
-            return _origParse.call(JSON, text, reviver);
-          } catch (e) {
-            // Cualquier fallo al parsear: devolvemos objeto vacío para no romper la vista
-            try { console.warn('JSON.parse interceptado:', e && e.message); } catch(_){}
-            return {};
-          }
-        };
-      }
-    } catch(e) { /* no-op */ }
-  })();
-  </script>
-
   <!-- Highcharts (solo navegador) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
@@ -643,6 +616,10 @@
             <tbody>
               <tal:loop repeat="r rows_valid">
                 <tal:calc define="
+                  re modules/re;
+                  isnum python:lambda v: bool(re.match(u'^[-+]?\\d+(?:[\\.,]\\d+)?$', unicode(v).strip())) if v not in (None, u'', u'\u2014') else False;
+                  tofloat python:lambda v: (isnum(v) and float(unicode(v).replace(u',', u'.')) or None);
+
                   ser python:r.get('series') or [];
                   n python:len(ser);
                   t_last python:(ser and ((hasattr(ser[-1],'get') and (ser[-1].get('ms') or ser[-1].get('date'))) or u'') or u'');
@@ -651,8 +628,8 @@
 
                   _now_val_raw python:r.get('value_now');
                   _prev_val_raw python:r.get('prev_value');
-                  _now_val python:((_now_val_raw not in (None, u'', u'\u2014')) and float(_now_val_raw) or None);
-                  _prev_val python:((_prev_val_raw not in (None, u'', u'\u2014')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
+                  _now_val  python:tofloat(_now_val_raw);
+                  _prev_val python:(tofloat(_prev_val_raw) or ((n>=2 and has_distinct) and tofloat(ser[-2].get('value')) or None));
 
                   delta_abs_val python:((_now_val is not None and _prev_val is not None) and (_now_val - _prev_val) or None);
                   delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
@@ -660,11 +637,12 @@
 
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
-                  delta_pct_val python:((_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None);
+                  _pct_val_tmp python:tofloat(_pct_clean);
+                  delta_pct_val python:((_pct_val_tmp is not None) and abs(_pct_val_tmp) or None);
 
                   rcv python:r.get('rcv_pct');
-                  has_rcv python:(rcv is not None);
-                  rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
+                  has_rcv python:(tofloat(rcv) is not None);
+                  rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= tofloat(rcv)));
 
                   dir_sym python:(r.get('delta_dir') or u'');
                   trend_arrow python:((dir_sym==u'\u25b2' or dir_sym==u'\u25b3' or dir_sym==u'\u25b4' or dir_sym==u'\u25b5') and u'\u2191' or (dir_sym==u'\u25bc' or dir_sym==u'\u25bd' or dir_sym==u'\u25be' or dir_sym==u'\u25bf') and u'\u2193' or u'\u2192');
@@ -871,7 +849,6 @@
            has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2);
 
-           /* ===== NUEVO: puntos únicos combinando (fecha|SID) desde delta ===== */
            _delta_point_keys python:[
              (unicode((p.get('ms') or p.get('date') or u'')) + u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u''))
              for r in _delta_rows for p in (r.get('series') or [])
@@ -879,7 +856,6 @@
            ];
            _delta_unique_points python:len(set([k for k in _delta_point_keys if k and k != u'|']));
 
-           /* ===== NUEVO: criterio de visibilidad más amplio ===== */
            show_trends python:(has_two_sids or has_two_points or (_delta_unique_points >= 2))
          "
          tal:condition="show_trends">
@@ -927,8 +903,8 @@
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
             /* Inyectamos datos ya serializados (sin JSON.parse) */
-            var trendsData  = <tal:span tal:replace="python:json.dumps(trends_data)" />;
-            var DELTA_ROWS  = <tal:span tal:replace="python:json.dumps(_delta_rows)" />;
+            var trendsData  = <tal:t tal:replace="structure python:json.dumps(trends_data, default=str)" />;
+            var DELTA_ROWS  = <tal:t tal:replace="structure python:json.dumps(_delta_rows, default=str)" />;
 
             if (!trendsData || !trendsData.series || !trendsData.series.length) {
               // Intentaremos fallback más abajo con DELTA_ROWS
@@ -961,7 +937,7 @@
               });
             } catch(e) { distinct = 0; }
 
-            /* ===== Fallback NUEVO: construir trendsData desde DELTA_ROWS si hace falta ===== */
+            /* Fallback: construir trendsData desde DELTA_ROWS si hace falta */
             if (distinct < 2 && Array.isArray(DELTA_ROWS) && DELTA_ROWS.length) {
               try {
                 var byAnalyte = {}; // name -> {unit, pts:[{key, ms, sid, y}]}
@@ -1008,9 +984,9 @@
                 });
 
                 if (keys.length >= 2) {
+                  function pad(n){ return (n<10?'0':'')+n; }
                   function fmt(ts){
                     var d = new Date(parseInt(ts,10) || 0);
-                    function pad(n){ return (n<10?'0':'')+n; }
                     return pad(d.getDate())+'/'+pad(d.getMonth()+1)+' '+pad(d.getHours())+':'+pad(d.getMinutes());
                   }
                   var cats = keys.map(function(k){
@@ -1023,12 +999,12 @@
 
                   var builtSeries = Object.keys(byAnalyte).map(function(k){
                     var a = byAnalyte[k];
-                    var data = keys.map(function(key, idx){
+                    var data = keys.map(function(key){
                       var found = null;
                       for (var i=0;i<a.pts.length;i++){
                         if (a.pts[i].key === key) { found = a.pts[i]; }
                       }
-                      return [idx, found ? found.y : null];
+                      return [keys.indexOf(key), found ? found.y : null];
                     });
                     var s = { name: k, data: data };
                     if (a.unit) s.unit = a.unit;
