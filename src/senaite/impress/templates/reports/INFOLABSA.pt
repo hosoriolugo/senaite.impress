@@ -454,6 +454,7 @@
 
     <!-- Interpretación de resultados -->
     <tal:interp define="
+
       get python:getattr;
 
       _rich python:lambda x: (
@@ -776,7 +777,7 @@
     </tal:delta>
     <!-- =========== FIN: Delta Check =========== -->
 
-    <!-- =========== GRÁFICO DE TENDENCIAS (visibilidad: ≥2 SIDs y ≥2 puntos) =========== -->
+    <!-- =========== GRÁFICO DE TENDENCIAS (visibilidad: ≥2 SIDs) =========== -->
     <div class="section-trends"
          tal:define="
            get python:getattr;
@@ -844,7 +845,7 @@
            has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
+         tal:condition="python:has_two_sids"> <!-- AJUSTE 1: mostrar si hay ≥2 SIDs, aunque sean del mismo día -->
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -889,12 +890,19 @@
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
-            if (!trendsData || !trendsData.series || !trendsData.series.length) return;
+            // Inyectamos también las filas del Delta Check para fallback local (sin fetch)
+            var DELTA_ROWS = <tal:span tal:replace="python:json.dumps(_delta_rows)" />;
 
+            if (!trendsData || !trendsData.series || !trendsData.series.length) {
+              trendsData = trendsData || {};
+              trendsData.series = trendsData.series || [];
+            }
+
+            // Contar puntos distintos considerando (x|sid) y con fallback por índice
             var seen = {};
             var distinct = 0;
             try {
-              trendsData.series.forEach(function(s){
+              (trendsData.series || []).forEach(function(s){
                 var d = (s && s.data) ? s.data : [];
                 for (var i=0; i<d.length; i++){
                   var p = d[i];
@@ -904,29 +912,104 @@
                   var y = (p && typeof p === 'object')
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
-
-                  // AJUSTE: desempate por SID y, si falta, por índice
                   var sid = (p && typeof p === 'object' && !Array.isArray(p))
                               ? (p.sid || p.sample_id || p.id || '')
                               : '';
-                  var key = String(x) + '|' + String(sid || i); // <--- fallback por índice
+                  var key = String(x) + '|' + String(sid || i); // AJUSTE 2: desempate por SID, fallback por índice
                   if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
                     if (!seen[key]) { seen[key] = true; distinct++; }
                   }
                 }
               });
             } catch(e) { distinct = 0; }
-            if (distinct < 2) return;
+
+            // Fallback: si sigue habiendo <2 puntos, construimos trendsData desde DELTA_ROWS con resolución de hora:minuto:segundo
+            if (distinct < 2 && Array.isArray(DELTA_ROWS) && DELTA_ROWS.length) {
+              try {
+                // 1) Recolectar puntos por analito con (ms,y,sid)
+                var byAnalyte = {}; // name -> {unit, pts:[{ms,y,sid}]}
+                DELTA_ROWS.forEach(function(r){
+                  var name = r && r.name ? String(r.name) : '';
+                  if (!name) return;
+                  var unit = r.unit || (r.rcv_unit || '');
+                  var ser = Array.isArray(r.series) ? r.series : [];
+                  ser.forEach(function(p){
+                    if (!p || typeof p !== 'object') return;
+                    var ms = p.ms;
+                    if (!ms) {
+                      var ds = p.date || p.x || '';
+                      if (ds && typeof ds === 'string') {
+                        if (ds.indexOf(' ')>0 && ds.indexOf('T')<0) ds = ds.replace(' ', 'T');
+                        var parsed = Date.parse(ds);
+                        if (!isNaN(parsed)) ms = parsed;
+                      }
+                    }
+                    var y = (p.value != null) ? p.value : p.y;
+                    var val = parseFloat(y);
+                    if (!ms || !isFinite(val)) return;
+                    var sid = p.sid || p.sample_id || p.id || '';
+                    if (!byAnalyte[name]) byAnalyte[name] = { unit: unit, pts: [] };
+                    byAnalyte[name].pts.push({ ms: ms, y: val, sid: sid });
+                  });
+                });
+
+                // 2) Eje X: únicos timestamps ordenados (permite múltiples del mismo día)
+                var xs = [];
+                Object.keys(byAnalyte).forEach(function(k){
+                  byAnalyte[k].pts.forEach(function(p){ xs.push(p.ms); });
+                });
+                xs = Array.from(new Set(xs)).sort(function(a,b){ return a-b; });
+
+                // 3) Si logramos ≥2 timestamps, armamos categorías y series
+                if (xs.length >= 2) {
+                  function fmt(ts){
+                    var d = new Date(ts);
+                    function pad(n){ return (n<10?'0':'')+n; }
+                    // dd/MM HH:mm (día/mes hora:min)
+                    return pad(d.getDate())+'/'+pad(d.getMonth()+1)+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+                  }
+                  var cats = xs.map(fmt);
+
+                  var builtSeries = Object.keys(byAnalyte).map(function(k){
+                    var a = byAnalyte[k];
+                    // Para cada timestamp, tomamos el último punto (si hubiese múltiples del mismo analito exactamente a la misma ms)
+                    var data = xs.map(function(ms, idx){
+                      // buscar punto con ese ms
+                      var found = null;
+                      for (var i = 0; i < a.pts.length; i++){
+                        if (a.pts[i].ms === ms) { found = a.pts[i]; }
+                      }
+                      return [idx, found ? found.y : null];
+                    });
+                    var s = { name: k, data: data };
+                    if (a.unit) s.unit = a.unit;
+                    return s;
+                  });
+
+                  // preservamos título/unidad global si existe
+                  trendsData = {
+                    title: trendsData.title || 'Tendencias de Resultados',
+                    unit: trendsData.unit || '',
+                    categories: cats,
+                    series: builtSeries
+                  };
+                  distinct = xs.length; // ya garantizado ≥2
+                }
+              } catch(e) {
+                // si hay cualquier inconveniente, dejamos que opere el fallback PNG
+              }
+            }
+
+            // Si seguimos sin 2 puntos, no se dibuja Highcharts; el PNG queda visible
+            if (distinct < 2 || !trendsData.series || !trendsData.series.length) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
-              // Conserva tu mapeo, no cambiamos orden de categorías
               var mapped = d.map(function(p, i){
-                var y = (p && typeof p === 'object')
-                          ? (Array.isArray(p) ? p[1] : p.y)
-                          : p;
+                if (Array.isArray(p)) { return [p[0], p[1]]; }
+                var y = (p && typeof p === 'object') ? p.y : p;
                 return [i, y];
               });
               var copy = Object.assign({}, s);
@@ -941,13 +1024,13 @@
               chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
               title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
                        style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
-              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+              subtitle: { text: 'Se muestran puntos ordenados por fecha y hora.', y: 30,
                           style: { color: '#6c757d', fontSize: '12px' } },
               xAxis: {
                 categories: cats,
                 tickPositions: tickPositions,
                 labels: { style: { color: '#333' }, rotation: -45, step: step },
-                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                title: { text: 'Fecha/Hora', style: { color: '#000', fontWeight: 'bold' } },
                 tickmarkPlacement: 'on'
               },
               yAxis: {
