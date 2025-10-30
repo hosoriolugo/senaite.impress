@@ -7,6 +7,33 @@
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
+  <!-- Guard GLOBAL contra JSON.parse(HTML) de otros scripts -->
+  <script type="text/javascript">
+  (function(){
+    try {
+      if (window.JSON && typeof JSON.parse === 'function') {
+        var _origParse = JSON.parse;
+        JSON.parse = function(text, reviver) {
+          try {
+            if (typeof text === 'string') {
+              var s = text.replace(/^\uFEFF/, '').trim().toLowerCase();
+              if (s.indexOf('<!doctype') === 0 || s.indexOf('<html') === 0) {
+                // Se intentó parsear una página HTML (login, 302, error, etc.)
+                return {};
+              }
+            }
+            return _origParse.call(JSON, text, reviver);
+          } catch (e) {
+            // Cualquier fallo al parsear: devolvemos objeto vacío para no romper la vista
+            try { console.warn('JSON.parse interceptado:', e && e.message); } catch(_){}
+            return {};
+          }
+        };
+      }
+    } catch(e) { /* no-op */ }
+  })();
+  </script>
+
   <!-- Highcharts (solo navegador) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
