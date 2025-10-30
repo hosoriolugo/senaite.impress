@@ -7,47 +7,6 @@
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
-  <!-- Guard GLOBAL MEJORADO contra JSON.parse(HTML) -->
-  <script type="text/javascript">
-  (function(){
-    try {
-      if (window.JSON && typeof JSON.parse === 'function' && !JSON.parse.__patched) {
-        var _origParse = JSON.parse;
-        JSON.parse = function(text, reviver) {
-          try {
-            if (typeof text === 'string') {
-              var s = text.replace(/^\uFEFF/, '').trim();
-              // Detección más robusta de respuestas HTML/XML
-              if (s.charAt(0) === '<' || 
-                  s.toLowerCase().indexOf('<!doctype') === 0 || 
-                  s.toLowerCase().indexOf('<html') === 0 ||
-                  s.toLowerCase().indexOf('<?xml') === 0 ||
-                  s.toLowerCase().indexOf('<body') !== -1 ||
-                  s.toLowerCase().indexOf('<head') !== -1) {
-                console.warn('JSON.parse: Se intentó parsear HTML/XML, devolviendo objeto vacío');
-                return {};
-              }
-              // Validación básica de JSON
-              if (s.charAt(0) !== '{' && s.charAt(0) !== '[' && 
-                  s.charAt(0) !== '"' && !/^-?\d/.test(s)) {
-                console.warn('JSON.parse: Texto no parece JSON válido, devolviendo objeto vacío');
-                return {};
-              }
-            }
-            return _origParse.call(JSON, text, reviver);
-          } catch (e) {
-            console.warn('JSON.parse interceptado error:', e && e.message);
-            return {};
-          }
-        };
-        JSON.parse.__patched = true;
-      }
-    } catch(e) { 
-      try { console.warn('JSON.parse patch failed:', e.message); } catch(_) {}
-    }
-  })();
-  </script>
-
   <!-- Highcharts (solo navegador) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
@@ -183,7 +142,7 @@
     <div class="row section-header no-gutters">
       <div class="w-100 mb-2">
         <table class="w-100 mb-0 noborder">
-          <colgroup><col style="width:65%"/><col style="width:35%"/></colgroup>
+          <colgroup><col style=&quot;width:65%&quot;/><col style=&quot;width:35%&quot;/></colgroup>
           <tr>
             <td class="align-middle text-left">
               <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
@@ -614,12 +573,12 @@
       ];
       _distinct_sids_count_base python:len(set([s for s in _all_sids if s not in (None, u'', u'\u2014')]));
 
-      _prev_ids_fallback python:[
+      _prev_ids_fallback python:set([
         unicode(r.get('prev_sample_id') or u'')
         for r in rows
         if r.get('prev_sample_id') not in (None, u'', u'\u2014')
       ]);
-      _cur_sid_fallback python:[
+      _cur_sid_fallback python:set([
         unicode(
           (get(ar,'getId',None) and ar.getId()) or
           (hasattr(ar,'id') and ar.id) or
@@ -882,21 +841,10 @@
            _distinct_sids_fallback_count python:len(set(_delta_prev_ids + _sid_current_set));
            _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
 
-           has_two_points python:(_distinct_points >= 2);
-           has_two_sids python:(_distinct_sids >= 2);
-
-           /* ===== NUEVO: puntos únicos combinando (fecha|SID) desde delta ===== */
-           _delta_point_keys python:[
-             (unicode((p.get('ms') or p.get('date') or u'')) + u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u''))
-             for r in _delta_rows for p in (r.get('series') or [])
-             if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))
-           ];
-           _delta_unique_points python:len(set([k for k in _delta_point_keys if k and k != u'|']));
-
-           /* ===== NUEVO: criterio de visibilidad más amplio ===== */
-           show_trends python:(has_two_sids or has_two_points or (_delta_unique_points >= 2))
+           has_two_points python:( (_distinct_points >= 2) or (_distinct_sids >= 2) );
+           has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="show_trends">
+         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -940,25 +888,13 @@
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
-            /* Inyectamos datos ya serializados (sin JSON.parse) - BLINDAJE MEJORADO */
-            var trendsData = <tal:span tal:replace="structure python:json.dumps(trends_data) if trends_data else '{}'" />;
-            var DELTA_ROWS = <tal:span tal:replace="structure python:json.dumps(_delta_rows) if _delta_rows else '[]'" />;
-
-            // Validación robusta de los datos
-            if (!trendsData || typeof trendsData !== 'object') {
-              trendsData = {};
-            }
-            if (!Array.isArray(trendsData.series)) {
-              trendsData.series = [];
-            }
-            if (!Array.isArray(DELTA_ROWS)) {
-              DELTA_ROWS = [];
-            }
+            var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
+            if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
             var seen = {};
             var distinct = 0;
             try {
-              (trendsData.series || []).forEach(function(s){
+              trendsData.series.forEach(function(s){
                 var d = (s && s.data) ? s.data : [];
                 for (var i=0; i<d.length; i++){
                   var p = d[i];
@@ -969,7 +905,7 @@
                             ? (Array.isArray(p) ? p[1] : p.y)
                             : p;
 
-                  // Clave (x|sid) para distinguir mismo día con SID diferente
+                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
                   var sid = (p && typeof p === 'object' && !Array.isArray(p))
                               ? (p.sid || p.sample_id || p.id || '')
                               : '';
@@ -981,99 +917,7 @@
                 }
               });
             } catch(e) { distinct = 0; }
-
-            /* ===== Fallback NUEVO: construir trendsData desde DELTA_ROWS si hace falta ===== */
-            if (distinct < 2 && Array.isArray(DELTA_ROWS) && DELTA_ROWS.length) {
-              try {
-                var byAnalyte = {}; // name -> {unit, pts:[{key, ms, sid, y}]}
-                function normMs(p){
-                  var ms = p.ms;
-                  if (!ms) {
-                    var ds = p.date || p.x || '';
-                    if (ds && typeof ds === 'string') {
-                      if (ds.indexOf(' ')>0 && ds.indexOf('T')<0) ds = ds.replace(' ', 'T');
-                      var parsed = Date.parse(ds);
-                      if (!isNaN(parsed)) ms = parsed;
-                    }
-                  }
-                  return ms || 0;
-                }
-                (DELTA_ROWS || []).forEach(function(r){
-                  var name = r && r.name ? String(r.name) : '';
-                  if (!name) return;
-                  var unit = r.unit || r.rcv_unit || '';
-                  var ser = Array.isArray(r.series) ? r.series : [];
-                  ser.forEach(function(p, idx){
-                    if (!p || typeof p !== 'object') return;
-                    var ms  = normMs(p);
-                    var y   = (p.value != null) ? p.value : p.y;
-                    var sid = p.sid || p.sample_id || p.id || String(idx);
-                    var val = parseFloat(y);
-                    if (!ms || !isFinite(val)) return;
-                    var key = String(ms) + '|' + String(sid);
-                    if (!byAnalyte[name]) byAnalyte[name] = { unit: unit, pts: [] };
-                    byAnalyte[name].pts.push({ key: key, ms: ms, sid: sid, y: val });
-                  });
-                });
-
-                var keys = [];
-                Object.keys(byAnalyte).forEach(function(k){
-                  byAnalyte[k].pts.forEach(function(p){
-                    if (keys.indexOf(p.key) === -1) keys.push(p.key);
-                  });
-                });
-                keys.sort(function(a,b){
-                  var ams = parseInt(a.split('|')[0],10)||0;
-                  var bms = parseInt(b.split('|')[0],10)||0;
-                  return ams - bms;
-                });
-
-                if (keys.length >= 2) {
-                  function fmt(ts){
-                    var d = new Date(parseInt(ts,10) || 0);
-                    function pad(n){ return (n<10?'0':'')+n; }
-                    return pad(d.getDate())+'/'+pad(d.getMonth()+1)+' '+pad(d.getHours())+':'+pad(d.getMinutes());
-                  }
-                  var cats = keys.map(function(k){
-                    var parts = k.split('|');
-                    var ms  = parts[0];
-                    var sid = parts[1] || '';
-                    var short = sid ? (' · #' + (sid.slice(-4))) : '';
-                    return fmt(ms) + short;
-                  });
-
-                  var builtSeries = Object.keys(byAnalyte).map(function(k){
-                    var a = byAnalyte[k];
-                    var data = keys.map(function(key, idx){
-                      var found = null;
-                      for (var i=0;i<a.pts.length;i++){
-                        if (a.pts[i].key === key) { found = a.pts[i]; }
-                      }
-                      return [idx, found ? found.y : null];
-                    });
-                    var s = { name: k, data: data };
-                    if (a.unit) s.unit = a.unit;
-                    return s;
-                  });
-
-                  trendsData = {
-                    title: trendsData.title || 'Tendencias de Resultados',
-                    unit: trendsData.unit || '',
-                    categories: cats,
-                    series: builtSeries
-                  };
-                  distinct = keys.length;
-                }
-              } catch(e) {
-                // si algo falla, seguimos con el PNG
-                console.warn('Fallback Delta trends failed:', e);
-              }
-            }
-
-            if (!trendsData || !trendsData.series || !trendsData.series.length || distinct < 2) {
-              console.warn('Trends chart: Insufficient data, skipping');
-              return;
-            }
+            if (distinct < 2) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
@@ -1093,26 +937,12 @@
             var step = (n <= 6) ? 1 : Math.ceil(n / 6);
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
-            // CONFIGURACIÓN HIGHCHARTS ROBUSTA
             var options = {
-              chart: { 
-                type: 'line', 
-                height: 560, 
-                backgroundColor: 'transparent', 
-                spacingTop: 60, 
-                spacingBottom: 16, 
-                marginTop: 60 
-              },
-              title: { 
-                text: (trendsData.title || 'Tendencias de Resultados'), 
-                margin: 12,
-                style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } 
-              },
-              subtitle: { 
-                text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', 
-                y: 30,
-                style: { color: '#6c757d', fontSize: '12px' } 
-              },
+              chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
+              title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
+                       style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
+              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+                          style: { color: '#6c757d', fontSize: '12px' } },
               xAxis: {
                 categories: cats,
                 tickPositions: tickPositions,
@@ -1121,35 +951,22 @@
                 tickmarkPlacement: 'on'
               },
               yAxis: {
-                title: { 
-                  text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), 
-                  style: { color: '#000', fontWeight: 'bold' } 
-                },
+                title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
                 labels: { style: { color: '#333' } },
                 min: trendsData.yMin,
                 max: trendsData.yMax,
                 gridLineColor: '#f0f0f0'
               },
-              legend: { 
-                enabled: true, 
-                layout: 'horizontal', 
-                align: 'center', 
-                verticalAlign: 'bottom', 
-                y: 0,
-                itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } 
-              },
+              legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
+                        itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
               plotOptions: {
                 line: {
                   marker: { enabled: true, radius: 4 },
                   dataLabels: {
                     enabled: true,
                     formatter: function(){
-                      try {
-                        var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
-                        return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
-                      } catch(e) {
-                        return this.y != null ? String(this.y) : '';
-                      }
+                      var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
+                      return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
                     },
                     style: { textOutline: '1px contrast' }
                   },
@@ -1157,22 +974,17 @@
                 }
               },
               tooltip: {
-                shared: true, 
-                crosshairs: true,
+                shared: true, crosshairs: true,
                 formatter: function() {
-                  try {
-                    var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
-                    var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
-                    var s = '<b>' + fecha + '</b>';
-                    this.points.forEach(function(p) {
-                      var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
-                      s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
-                           ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
-                    });
-                    return s;
-                  } catch(e) {
-                    return '<b>Error en tooltip</b>';
-                  }
+                  var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
+                  var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
+                  var s = '<b>' + fecha + '</b>';
+                  this.points.forEach(function(p) {
+                    var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
+                    s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
+                         ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
+                  });
+                  return s;
                 }
               },
               series: series,
@@ -1180,38 +992,17 @@
               exporting: { enabled: false }
             };
 
-            // INICIALIZACIÓN SEGURA DE HIGHCHARTS
             if (typeof Highcharts !== 'undefined') {
-              try {
-                var chart = Highcharts.chart('trends-chart-container', options);
-                var el = document.getElementById('trends-chart-container');
-                if (el) { 
-                  el.style.display = 'block'; 
-                }
-                // Reflow seguro
-                setTimeout(function() {
-                  try {
-                    if (chart && chart.reflow) chart.reflow();
-                  } catch(e) {
-                    console.warn('Chart reflow failed:', e);
-                  }
-                }, 100);
-                
-                var fb = document.querySelector('.section-trends .weasy-fallback');
-                if (fb) fb.style.display = 'none';
-                try { 
-                  document.body.classList.add('has-highcharts'); 
-                } catch(e) {
-                  console.warn('Could not add has-highcharts class:', e);
-                }
-              } catch(chartError) {
-                console.error('Highcharts initialization failed:', chartError);
-                // Fallback al PNG si Highcharts falla
-                var fb = document.querySelector('.section-trends .weasy-fallback');
-                if (fb) fb.style.display = 'block';
+              var chart = Highcharts.chart('trends-chart-container', options);
+              var el = document.getElementById('trends-chart-container');
+              if (el) { el.style.display = 'block'; }
+              if (Highcharts.charts && Highcharts.charts.length) {
+                var c = Highcharts.charts[Highcharts.charts.length - 1];
+                if (c && c.reflow) c.reflow();
               }
-            } else {
-              console.warn('Highcharts not available, using PNG fallback');
+              var fb = document.querySelector('.section-trends .weasy-fallback');
+              if (fb) fb.style.display = 'none';
+              try { document.body.classList.add('has-highcharts'); } catch(e){}
             }
           }
         })();
@@ -1246,4 +1037,3 @@
 
   </div> <!-- cierre del contenedor que define 'ar' -->
 </tal:report>
-
