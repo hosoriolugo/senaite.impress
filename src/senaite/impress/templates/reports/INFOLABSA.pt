@@ -842,21 +842,9 @@
            _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
 
            has_two_points python:(_distinct_points >= 2);
-           has_two_sids python:(_distinct_sids >= 2);
-
-           <!-- NUEVO: al menos una serie con 2 valores reales -->
-           _has_series_with_2 python:any([
-             len([
-               p for p in (s.get('data') or [])
-               if (
-                 (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014'))) or
-                 (isinstance(p,(list,tuple)) and (len(p)>1) and (p[1] not in (None, u'', u'\u2014')))
-               )
-             ]) >= 2
-             for s in _series
-           ])
+           has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_sids and _has_series_with_2">
+         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -897,10 +885,24 @@
         </div>
       </div>
 
+      <!-- JSON de tendencias seguro para JS -->
+      <script type="application/json" id="trends-json">
+        <tal:span tal:replace="python:json.dumps(trends_data)" />
+      </script>
+
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
-            var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
+            // === LECTURA SEGURA DEL JSON GENERADO POR TAL ===
+            var trendsData = (function () {
+              try {
+                var el = document.getElementById('trends-json');
+                return el ? JSON.parse(el.textContent || el.innerText || 'null') : null;
+              } catch (e) {
+                return null;
+              }
+            })();
+
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
             var seen = {};
