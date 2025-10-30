@@ -4,6 +4,9 @@ from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from DateTime import DateTime
 from Products.CMFCore.utils import getToolByName
 
+import hashlib
+import time
+
 try:
     unicode
 except NameError:
@@ -31,7 +34,6 @@ def _to_num(x):
     try:
         if x in (None, u"", ""):
             return None
-        # Python 2 long; en Py3 no existe, pero no rompe
         try:
             long  # noqa
         except Exception:
@@ -47,7 +49,6 @@ def _to_num(x):
 # ------------------------- logging seguro en Py2 -------------------------
 
 def _uformat(fmt, *args):
-    """Interpolación segura en Unicode (evita UnicodeDecodeError en Py2 logging)."""
     ufmt = _to_unicode(fmt)
     if not args:
         return ufmt
@@ -55,7 +56,6 @@ def _uformat(fmt, *args):
     try:
         return ufmt % uargs
     except Exception:
-        # Si el % falla por tipos raros, devolvemos fallback simple
         return ufmt + u" " + u" ".join(uargs)
 
 
@@ -83,7 +83,6 @@ def log_exc(fmt, *args):
 # ------------------------- helpers de presentación -------------------------
 
 def _pretty_src(ref_src, debug=False):
-    """Mapea el origen técnico a una etiqueta amable; oculta 'not_found' para usuario."""
     if not ref_src:
         return u""
     s = _to_unicode(ref_src or u"").strip().lower()
@@ -111,7 +110,6 @@ def _pretty_src(ref_src, debug=False):
 
 
 def _format_ref_text_with_unit(ref_text, unit):
-    """Devuelve el rango con unidad, sin duplicar ni dejar espacios raros."""
     t = _to_unicode(ref_text or u"").strip()
     u_ = _to_unicode(unit or u"").strip()
     if not t:
@@ -122,17 +120,10 @@ def _format_ref_text_with_unit(ref_text, unit):
 
 
 def _sanitize_unit_for_flags(unit):
-    """
-    Evita que 'L'/'H' en la unidad se confundan con banderas visuales (Low/High).
-    Insertamos un “word joiner” U+2060 después de L/H cuando forman parte de la unidad.
-    No altera cálculos; solo presentación.
-    """
     if not unit:
         return unit
     u = _to_unicode(unit)
-    # Casos típicos: /L, /H, por si hay equipos que marcan H (high) en unidades raras
     u = u.replace(u"/L", u"/L\u2060").replace(u"/H", u"/H\u2060")
-    # También “por L” y variantes con espacios finos
     u = u.replace(u" L", u" L\u2060")
     return u
 
@@ -140,10 +131,6 @@ def _sanitize_unit_for_flags(unit):
 # ------------------------- helpers de fecha/hora para tendencia -------------------------
 
 def _as_DateTime_any(x):
-    """
-    Convierte múltiples tipos a DateTime (con hora:min:seg) sin perder resolución.
-    Acepta: Zope DateTime, datetime.*, num timestamp (segundos), str ISO, dict{'date'...'time'...}
-    """
     if x is None or x == u"":
         return None
     try:
@@ -151,33 +138,32 @@ def _as_DateTime_any(x):
             return x
     except Exception:
         pass
-    # Zope DateTime admite construir desde ISO YYYY-MM-DD HH:MM:SS
     try:
         import datetime as _dt
-        # python datetime
         if isinstance(x, _dt.datetime):
             return DateTime(x.year, x.month, x.day, x.hour, x.minute, x.second)
         if isinstance(x, _dt.date):
-            # fecha sin hora -> dejamos 00:00:00 para conservar orden relativo
             return DateTime(x.year, x.month, x.day, 0, 0, 0)
     except Exception:
         pass
-    # timestamp numérico
     try:
         if isinstance(x, (int, float)):
+            # DateTime acepta epoch en segundos
             return DateTime(x)
     except Exception:
         pass
-    # dict con claves comunes
     if isinstance(x, dict):
         for key in (u"datetime", u"dt", u"x", u"date", u"sampled", u"verified", u"created"):
             v = x.get(key)
             if v:
                 dt = _as_DateTime_any(v)
                 if dt:
-                    # ¿hay 'time' separado?
                     t = x.get(u"time")
-                    if isinstance(t, (str, unicode)) and t and ":" in t:
+                    try:
+                        basestring
+                    except Exception:
+                        basestring = str  # py3 compat
+                    if isinstance(t, basestring) and t and ":" in t:
                         try:
                             parts = [int(p) for p in t.split(":")]
                             while len(parts) < 3:
@@ -187,41 +173,31 @@ def _as_DateTime_any(x):
                         except Exception:
                             pass
                     return dt
-    # cadena
     try:
         import re as _re
         s = _to_unicode(x).strip()
         if not s:
             return None
-        # si solo trae fecha YYYY-MM-DD, no perdemos, ponemos 00:00:00
         if _re.match(r"^\d{4}-\d{2}-\d{2}$", s):
             y, m, d = [int(p) for p in s.split("-")]
             return DateTime(y, m, d, 0, 0, 0)
-        # Dejar que DateTime parsee cadenas variadas (incluye zona)
         return DateTime(s)
     except Exception:
         return None
 
 
 def _sort_points_by_fulltime(points):
-    """
-    Orden estable por fecha+hora+seg, sin colapsar puntos del mismo día.
-    Si varios puntos comparten el mismo segundo, se añade un micro-desplazamiento estable.
-    """
     enriched = []
     for idx, p in enumerate(points):
         dt = None
         if isinstance(p, dict):
-            # Campos de fecha más habituales
             for k in (u"datetime", u"dt", u"x", u"date", u"sampled", u"verified", u"created"):
                 if k in p and p.get(k) not in (None, u"", ""):
                     dt = _as_DateTime_any(p.get(k))
                     if dt:
                         break
         if dt is None:
-            # punto simple (num/string)
             dt = _as_DateTime_any(p)
-        # fallback duro: si no hay nada, lo mandamos al final respetando orden
         if dt is None:
             key = (0, idx)
         else:
@@ -233,6 +209,43 @@ def _sort_points_by_fulltime(points):
     enriched.sort(key=lambda x: x[0])
     return [p for _, p in enriched]
 
+
+# ----------- utilidades para x(ms) único con desempate por SID -----------
+
+def _epoch_ms(dt):
+    try:
+        if hasattr(dt, 'timeTime'):
+            return int(dt.timeTime() * 1000.0)
+        import datetime
+        if isinstance(dt, datetime.datetime):
+            return int(time.mktime(dt.timetuple()) * 1000.0)
+        if isinstance(dt, (int, float)):
+            v = float(dt)
+            return int(v * 1000.0) if v < 10**12 else int(v)
+        try:
+            basestring
+        except Exception:
+            basestring = str
+        if isinstance(dt, basestring):
+            return int(DateTime(dt).timeTime() * 1000.0)
+    except Exception:
+        pass
+    return None
+
+
+def _stable_ms_with_sid(ms, sid):
+    try:
+        sid_u = _to_unicode(sid or u"")
+        h = hashlib.md5(sid_u.encode('utf-8')).hexdigest()
+        off = int(h[:2], 16) * 2  # 0..510ms
+        return int(ms) + off
+    except Exception:
+        return int(ms)
+
+
+# -----------------------------------------------------------------------------
+#                              BROWSER VIEW
+# -----------------------------------------------------------------------------
 
 class InfolabsaResultsWithState(BrowserView):
     """
@@ -268,7 +281,6 @@ class InfolabsaResultsWithState(BrowserView):
             return None
 
     def _get_ar_ctx(self, a):
-        """Devuelve (ar, sample, sampletype, client, contact, patient) si existen"""
         ar = getattr(a, "getAnalysisRequest", lambda: None)()
         sample = getattr(ar, "getSample", lambda: None)() if ar else None
         st = getattr(sample, "getSampleType", lambda: None)() if sample else None
@@ -302,7 +314,6 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ---------- low/high genéricos ----------
     def _get_low_high_candidates(self, obj):
-        """Intenta leer low/high de muchos alias habituales."""
         if not obj:
             return None, None
         low_names = (
@@ -333,7 +344,6 @@ class InfolabsaResultsWithState(BrowserView):
         return low, high
 
     def _ref_range_from_any(self, rr):
-        """Convierte 'rr' (str/dict/objeto) a (texto, low, high)."""
         if isinstance(rr, dict):
             text = rr.get("text") or rr.get("label") or u""
             lo = rr.get("lower", rr.get("min"))
@@ -423,7 +433,7 @@ class InfolabsaResultsWithState(BrowserView):
 
         return u"", None, None
 
-    # ---------- helpers para spec enlazada ----------
+    # ---------- helpers de spec enlazada ----------
     def _age_days(self, patient, ar):
         try:
             if patient:
@@ -1261,34 +1271,22 @@ class InfolabsaResultsWithState(BrowserView):
         return u""
 
     def _workflow_viz(self, wf_state):
-        """
-        Mapea el estado interno a etiqueta/icono/clase UI.
-        No cambia texto fuente; solo la presentación.
-        """
         s = (self._u(wf_state) or u"").strip().lower()
-        # Etiqueta, Icono, Clase
         mapping = {
-            # preliminares / recepción / asignación
             "to_be_verified": (u"Preliminar", u"○", u"wf-pre"),
             "assigned":       (u"Preliminar", u"○", u"wf-pre"),
             "sample_received":(u"Preliminar", u"○", u"wf-pre"),
-            # verificado
             "verified":       (u"Validado",   u"✓", u"wf-ok"),
-            # publicado/final
             "published":      (u"Final",      u"■", u"wf-final"),
             "final":          (u"Final",      u"■", u"wf-final"),
-            # en proceso / acciones pendientes
             "retest":         (u"En proceso", u"…", u"wf-proc"),
             "attachment_due": (u"En proceso", u"…", u"wf-proc"),
             "awaiting":       (u"En proceso", u"…", u"wf-proc"),
-            # retractado
             "retracted":      (u"Retractado", u"↩︎", u"wf-ret"),
-            # cancelado / inválido / rechazado
             "cancelled":      (u"Anulado",    u"×", u"wf-cancel"),
             "rejected":       (u"Anulado",    u"×", u"wf-cancel"),
             "invalid":        (u"Anulado",    u"×", u"wf-cancel"),
         }
-        # default
         return mapping.get(s, (wf_state or u"", u"•", u"wf-unk"))
 
     # ------------------------- data extraction -------------------------
@@ -1350,7 +1348,6 @@ class InfolabsaResultsWithState(BrowserView):
         if not alert_text and estado_text == u'Fuera de rango':
             alert_text = u'Fuera de rango'
 
-        # Anexar (sin romper) alertas adicionales si el análisis trae flags conocidos
         extra = self._extra_alerts_from_flags(value)
         if extra:
             alert_text = (alert_text + (u'; ' if alert_text else u'') + extra).strip('; ')
@@ -1358,14 +1355,9 @@ class InfolabsaResultsWithState(BrowserView):
         return estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title
 
     def _extra_alerts_from_flags(self, value):
-        """
-        Gancho suave para sumar alertas tipo ND/LOQ/LOD, sin interferir con lo existente.
-        Si no aplica, retorna ''.
-        """
         txt = self._u(value or u"").strip().upper()
         if not txt:
             return u""
-        # Casos típicos de guías: ND (no detectable), <LOQ, <LOD
         if txt in (u"ND", u"NO DETECTABLE"):
             return u"ND"
         if txt.startswith(u"<LOQ") or u" LOQ" in txt:
@@ -1374,12 +1366,12 @@ class InfolabsaResultsWithState(BrowserView):
             return u"<LOD"
         return u""
 
-    # --------- tendencia (solo bandera de pintado) ----------
+    # --------- tendencia (por análisis) ----------
     def _trend_points(self, a):
         """
-        Intenta recuperar puntos históricos de tendencia.
-        Ajuste: aceptar múltiples estudios con la misma FECHA (día) diferenciando HORA:MIN:SEG
-        y ordenar por tiempo completo. No se colapsan puntos del mismo día.
+        Recupera puntos históricos de tendencia:
+        * Acepta múltiples estudios del mismo día, diferenciando H:M:S
+        * Ordena por tiempo completo y, si coincide el mismo milisegundo, aplica desplazamiento estable por SID
         """
         providers = ("getTrendData", "getHistoricalResults", "getResultsHistory", "getTrendPoints")
         pts = []
@@ -1389,7 +1381,6 @@ class InfolabsaResultsWithState(BrowserView):
                 try:
                     cand = fn()
                     if cand:
-                        # Algunos proveedores devuelven generadores/BTrees: forzamos lista
                         try:
                             pts = list(cand)
                         except Exception:
@@ -1401,47 +1392,43 @@ class InfolabsaResultsWithState(BrowserView):
         if not pts:
             return []
 
-        # Ordenar por fecha/hora completa sin eliminar duplicados del mismo día
         pts_sorted = _sort_points_by_fulltime(pts)
 
-        # Normaliza puntos a dict con 'ms' y 'sid' cuando sea posible
         norm = []
-        seen = {}
+        seen_ms = set()
         for i, p in enumerate(pts_sorted):
-            # admitir tuplas/pares o dicts
             if isinstance(p, dict):
                 d = dict(p)
             else:
-                # p puede ser (x,y) o similar; lo envolvemos
                 try:
                     x, y = p[0], p[1]
                 except Exception:
                     x, y = (p, None)
                 d = {'x': x, 'y': y}
-            # ms: preferir 'ms'/'x' numérico; si no, derivar de 'date'
-            ms = d.get('ms') or d.get('x') or d.get('date')
-            dt = _as_DateTime_any(ms)
-            if dt is not None:
-                try:
-                    base_ms = int(float(dt) * 1000.0)
-                except Exception:
-                    base_ms = None
-            else:
-                base_ms = None
+
+            # Derivar ms desde 'x'/'date'/'dt'...
+            dt = _as_DateTime_any(d.get('ms') or d.get('x') or d.get('date') or d.get('dt') or d.get('datetime'))
+            base_ms = _epoch_ms(dt) if dt is not None else None
             if base_ms is None:
-                # último recurso: orden estable por índice
-                base_ms = 0
-            sid = d.get('sid') or d.get('sample_id') or d.get('id') or u''
-            key = (base_ms, unicode(sid))
-            # Evita colisiones en el mismo millisecond: micro-desplazamiento estable
-            bump = seen.get(key, 0)
-            seen[key] = bump + 1
-            unique_ms = base_ms + bump
-            d['ms'] = unique_ms
-            # Asegura el par para gráficos que esperan (x,y)
+                # fallback estable por índice (no debería ocurrir con datos reales)
+                base_ms = int(time.time() * 1000) + i
+
+            sid = d.get('sid') or d.get('sample_id') or d.get('rid') or d.get('arid') or d.get('id') or u''
+            ms = base_ms
+
+            # Si ya existe un punto con ms idéntico, desempatar con SID
+            if ms in seen_ms:
+                ms = _stable_ms_with_sid(ms, sid or (u"row-%d" % i))
+            seen_ms.add(ms)
+
+            # Normaliza Y
             if d.get('y') is None and 'value' in d:
                 d['y'] = d.get('value')
-            norm.append(d)
+
+            norm.append({'x': ms, 'y': d.get('y'), 'sid': sid})
+
+        # Orden final por x
+        norm.sort(key=lambda it: it.get('x') or 0)
         return norm
 
     def row(self, a):
@@ -1455,9 +1442,8 @@ class InfolabsaResultsWithState(BrowserView):
         result = self._get_result(a)
 
         unit_raw = self._get_unit(a)
-        unit = _sanitize_unit_for_flags(unit_raw)  # <- evita “L” naranja en mg/L
+        unit = _sanitize_unit_for_flags(unit_raw)
 
-        # Prioridad actualizada para rangos
         ref_text, low, high, ref_src = self._compute_ref_range(a)
 
         try:
@@ -1466,7 +1452,7 @@ class InfolabsaResultsWithState(BrowserView):
             pass
 
         wf_state = self._workflow_state(a) or u''
-        wf_label, wf_icon, wf_class = self._workflow_viz(wf_state)  # <- Estado profesional de workflow
+        wf_label, wf_icon, wf_class = self._workflow_viz(wf_state)
 
         is_critical = bool(self._get(a, 'getCritical', False) or self._get(a, 'isCritical', False))
         try:
@@ -1474,7 +1460,8 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             delta_flag = None
 
-        estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title =             self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
+        estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title = \
+            self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
 
         alerts = alert_text or u'—'
 
@@ -1483,23 +1470,20 @@ class InfolabsaResultsWithState(BrowserView):
 
         ref_eq = self._extract_ref_eq(a)
 
-        # --- saneo visual de origen y rango con unidad ---
         ref_src_label = _pretty_src(ref_src, debug=bool(self.request.get('debug_refsrc')))
         ref_src_display = ref_src_label
         reference_range_with_unit = _format_ref_text_with_unit(ref_text, unit)
 
-        # Tendencia: solo permitir gráfico si hay 2+ puntos
+        # Tendencia por análisis
         tpoints = self._trend_points(a)
         can_plot_trend = bool(tpoints and len(tpoints) >= 2)
 
         return {
-            # Display
             'name': name,
             'result': result,
-            'unit': unit,           # <- segura para pintar
-            'unit_raw': unit_raw,   # <- original por si se necesita
+            'unit': unit,
+            'unit_raw': unit_raw,
 
-            # Rango de referencia
             'ref_range': ref_text or u'',
             'ref_low': low,
             'ref_high': high,
@@ -1508,7 +1492,6 @@ class InfolabsaResultsWithState(BrowserView):
             'ref_src_label': ref_src_label,
             'ref_eq': ref_eq,
 
-            # Alias por compatibilidad con plantillas
             'reference_range': (ref_text or u''),
             'reference_range_with_unit': reference_range_with_unit,
             'range_text': (ref_text or u''),
@@ -1517,39 +1500,117 @@ class InfolabsaResultsWithState(BrowserView):
             'reference_low': low,
             'reference_high': high,
 
-            # Estado clínico (rango)
             'estado_class': estado_class,
             'estado_symbol': estado_symbol,
             'estado_text': estado_text,
 
-            # Estado de workflow (para columna Estado)
-            'state': wf_state,            # crudo
+            'state': wf_state,
             'state_text': wf_state,
             'status': wf_state,
             'status_text': wf_state,
 
-            # Etiquetas “bonitas” del workflow (usar estas en la columna Estado)
             'state_label': wf_label,
             'state_icon': wf_icon,
             'state_class': wf_class,
 
-            # Alias histórico (si alguna plantilla usa 'estado' para mostrar algo)
             'estado': estado_text,
 
-            # Alertas combinadas
             'alert_classes': alert_classes,
             'alert_text': alerts,
             'alert_title': alert_title,
             'alerts': alerts,
             'alert': alerts,
 
-            # Tendencia
+            # --- Tendencia por fila (para plantillas que la usan a nivel de row) ---
             'trend_points': tpoints,
             'can_plot_trend': can_plot_trend,
         }
 
     def rows(self):
         return [self.row(a) for a in self.analyses()]
+
+    # --------- NUEVO: trends_data global (para plantillas que lo esperan) ---------
+
+    def _build_trends_data_for_analysis(self, a):
+        """Devuelve trends_data = {'series':[{'name':..., 'data':[...]}], 'trend_meta':{...}}."""
+        points = self._trend_points(a)
+        # meta
+        sids = [p.get('sid') for p in points if p.get('sid')]
+        sids_unique = []
+        for s in sids:
+            if s not in sids_unique:
+                sids_unique.append(s)
+        xs = [p.get('x') for p in points if p.get('x') is not None]
+        xs_unique = []
+        for x in xs:
+            if x not in xs_unique:
+                xs_unique.append(x)
+        meta = {
+            'points_total': len(points),
+            'sids_total': len(sids),
+            'sids_unique': len(sids_unique),
+            'xs_unique': len(xs_unique),
+            'has_trend': (len(sids_unique) >= 2) or (len(xs_unique) >= 2),
+        }
+        series = [{'name': self._analysis_keyword(a) or u'Tendencia', 'data': points}]
+        return {'series': series, 'trend_meta': meta}
+
+    def _pick_focus_analysis(self):
+        """
+        Selecciona un análisis “foco” para el trends_data global.
+        Heurística:
+          1) Si viene ?analysis_uid o ?trend_kw en la request, intenta usarlo.
+          2) Si no, usa el primer análisis con >=2 puntos de tendencia.
+          3) Si ninguno tiene >=2, usa el primero disponible (la plantilla decidirá no mostrar).
+        """
+        items = self.analyses()
+        if not items:
+            return None
+        req = self.request
+        want_uid = (req.get('analysis_uid') or req.get('uid') or u'').strip()
+        want_kw = (req.get('trend_kw') or req.get('kw') or u'').strip().lower()
+        # 1) UID
+        if want_uid:
+            for a in items:
+                try:
+                    if self._get(a, 'UID') == want_uid:
+                        return a
+                except Exception:
+                    pass
+        # 2) keyword
+        if want_kw:
+            for a in items:
+                kw = (self._analysis_keyword(a) or u'').strip().lower()
+                if kw and kw == want_kw:
+                    return a
+        # 3) >=2 puntos
+        for a in items:
+            if len(self._trend_points(a) or []) >= 2:
+                return a
+        # 4) primero
+        return items[0]
+
+    @property
+    def trends_data(self):
+        """
+        trends_data global para plantillas que lo esperan como variable de vista.
+        """
+        try:
+            a = self._pick_focus_analysis()
+            if not a:
+                return {'series': [{'name': u'Tendencia', 'data': []}],
+                        'trend_meta': {'points_total': 0, 'sids_unique': 0, 'xs_unique': 0, 'has_trend': False}}
+            td = self._build_trends_data_for_analysis(a)
+            # log suave
+            meta = td.get('trend_meta', {})
+            log_info(u"[impress] trends_data meta: points=%s sids_unique=%s xs_unique=%s has_trend=%s",
+                     meta.get('points_total'), meta.get('sids_unique'),
+                     meta.get('xs_unique'), meta.get('has_trend'))
+            return td
+        except Exception as e:
+            log_exc(u"[impress] trends_data error: %s", e)
+            return {'series': [{'name': u'Tendencia', 'data': []}],
+                    'trend_meta': {'points_total': 0, 'sids_unique': 0, 'xs_unique': 0, 'has_trend': False}}
 
     # ------------------------- rendering -------------------------
     def __call__(self):
@@ -1573,12 +1634,12 @@ class InfolabsaResultsWithState(BrowserView):
         if wants_json:
             try:
                 import json
-                data = {'items': self.rows()}
+                data = {'items': self.rows(),
+                        'trends_data': self.trends_data}  # <-- añadimos trends_data al JSON por si lo consumen
                 self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
                 return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
             except Exception as exc:
                 try:
-                    # Fallback: JSON de error controlado (no romper al cliente)
                     import json
                     self.request.response.setStatus(500)
                     self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
@@ -1588,7 +1649,6 @@ class InfolabsaResultsWithState(BrowserView):
 
         log_info(u"[infolabsa] Render COOL table via results_with_state.pt")
         return self.index()
-
 
 
 # Compatibilidad
