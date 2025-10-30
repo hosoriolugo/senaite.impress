@@ -44,28 +44,6 @@ def _to_num(x):
         return None
 
 
-
-# ------------------------- negociación de JSON -------------------------
-def _get_header(request, name):
-    try:
-        return (request.getHeader(name) or u'').lower()
-    except Exception:
-        return u''
-
-def _wants_json(request):
-    """Decide si el cliente espera JSON aunque no pase ?format=json.
-    - ?format=json|as=json|view=json
-    - Cabecera Accept: application/json
-    - Petición XHR (X-Requested-With: XMLHttpRequest)
-    """
-    try:
-        q = (request.get('format', '') or request.get('as', '') or request.get('view', ''))
-        q = q.lower() if isinstance(q, basestring) else u''
-    except Exception:
-        q = u''
-    accept = _get_header(request, 'Accept')
-    xrw = _get_header(request, 'X-Requested-With')
-    return (q == 'json') or ('application/json' in accept) or (xrw == 'xmlhttprequest')
 # ------------------------- logging seguro en Py2 -------------------------
 
 def _uformat(fmt, *args):
@@ -100,6 +78,23 @@ def log_exc(fmt, *args):
         logger.exception(_uformat(fmt, *args))
     except Exception:
         pass
+
+def _wants_json(request):
+    """Decide si el cliente espera JSON aunque no pase ?format=json."""
+    try:
+        q = (request.get('format', '') or request.get('as', '') or request.get('view', '')).lower()
+    except Exception:
+        q = ''
+    try:
+        accept = (request.getHeader('Accept') or '').lower()
+    except Exception:
+        accept = ''
+    try:
+        xrw = (request.getHeader('X-Requested-With') or '').lower()
+    except Exception:
+        xrw = ''
+    return (q == 'json') or ('application/json' in accept) or (xrw == 'xmlhttprequest')
+
 
 
 # ------------------------- helpers de presentación -------------------------
@@ -1537,7 +1532,6 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ------------------------- rendering -------------------------
     def __call__(self):
-
         try:
             if _wants_json(self.request):
                 import json
@@ -1545,10 +1539,9 @@ class InfolabsaResultsWithState(BrowserView):
                 self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
                 return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
         except Exception:
-            # No impedir render HTML si algo falla
-            pass
+            # Fallback: no rompas, renderiza HTML
+            log_exc(u"[infolabsa] JSON negotiation failed for results_with_state")
         log_info(u"[infolabsa] Render COOL table via results_with_state.pt")
-    
         return self.index()
 
 
