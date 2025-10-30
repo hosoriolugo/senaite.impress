@@ -79,23 +79,6 @@ def log_exc(fmt, *args):
     except Exception:
         pass
 
-def _wants_json(request):
-    """Decide si el cliente espera JSON aunque no pase ?format=json."""
-    try:
-        q = (request.get('format', '') or request.get('as', '') or request.get('view', '')).lower()
-    except Exception:
-        q = ''
-    try:
-        accept = (request.getHeader('Accept') or '').lower()
-    except Exception:
-        accept = ''
-    try:
-        xrw = (request.getHeader('X-Requested-With') or '').lower()
-    except Exception:
-        xrw = ''
-    return (q == 'json') or ('application/json' in accept) or (xrw == 'xmlhttprequest')
-
-
 
 # ------------------------- helpers de presentación -------------------------
 
@@ -1421,7 +1404,45 @@ class InfolabsaResultsWithState(BrowserView):
         # Ordenar por fecha/hora completa sin eliminar duplicados del mismo día
         pts_sorted = _sort_points_by_fulltime(pts)
 
-        return pts_sorted
+        # Normaliza puntos a dict con 'ms' y 'sid' cuando sea posible
+        norm = []
+        seen = {}
+        for i, p in enumerate(pts_sorted):
+            # admitir tuplas/pares o dicts
+            if isinstance(p, dict):
+                d = dict(p)
+            else:
+                # p puede ser (x,y) o similar; lo envolvemos
+                try:
+                    x, y = p[0], p[1]
+                except Exception:
+                    x, y = (p, None)
+                d = {'x': x, 'y': y}
+            # ms: preferir 'ms'/'x' numérico; si no, derivar de 'date'
+            ms = d.get('ms') or d.get('x') or d.get('date')
+            dt = _as_DateTime_any(ms)
+            if dt is not None:
+                try:
+                    base_ms = int(float(dt) * 1000.0)
+                except Exception:
+                    base_ms = None
+            else:
+                base_ms = None
+            if base_ms is None:
+                # último recurso: orden estable por índice
+                base_ms = 0
+            sid = d.get('sid') or d.get('sample_id') or d.get('id') or u''
+            key = (base_ms, unicode(sid))
+            # Evita colisiones en el mismo millisecond: micro-desplazamiento estable
+            bump = seen.get(key, 0)
+            seen[key] = bump + 1
+            unique_ms = base_ms + bump
+            d['ms'] = unique_ms
+            # Asegura el par para gráficos que esperan (x,y)
+            if d.get('y') is None and 'value' in d:
+                d['y'] = d.get('value')
+            norm.append(d)
+        return norm
 
     def row(self, a):
         name = (
@@ -1532,17 +1553,42 @@ class InfolabsaResultsWithState(BrowserView):
 
     # ------------------------- rendering -------------------------
     def __call__(self):
+        # Decide JSON output if caller explicitly asks (?format=json),
+        # negotiates via Accept header, or is an XHR request.
         try:
-            if _wants_json(self.request):
+            fmt = (self.request.get('format', u'') or u'').lower()
+        except Exception:
+            fmt = u''
+        try:
+            accept = (self.request.getHeader('Accept') or u'').lower()
+        except Exception:
+            accept = u''
+        try:
+            xrw = (self.request.getHeader('X-Requested-With') or u'').lower()
+        except Exception:
+            xrw = u''
+
+        wants_json = (fmt == u'json') or (u'application/json' in accept) or (xrw == u'xmlhttprequest')
+
+        if wants_json:
+            try:
                 import json
                 data = {'items': self.rows()}
                 self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
                 return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
-        except Exception:
-            # Fallback: no rompas, renderiza HTML
-            log_exc(u"[infolabsa] JSON negotiation failed for results_with_state")
+            except Exception as exc:
+                try:
+                    # Fallback: JSON de error controlado (no romper al cliente)
+                    import json
+                    self.request.response.setStatus(500)
+                    self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
+                    return json.dumps({'ok': False, 'error': _uformat(u'%s', exc)}, ensure_ascii=False)
+                except Exception:
+                    pass  # si hasta aquí falla, caer al HTML
+
         log_info(u"[infolabsa] Render COOL table via results_with_state.pt")
         return self.index()
+
 
 
 # Compatibilidad
