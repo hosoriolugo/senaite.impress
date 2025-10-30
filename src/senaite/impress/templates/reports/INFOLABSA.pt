@@ -7,6 +7,47 @@
   <tal:t replace="structure python:view.render_js(context, **options)" />
   <tal:t replace="structure python:view.render_css(context, **options)" />
 
+  <!-- Guard GLOBAL MEJORADO contra JSON.parse(HTML) -->
+  <script type="text/javascript">
+  (function(){
+    try {
+      if (window.JSON && typeof JSON.parse === 'function' && !JSON.parse.__patched) {
+        var _origParse = JSON.parse;
+        JSON.parse = function(text, reviver) {
+          try {
+            if (typeof text === 'string') {
+              var s = text.replace(/^\uFEFF/, '').trim();
+              // Detección más robusta de respuestas HTML/XML
+              if (s.charAt(0) === '<' || 
+                  s.toLowerCase().indexOf('<!doctype') === 0 || 
+                  s.toLowerCase().indexOf('<html') === 0 ||
+                  s.toLowerCase().indexOf('<?xml') === 0 ||
+                  s.toLowerCase().indexOf('<body') !== -1 ||
+                  s.toLowerCase().indexOf('<head') !== -1) {
+                console.warn('JSON.parse: Se intentó parsear HTML/XML, devolviendo objeto vacío');
+                return {};
+              }
+              // Validación básica de JSON
+              if (s.charAt(0) !== '{' && s.charAt(0) !== '[' && 
+                  s.charAt(0) !== '"' && !/^-?\d/.test(s)) {
+                console.warn('JSON.parse: Texto no parece JSON válido, devolviendo objeto vacío');
+                return {};
+              }
+            }
+            return _origParse.call(JSON, text, reviver);
+          } catch (e) {
+            console.warn('JSON.parse interceptado error:', e && e.message);
+            return {};
+          }
+        };
+        JSON.parse.__patched = true;
+      }
+    } catch(e) { 
+      try { console.warn('JSON.parse patch failed:', e.message); } catch(_) {}
+    }
+  })();
+  </script>
+
   <!-- Highcharts (solo navegador) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
 
@@ -142,7 +183,7 @@
     <div class="row section-header no-gutters">
       <div class="w-100 mb-2">
         <table class="w-100 mb-0 noborder">
-          <colgroup><col style=&quot;width:65%&quot;/><col style=&quot;width:35%&quot;/></colgroup>
+          <colgroup><col style="width:65%"/><col style="width:35%"/></colgroup>
           <tr>
             <td class="align-middle text-left">
               <h1 class="font-size-175" i18n:translate="">Informe de Resultados</h1>
@@ -616,10 +657,6 @@
             <tbody>
               <tal:loop repeat="r rows_valid">
                 <tal:calc define="
-                  re modules/re;
-                  isnum python:lambda v: bool(re.match(u'^[-+]?\\d+(?:[\\.,]\\d+)?$', unicode(v).strip())) if v not in (None, u'', u'\u2014') else False;
-                  tofloat python:lambda v: (isnum(v) and float(unicode(v).replace(u',', u'.')) or None);
-
                   ser python:r.get('series') or [];
                   n python:len(ser);
                   t_last python:(ser and ((hasattr(ser[-1],'get') and (ser[-1].get('ms') or ser[-1].get('date'))) or u'') or u'');
@@ -628,8 +665,8 @@
 
                   _now_val_raw python:r.get('value_now');
                   _prev_val_raw python:r.get('prev_value');
-                  _now_val  python:tofloat(_now_val_raw);
-                  _prev_val python:(tofloat(_prev_val_raw) or ((n>=2 and has_distinct) and tofloat(ser[-2].get('value')) or None));
+                  _now_val python:((_now_val_raw not in (None, u'', u'\u2014')) and float(_now_val_raw) or None);
+                  _prev_val python:((_prev_val_raw not in (None, u'', u'\u2014')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
 
                   delta_abs_val python:((_now_val is not None and _prev_val is not None) and (_now_val - _prev_val) or None);
                   delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
@@ -637,12 +674,11 @@
 
                   delta_pct_str python:(r.get('delta_pct') or u'N/A');
                   _pct_clean python:((delta_pct_str or u'').replace(u'%', u'').strip());
-                  _pct_val_tmp python:tofloat(_pct_clean);
-                  delta_pct_val python:((_pct_val_tmp is not None) and abs(_pct_val_tmp) or None);
+                  delta_pct_val python:((_pct_clean not in (u'', u'N/A')) and abs(float(_pct_clean)) or None);
 
                   rcv python:r.get('rcv_pct');
-                  has_rcv python:(tofloat(rcv) is not None);
-                  rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= tofloat(rcv)));
+                  has_rcv python:(rcv is not None);
+                  rcv_ok python:(has_rcv and (delta_pct_val is not None) and (delta_pct_val <= float(rcv)));
 
                   dir_sym python:(r.get('delta_dir') or u'');
                   trend_arrow python:((dir_sym==u'\u25b2' or dir_sym==u'\u25b3' or dir_sym==u'\u25b4' or dir_sym==u'\u25b5') and u'\u2191' or (dir_sym==u'\u25bc' or dir_sym==u'\u25bd' or dir_sym==u'\u25be' or dir_sym==u'\u25bf') and u'\u2193' or u'\u2192');
@@ -849,6 +885,7 @@
            has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2);
 
+           /* ===== NUEVO: puntos únicos combinando (fecha|SID) desde delta ===== */
            _delta_point_keys python:[
              (unicode((p.get('ms') or p.get('date') or u'')) + u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u''))
              for r in _delta_rows for p in (r.get('series') or [])
@@ -856,6 +893,7 @@
            ];
            _delta_unique_points python:len(set([k for k in _delta_point_keys if k and k != u'|']));
 
+           /* ===== NUEVO: criterio de visibilidad más amplio ===== */
            show_trends python:(has_two_sids or has_two_points or (_delta_unique_points >= 2))
          "
          tal:condition="show_trends">
@@ -902,12 +940,19 @@
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
-            /* Inyectamos datos ya serializados (sin JSON.parse) */
-            var trendsData  = <tal:t tal:replace="structure python:json.dumps(trends_data, default=str)" />;
-            var DELTA_ROWS  = <tal:t tal:replace="structure python:json.dumps(_delta_rows, default=str)" />;
+            /* Inyectamos datos ya serializados (sin JSON.parse) - BLINDAJE MEJORADO */
+            var trendsData = <tal:span tal:replace="structure python:json.dumps(trends_data) if trends_data else '{}'" />;
+            var DELTA_ROWS = <tal:span tal:replace="structure python:json.dumps(_delta_rows) if _delta_rows else '[]'" />;
 
-            if (!trendsData || !trendsData.series || !trendsData.series.length) {
-              // Intentaremos fallback más abajo con DELTA_ROWS
+            // Validación robusta de los datos
+            if (!trendsData || typeof trendsData !== 'object') {
+              trendsData = {};
+            }
+            if (!Array.isArray(trendsData.series)) {
+              trendsData.series = [];
+            }
+            if (!Array.isArray(DELTA_ROWS)) {
+              DELTA_ROWS = [];
             }
 
             var seen = {};
@@ -937,7 +982,7 @@
               });
             } catch(e) { distinct = 0; }
 
-            /* Fallback: construir trendsData desde DELTA_ROWS si hace falta */
+            /* ===== Fallback NUEVO: construir trendsData desde DELTA_ROWS si hace falta ===== */
             if (distinct < 2 && Array.isArray(DELTA_ROWS) && DELTA_ROWS.length) {
               try {
                 var byAnalyte = {}; // name -> {unit, pts:[{key, ms, sid, y}]}
@@ -984,9 +1029,9 @@
                 });
 
                 if (keys.length >= 2) {
-                  function pad(n){ return (n<10?'0':'')+n; }
                   function fmt(ts){
                     var d = new Date(parseInt(ts,10) || 0);
+                    function pad(n){ return (n<10?'0':'')+n; }
                     return pad(d.getDate())+'/'+pad(d.getMonth()+1)+' '+pad(d.getHours())+':'+pad(d.getMinutes());
                   }
                   var cats = keys.map(function(k){
@@ -999,12 +1044,12 @@
 
                   var builtSeries = Object.keys(byAnalyte).map(function(k){
                     var a = byAnalyte[k];
-                    var data = keys.map(function(key){
+                    var data = keys.map(function(key, idx){
                       var found = null;
                       for (var i=0;i<a.pts.length;i++){
                         if (a.pts[i].key === key) { found = a.pts[i]; }
                       }
-                      return [keys.indexOf(key), found ? found.y : null];
+                      return [idx, found ? found.y : null];
                     });
                     var s = { name: k, data: data };
                     if (a.unit) s.unit = a.unit;
@@ -1021,10 +1066,14 @@
                 }
               } catch(e) {
                 // si algo falla, seguimos con el PNG
+                console.warn('Fallback Delta trends failed:', e);
               }
             }
 
-            if (!trendsData || !trendsData.series || !trendsData.series.length || distinct < 2) return;
+            if (!trendsData || !trendsData.series || !trendsData.series.length || distinct < 2) {
+              console.warn('Trends chart: Insufficient data, skipping');
+              return;
+            }
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
@@ -1044,12 +1093,26 @@
             var step = (n <= 6) ? 1 : Math.ceil(n / 6);
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
+            // CONFIGURACIÓN HIGHCHARTS ROBUSTA
             var options = {
-              chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
-              title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
-                       style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
-              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
-                          style: { color: '#6c757d', fontSize: '12px' } },
+              chart: { 
+                type: 'line', 
+                height: 560, 
+                backgroundColor: 'transparent', 
+                spacingTop: 60, 
+                spacingBottom: 16, 
+                marginTop: 60 
+              },
+              title: { 
+                text: (trendsData.title || 'Tendencias de Resultados'), 
+                margin: 12,
+                style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } 
+              },
+              subtitle: { 
+                text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', 
+                y: 30,
+                style: { color: '#6c757d', fontSize: '12px' } 
+              },
               xAxis: {
                 categories: cats,
                 tickPositions: tickPositions,
@@ -1058,22 +1121,35 @@
                 tickmarkPlacement: 'on'
               },
               yAxis: {
-                title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
+                title: { 
+                  text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), 
+                  style: { color: '#000', fontWeight: 'bold' } 
+                },
                 labels: { style: { color: '#333' } },
                 min: trendsData.yMin,
                 max: trendsData.yMax,
                 gridLineColor: '#f0f0f0'
               },
-              legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
-                        itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
+              legend: { 
+                enabled: true, 
+                layout: 'horizontal', 
+                align: 'center', 
+                verticalAlign: 'bottom', 
+                y: 0,
+                itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } 
+              },
               plotOptions: {
                 line: {
                   marker: { enabled: true, radius: 4 },
                   dataLabels: {
                     enabled: true,
                     formatter: function(){
-                      var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
-                      return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
+                      try {
+                        var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
+                        return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
+                      } catch(e) {
+                        return this.y != null ? String(this.y) : '';
+                      }
                     },
                     style: { textOutline: '1px contrast' }
                   },
@@ -1081,17 +1157,22 @@
                 }
               },
               tooltip: {
-                shared: true, crosshairs: true,
+                shared: true, 
+                crosshairs: true,
                 formatter: function() {
-                  var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
-                  var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
-                  var s = '<b>' + fecha + '</b>';
-                  this.points.forEach(function(p) {
-                    var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
-                    s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
-                         ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
-                  });
-                  return s;
+                  try {
+                    var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
+                    var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
+                    var s = '<b>' + fecha + '</b>';
+                    this.points.forEach(function(p) {
+                      var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
+                      s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
+                           ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
+                    });
+                    return s;
+                  } catch(e) {
+                    return '<b>Error en tooltip</b>';
+                  }
                 }
               },
               series: series,
@@ -1099,17 +1180,38 @@
               exporting: { enabled: false }
             };
 
+            // INICIALIZACIÓN SEGURA DE HIGHCHARTS
             if (typeof Highcharts !== 'undefined') {
-              var chart = Highcharts.chart('trends-chart-container', options);
-              var el = document.getElementById('trends-chart-container');
-              if (el) { el.style.display = 'block'; }
-              if (Highcharts.charts && Highcharts.charts.length) {
-                var c = Highcharts.charts[Highcharts.charts.length - 1];
-                if (c && c.reflow) c.reflow();
+              try {
+                var chart = Highcharts.chart('trends-chart-container', options);
+                var el = document.getElementById('trends-chart-container');
+                if (el) { 
+                  el.style.display = 'block'; 
+                }
+                // Reflow seguro
+                setTimeout(function() {
+                  try {
+                    if (chart && chart.reflow) chart.reflow();
+                  } catch(e) {
+                    console.warn('Chart reflow failed:', e);
+                  }
+                }, 100);
+                
+                var fb = document.querySelector('.section-trends .weasy-fallback');
+                if (fb) fb.style.display = 'none';
+                try { 
+                  document.body.classList.add('has-highcharts'); 
+                } catch(e) {
+                  console.warn('Could not add has-highcharts class:', e);
+                }
+              } catch(chartError) {
+                console.error('Highcharts initialization failed:', chartError);
+                // Fallback al PNG si Highcharts falla
+                var fb = document.querySelector('.section-trends .weasy-fallback');
+                if (fb) fb.style.display = 'block';
               }
-              var fb = document.querySelector('.section-trends .weasy-fallback');
-              if (fb) fb.style.display = 'none';
-              try { document.body.classList.add('has-highcharts'); } catch(e){}
+            } else {
+              console.warn('Highcharts not available, using PNG fallback');
             }
           }
         })();
