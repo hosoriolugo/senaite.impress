@@ -9,6 +9,22 @@
 
   <!-- Highcharts (solo navegador) -->
   <script src="++plone++senaite.impress.static/modules/highcharts/highcharts.js"></script>
+<!-- ====== CALCULO SEGURO DE TENDENCIA (no sets, sin JSON.parse) ====== -->
+<tal:trend-guard
+  define="
+    _series       python:(trends_data and trends_data.get('series', []) or []);
+    _data         python:(_series[0].get('data', []) if _series and isinstance(_series[0], dict) else []);
+    _sids         python:[ (p.get('sid') or p.get('sample_id') or p.get('rid') or p.get('arid') or '') for p in _data if isinstance(p, dict) ];
+    _sids_count   python:len([ s for i, s in enumerate(_sids) if s and s not in _sids[:i] ]);
+    _xs           python:[ (p.get('x') if isinstance(p, dict) else (isinstance(p, (list, tuple)) and len(p)>0 and p[0] or None)) for p in _data ];
+    _xs_num       python:[ x for x in _xs if isinstance(x, (int, long, float)) ];
+    _by_minute    python:False;
+    _xs_norm      python:([ int(x/60000)*60000 for x in _xs_num ] if _by_minute else _xs_num);
+    _xs_count     python:len([ x for i, x in enumerate(_xs_norm) if x is not None and x not in _xs_norm[:i] ]);
+    has_trend     python:(_sids_count >= 2) or (_xs_count >= 2);
+  ">
+</tal:trend-guard>
+
 
   <!-- Afinado visual + control de paginado -->
   <style>
@@ -594,7 +610,7 @@
 
       hasrows python:(bool(rows_valid) and patient_has_two_sids)
     ">
-      <div class="row section-delta no-gutters pagebreak-before" tal:condition="hasrows" id="delta-check-panel">
+      <div class="row section-delta no-gutters pagebreak-before" tal:condition="python:has_trend" id="delta-check-panel">
         <div class="w-100">
           <h2 class="mb-1 section-title" i18n:translate="">Tendencia (Delta check)</h2>
           <div class="small" tal:condition="delta/period_label">
