@@ -2,7 +2,7 @@
 from Products.Five import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from DateTime import DateTime
-ALLOWED_TREND_STATES = ('verified','published','to_be_verified','pending')
+ALLOWED_TREND_STATES = ('verified','published','to_be_verified','pending','assigned','sample_received')
 from Products.CMFCore.utils import getToolByName
 
 try:
@@ -206,6 +206,147 @@ def _as_DateTime_any(x):
     except Exception:
         return None
 
+
+def _trend_points_same_day_ok(self, a):
+    """Historial por paciente+servicio incluyendo estados VERIFICADOS y mismo día."""
+    try:
+        # Import local para no romper si no existe en otros entornos
+        from Products.CMFCore.utils import getToolByName
+    except Exception:
+        getToolByName = None
+
+    try:
+        ar = getattr(a, 'getAnalysisRequest', lambda: None)() or None
+        patient = None
+        if ar and hasattr(ar, 'getPatient'):
+            patient = ar.getPatient()
+        if not patient and hasattr(a, 'getPatient'):
+            patient = a.getPatient()
+        patient_uid = patient and (getattr(patient, 'UID', lambda: None)() or None)
+
+        svc = getattr(a, 'getService', lambda: None)()
+        svc_uid = svc and (getattr(svc, 'UID', lambda: None)() or None)
+        kw = getattr(a, 'getKeyword', lambda: None)() or None
+
+        context = getattr(self, 'context', None) or getattr(a, 'aq_parent', None)
+        portal = getattr(context, 'portal_url', None)
+        if callable(portal):
+            portal = portal()
+        portal_obj = getattr(context, 'portal_url', None)
+        if callable(portal_obj):
+            portal_obj = portal_obj.getPortalObject()
+        else:
+            # Try acquisition
+            portal_obj = getattr(context, 'portal_url', None)
+            if callable(portal_obj):
+                portal_obj = portal_obj.getPortalObject()
+
+        catalog = None
+        try:
+            if getToolByName:
+                # Prefer the analysis catalog
+                catalog = getToolByName(context, 'senaite_catalog_analysis')
+        except Exception:
+            catalog = None
+        if catalog is None and getToolByName:
+            try:
+                catalog = getToolByName(context, 'portal_catalog')
+            except Exception:
+                catalog = None
+        if catalog is None:
+            return []
+
+        query = dict(
+            portal_type='Analysis',
+            sort_on='getDateSampled',
+            sort_order='ascending',
+        )
+        # Estados permitidos: incluir verificados y pendientes
+        query['review_state'] = ALLOWED_TREND_STATES
+
+        # Filtros de paciente/servicio
+        if patient_uid:
+            # muchos catálogos tienen getPatientUID indexado
+            query['getPatientUID'] = patient_uid
+        if svc_uid:
+            # preferimos servicio por UID
+            query['getServiceUID'] = svc_uid
+        elif kw:
+            # si no hay UID, probar por keyword si está indexada
+            query['getKeyword'] = kw
+
+        brains = []
+        try:
+            brains = catalog.searchResults(**query)
+        except Exception:
+            # Si falla por índices desconocidos, relajar a portal_catalog básico
+            try:
+                q2 = dict(portal_type='Analysis', sort_on='created', sort_order='ascending')
+                if 'review_state' in query:
+                    q2['review_state'] = query['review_state']
+                brains = catalog.searchResults(**q2)
+            except Exception:
+                return []
+
+        # Timestamp de referencia: ahora mismo o fecha del AR actual
+        nowdt = getattr(a, 'getResultCaptureDate', lambda: None)()                     or getattr(a, 'getDateSampled', lambda: None)()                     or getattr(a, 'created', None)                     or DateTime()
+
+        pts = []
+        seen_ms = set()
+
+        for b in brains:
+            try:
+                obj = b.getObject()
+            except Exception:
+                obj = None
+            if obj is None:
+                continue
+
+            # Validar que sea el mismo servicio/keyword si no filtró arriba
+            if svc_uid:
+                try:
+                    bs = getattr(obj, 'getService', lambda: None)()
+                    if not (bs and getattr(bs, 'UID', lambda: None)() == svc_uid):
+                        continue
+                except Exception:
+                    continue
+            elif kw:
+                try:
+                    if getattr(obj, 'getKeyword', lambda: None)() != kw:
+                        continue
+                except Exception:
+                    continue
+
+            # Fecha (incluir mismo día y mismo segundo)
+            dt = getattr(obj, 'getResultCaptureDate', lambda: None)()                      or getattr(obj, 'getDateSampled', lambda: None)()                      or getattr(obj, 'created', None)
+            if not dt or dt > nowdt:
+                continue
+
+            # Valor numérico
+            val = getattr(obj, 'getResult', lambda: None)()
+            try:
+                y = float(str(val).replace(',', '.'))
+            except Exception:
+                continue
+
+            try:
+                ms = int(dt.timeTime() * 1000)
+            except Exception:
+                try:
+                    ms = int(float(dt) * 1000)
+                except Exception:
+                    continue
+
+            while ms in seen_ms:
+                ms += 1
+            seen_ms.add(ms)
+
+            iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second())
+            pts.append({'x': ms, 'y': y, 'date': iso})
+
+        return pts
+    except Exception:
+        return []
 
 def _sort_points_by_fulltime(points):
     """
@@ -1379,181 +1520,31 @@ class InfolabsaResultsWithState(BrowserView):
         return u""
 
     # --------- tendencia (con fallback a catálogo) ----------
-
     def _trend_points(self, a):
         """
-        Historial por PACIENTE + SERVICIO/KEYWORD desde catálogo de Análisis,
-        incluyendo estados: verified / published / to_be_verified / pending.
-        Permite múltiples puntos el mismo día/segundo (resuelve con +1ms).
-        Devuelve dicts: {'x': ms, 'y': float, 'date': 'YYYY-MM-DDTHH:MM:SS', 'sid': 'ARID'}.
+        VERSIÓN CORREGIDA - Maneja correctamente múltiples estudios el mismo día
         """
-        from DateTime import DateTime
-        try:
-            # Contexto AR/Paciente/Servicio
-            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
-            patient_uid = None
-            if patient and hasattr(patient, 'UID'):
+        providers = ("getTrendData", "getHistoricalResults", "getResultsHistory", "getTrendPoints")
+        pts = []
+        for name in providers:
+            fn = getattr(a, name, None)
+            if callable(fn):
                 try:
-                    patient_uid = patient.UID()
+                    cand = fn()
+                    if cand:
+                        try:
+                            pts = list(cand)
+                        except Exception:
+                            pts = cand
+                        break
                 except Exception:
-                    pass
-            if not patient_uid and ar and hasattr(ar, 'getPatientUID'):
-                try:
-                    patient_uid = ar.getPatientUID()
-                except Exception:
-                    pass
-            if not patient_uid:
-                return []
-
-            svc = self._get_service(a)
-            svc_uid = None
-            if svc and hasattr(svc, 'UID'):
-                try:
-                    svc_uid = svc.UID()
-                except Exception:
-                    pass
-            keyword = None
-            for attr in ('getKeyword', 'Keyword', 'keyword', 'getServiceKeyword'):
-                fn = getattr(svc or a, attr, None)
-                if callable(fn):
-                    try:
-                        keyword = fn()
-                        if keyword:
-                            break
-                    except Exception:
-                        pass
-            if keyword:
-                keyword = self._u(keyword).strip().upper()
-
-            # Fecha máxima (no traer futuros)
-            nowdt = (self._get(a, 'getResultCaptureDate') or
-                     self._get(a, 'getDateSampled') or
-                     self._get(a, 'created') or DateTime())
-
-            # Catálogo preferido
-            try:
-                portal = self.context.portal_url.getPortalObject()
-            except Exception:
-                portal = None
-            catalog = None
-            if portal is not None:
-                try:
-                    from Products.CMFCore.utils import getToolByName
-                    catalog = getToolByName(portal, 'senaite_catalog_analysis')
-                except Exception:
-                    catalog = None
-                if catalog is None:
-                    try:
-                        from Products.CMFCore.utils import getToolByName
-                        catalog = getToolByName(portal, 'portal_catalog')
-                    except Exception:
-                        catalog = None
-            if catalog is None:
-                return []
-
-            query = dict(
-                portal_type='Analysis',
-                review_state=ALLOWED_TREND_STATES,
-                sort_on='getDateSampled',
-                sort_order='ascending',
-            )
-            # Filtros fuertes
-            query['getPatientUID'] = patient_uid
-            if svc_uid:
-                query['getServiceUID'] = svc_uid
-            # Algunos catálogos no tienen getServiceUID indexado; usamos keyword como backup
-            if not svc_uid and keyword:
-                query['getKeyword'] = keyword
-
-            try:
-                brains = catalog.searchResults(**query)
-            except Exception:
-                # Relajar si faltan índices
-                q2 = dict(portal_type='Analysis', review_state=ALLOWED_TREND_STATES,
-                          sort_on='created', sort_order='ascending')
-                brains = catalog.searchResults(**q2)
-
-            pts = []
-            seen_ms = set()
-
-            for b in brains:
-                try:
-                    obj = b.getObject()
-                except Exception:
-                    obj = None
-                if obj is None:
                     continue
 
-                # Validación adicional cuando filtramos por keyword
-                if not svc_uid and keyword:
-                    cur_kw = None
-                    cur_svc = self._get_service(obj)
-                    for attr in ('getKeyword', 'Keyword', 'keyword', 'getServiceKeyword'):
-                        fn = getattr(cur_svc or obj, attr, None)
-                        if callable(fn):
-                            try:
-                                cur_kw = fn()
-                                if cur_kw:
-                                    break
-                            except Exception:
-                                pass
-                    if self._u(cur_kw).strip().upper() != keyword:
-                        continue
-
-                # Validación paciente (por si caímos a portal_catalog)
-                try:
-                    cur_pat = getattr(obj, 'getPatient', lambda: None)()
-                    if cur_pat and hasattr(cur_pat, 'UID'):
-                        if cur_pat.UID() != patient_uid:
-                            continue
-                except Exception:
-                    pass
-
-                # Fecha preferente: result capture -> sampled -> created
-                dt = (self._get(obj, 'getResultCaptureDate') or
-                      self._get(obj, 'getDateSampled') or
-                      self._get(obj, 'created'))
-                if not dt:
-                    continue
-                if dt > nowdt:
-                    continue
-
-                # Valor numérico
-                val = self._get(obj, 'getFormattedResult') or self._get(obj, 'getResult') or self._get(obj, 'result')
-                y = _to_num(val)
-                if y is None:
-                    continue
-
-                # Epoch ms tolerante
-                try:
-                    ms = int(dt.timeTime() * 1000)
-                except Exception:
-                    try:
-                        ms = int(float(dt) * 1000)
-                    except Exception:
-                        continue
-
-                # Desempate para mismo segundo
-                while ms in seen_ms:
-                    ms += 1
-                seen_ms.add(ms)
-
-                iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (
-                    dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second()
-                )
-                ar_id = None
-                try:
-                    ar_of = getattr(obj, 'getAnalysisRequest', lambda: None)()
-                    if ar_of:
-                        ar_id = getattr(ar_of, 'getId', lambda: None)()
-                except Exception:
-                    pass
-
-                pts.append({'x': ms, 'y': y, 'date': iso, 'sid': ar_id or u''})
-
-            return pts
-        except Exception:
-            return []
+        # Si no hay suficientes puntos, intentar con la función especializada para mismo día
+        if len(pts) < 2:
+            same_day_pts = self._trend_points_same_day_ok(a)
+            if same_day_pts:
+                pts = same_day_pts
 
         def _normalize(points):
             pts_sorted = _sort_points_by_fulltime(points or [])
@@ -1581,26 +1572,18 @@ class InfolabsaResultsWithState(BrowserView):
                 if dt is None:
                     continue
 
-                # Crear timestamp único incluyendo hora, minuto y segundo
-                timestamp_key = (
-                    dt.year(), dt.month(), dt.day(), 
-                    dt.hour(), dt.minute(), dt.second()
-                )
-                
-                # Si ya existe este timestamp, agregar un segundo artificial
-                original_timestamp = timestamp_key
-                counter = 0
-                while timestamp_key in seen_timestamps:
-                    counter += 1
-                    # Agregar segundos artificiales manteniendo el orden
-                    timestamp_key = original_timestamp[:-1] + (original_timestamp[-1] + counter,)
-                
-                seen_timestamps.add(timestamp_key)
-                
-                # Convertir a milisegundos para el gráfico
+                # Usar milisegundos como base y agregar microsegundos para desduplicación
                 base_ms = int(float(dt) * 1000.0)
-                unique_ms = base_ms + (counter * 1000)  # Agregar milisegundos para diferenciar
-
+                
+                # Crear clave única que incluya el valor Y para diferenciar puntos del mismo momento
+                original_ms = base_ms
+                counter = 0
+                while base_ms in seen_timestamps:
+                    counter += 1
+                    base_ms = original_ms + counter  # Agregar 1ms por duplicado
+                
+                seen_timestamps.add(base_ms)
+                
                 # Normalizar valor Y
                 y_val = d.get('y') or d.get('value')
                 if y_val is None and 'result' in d:
@@ -1610,8 +1593,8 @@ class InfolabsaResultsWithState(BrowserView):
                 if y_val is None:
                     continue
 
-                d['ms'] = unique_ms
-                d['x'] = unique_ms
+                d['ms'] = base_ms
+                d['x'] = base_ms
                 d['y'] = y_val
                 d.setdefault('sid', d.get('sid') or d.get('sample_id') or d.get('id') or '')
                 norm.append(d)
@@ -1902,36 +1885,6 @@ class InfolabsaResultsWithState(BrowserView):
         return [self.row(a) for a in self.analyses()]
 
     # ------------------------- rendering -------------------------
-
-    def _json_safe_rows(self, rows):
-        """Convierte DateTime en ISO dentro de trend_points."""
-        out = []
-        for r in rows or []:
-            try:
-                c = dict(r)
-                tps = c.get('trend_points') or []
-                tps2 = []
-                for p in tps:
-                    try:
-                        d = dict(p)
-                        dv = d.get('date')
-                        if dv and not isinstance(dv, (str, unicode)):
-                            try:
-                                iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (
-                                    dv.year(), dv.month(), dv.day(), dv.hour(), dv.minute(), dv.second()
-                                )
-                                d['date'] = iso
-                            except Exception:
-                                d['date'] = self._u(dv)
-                        tps2.append(d)
-                    except Exception:
-                        tps2.append(p)
-                c['trend_points'] = tps2
-                out.append(c)
-            except Exception:
-                out.append(r)
-        return out
-
     def __call__(self):
         # Decide JSON output if caller explicitly asks (?format=json),
         # negotiates via Accept header, or is an XHR request.
@@ -1948,12 +1901,12 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             xrw = u''
 
-        wants_json = (fmt == u'json') or (self.request.get('json') in (u'1', u'true', u'True', True)) or (u'application/json' in accept) or (xrw == u'xmlhttprequest')
+        wants_json = (fmt == u'json') or (u'application/json' in accept) or (xrw == u'xmlhttprequest')
 
         if wants_json:
             try:
                 import json
-                data = {'items': self._json_safe_rows(self.rows())}
+                data = {'items': self.rows()}
                 self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
                 return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
             except Exception as exc:
