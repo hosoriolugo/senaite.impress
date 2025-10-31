@@ -1441,20 +1441,8 @@ class InfolabsaResultsWithState(BrowserView):
                 seen_timestamps.add(timestamp_key)
                 
                 # Convertir a milisegundos para el gráfico
-                try:
-                    base_ms = int(float(getattr(dt, 'timeTime', lambda: float(dt))()) * 1000.0)
-                except Exception:
-                    try:
-                        base_ms = int(dt.timeTime() * 1000.0)
-                    except Exception:
-                        base_ms = int(float(dt) * 1000.0)
+                base_ms = int(float(dt) * 1000.0)
                 unique_ms = base_ms + (counter * 1000)  # Agregar milisegundos para diferenciar
-
-                # Serializar fecha legible para JSON
-                try:
-                    d['date'] = getattr(dt, 'ISO', lambda: str(dt))()
-                except Exception:
-                    d['date'] = _to_unicode(dt)
 
                 # Normalizar valor Y
                 y_val = d.get('y') or d.get('value')
@@ -1625,7 +1613,7 @@ class InfolabsaResultsWithState(BrowserView):
                                         'x': ms, 
                                         'y': y, 
                                         'sid': sid,
-                                        'date': dt,
+                                        'date': (_uformat(u'%04d-%02d-%02dT%02d:%02d:%02d', dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second()) if dt else None),
                                         'ar_id': ar_obj.getId()
                                     })
                                     
@@ -1773,7 +1761,7 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             xrw = u''
 
-        wants_json = (fmt == u'json') or (u'application/json' in accept) or (xrw == u'xmlhttprequest')
+        wants_json = (fmt == u'json') or (self.request.get('json') in (u'1', u'true', u'True', True)) or (u'application/json' in accept) or (xrw == u'xmlhttprequest')
 
         if wants_json:
             try:
