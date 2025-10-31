@@ -887,7 +887,11 @@
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
-            var trendsData = <tal:span tal:replace="structure python:json.dumps(trends_data)" />;
+            <script type="application/json" id="trends-json"><tal:span tal:replace="python:json.dumps(trends_data)" /></script>
+            var trendsDataEl = document.getElementById('trends-json');
+            var trendsData = {};
+            try { trendsData = JSON.parse(trendsDataEl ? trendsDataEl.textContent : '{}'); } catch(e) { trendsData = {}; }
+
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
             var numericCount = 0;
