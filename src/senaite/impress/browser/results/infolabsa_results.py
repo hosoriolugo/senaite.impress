@@ -127,7 +127,7 @@ def _format_ref_text_with_unit(ref_text, unit):
 def _sanitize_unit_for_flags(unit):
     """
     Evita que 'L'/'H' en la unidad se confundan con banderas visuales (Low/High).
-    Insertamos un “word joiner” U+2060 después de L/H cuando forman parte de la unidad.
+    Insertamos un "word joiner" U+2060 después de L/H cuando forman parte de la unidad.
     No altera cálculos; solo presentación.
     """
     if not unit:
@@ -135,7 +135,7 @@ def _sanitize_unit_for_flags(unit):
     u = _to_unicode(unit)
     # Casos típicos: /L, /H, por si hay equipos que marcan H (high) en unidades raras
     u = u.replace(u"/L", u"/L\u2060").replace(u"/H", u"/H\u2060")
-    # También “por L” y variantes con espacios finos
+    # También "por L" y variantes con espacios finos
     u = u.replace(u" L", u" L\u2060")
     return u
 
@@ -1380,11 +1380,7 @@ class InfolabsaResultsWithState(BrowserView):
     # --------- tendencia (con fallback a catálogo) ----------
     def _trend_points(self, a):
         """
-        Intenta recuperar puntos históricos de tendencia.
-        Ajuste: aceptar múltiples estudios con la misma FECHA (día) diferenciando HORA:MIN:SEG
-        y ordenar por tiempo completo. No se colapsan puntos del mismo día.
-        Si el proveedor nativo no devuelve ≥2 puntos válidos, se reconstruye desde catálogo
-        por (Paciente + Keyword) para garantizar el gráfico.
+        VERSIÓN CORREGIDA - Maneja correctamente múltiples estudios el mismo día
         """
         providers = ("getTrendData", "getHistoricalResults", "getResultsHistory", "getTrendPoints")
         pts = []
@@ -1395,7 +1391,7 @@ class InfolabsaResultsWithState(BrowserView):
                     cand = fn()
                     if cand:
                         try:
-                            pts = list(cand)  # generadores/BTrees -> lista
+                            pts = list(cand)
                         except Exception:
                             pts = cand
                         break
@@ -1403,12 +1399,11 @@ class InfolabsaResultsWithState(BrowserView):
                     continue
 
         def _normalize(points):
-            # Ordenar por fecha/hora completa sin eliminar duplicados del mismo día
             pts_sorted = _sort_points_by_fulltime(points or [])
             norm = []
-            seen = {}
-            for i, p in enumerate(pts_sorted):
-                # admitir tuplas/pares o dicts
+            seen_timestamps = set()
+            
+            for p in pts_sorted:
                 if isinstance(p, dict):
                     d = dict(p)
                 else:
@@ -1417,75 +1412,142 @@ class InfolabsaResultsWithState(BrowserView):
                     except Exception:
                         x, y = (p, None)
                     d = {'x': x, 'y': y}
-                # ms base
-                dt = _as_DateTime_any(d.get('ms') or d.get('x') or d.get('date'))
-                base_ms = int(float(dt) * 1000.0) if dt is not None else 0
-                sid = d.get('sid') or d.get('sample_id') or d.get('id') or u''
-                key = (base_ms, unicode(sid))
-                # micro-desplazamiento estable para empates en el mismo ms
-                bump = seen.get(key, 0)
-                seen[key] = bump + 1
-                unique_ms = base_ms + bump
 
-                # normalizar 'y'
-                if d.get('y') is None and 'value' in d:
-                    d['y'] = d.get('value')
-                d['y'] = _to_num(d.get('y'))
-                if d['y'] is None:
-                    # descarta puntos no numéricos (ND, <LOQ, etc.)
+                # Obtener timestamp más preciso posible
+                dt = None
+                for field in ['ms', 'x', 'date', 'datetime', 'sampled', 'verified']:
+                    if field in d:
+                        dt = _as_DateTime_any(d[field])
+                        if dt:
+                            break
+                
+                if dt is None:
+                    continue
+
+                # Crear timestamp único incluyendo hora, minuto y segundo
+                timestamp_key = (
+                    dt.year(), dt.month(), dt.day(), 
+                    dt.hour(), dt.minute(), dt.second()
+                )
+                
+                # Si ya existe este timestamp, agregar un segundo artificial
+                original_timestamp = timestamp_key
+                counter = 0
+                while timestamp_key in seen_timestamps:
+                    counter += 1
+                    # Agregar segundos artificiales manteniendo el orden
+                    timestamp_key = original_timestamp[:-1] + (original_timestamp[-1] + counter,)
+                
+                seen_timestamps.add(timestamp_key)
+                
+                # Convertir a milisegundos para el gráfico
+                base_ms = int(float(dt) * 1000.0)
+                unique_ms = base_ms + (counter * 1000)  # Agregar milisegundos para diferenciar
+
+                # Normalizar valor Y
+                y_val = d.get('y') or d.get('value')
+                if y_val is None and 'result' in d:
+                    y_val = d.get('result')
+                
+                y_val = _to_num(y_val)
+                if y_val is None:
                     continue
 
                 d['ms'] = unique_ms
                 d['x'] = unique_ms
-                d.setdefault('sid', sid)
+                d['y'] = y_val
+                d.setdefault('sid', d.get('sid') or d.get('sample_id') or d.get('id') or '')
                 norm.append(d)
+            
             return norm
 
         norm = _normalize(pts)
 
-        # Si el proveedor nativo no aporta al menos 2 puntos válidos, reconstruimos del catálogo
+        # RECONSTRUCCIÓN DESDE CATÁLOGO - VERSIÓN CORREGIDA
         if len(norm) < 2:
             try:
                 ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
-
-                # Paciente UID
+                
+                # Obtener paciente UID de forma más robusta
                 patient_uid = None
                 if patient and hasattr(patient, "UID"):
                     try:
                         patient_uid = patient.UID()
                     except Exception:
-                        patient_uid = None
-                if not patient_uid and ar:
-                    # algunos setups guardan getPatientUID en el AR
-                    try:
-                        patient_uid = getattr(ar, "getPatientUID", lambda: None)()
-                    except Exception:
                         pass
+                
+                if not patient_uid and ar:
+                    for attr in ["getPatientUID", "PatientUID", "patient_uid"]:
+                        try:
+                            patient_uid = getattr(ar, attr, lambda: None)()
+                            if patient_uid:
+                                break
+                        except Exception:
+                            pass
 
-                # Keyword del análisis/servicio
+                # Obtener keyword del servicio de forma más precisa
                 svc = self._get_service(a)
-                keyword = (self._get(svc, "getKeyword") if svc else None) \
-                          or self._get(a, "getKeyword") \
-                          or self._get(a, "getServiceKeyword")
+                keyword = None
+                if svc:
+                    for attr in ["getKeyword", "Keyword", "keyword"]:
+                        try:
+                            keyword = getattr(svc, attr, lambda: None)()
+                            if keyword:
+                                break
+                        except Exception:
+                            pass
+                
+                if not keyword:
+                    for attr in ["getKeyword", "Keyword", "keyword", "getServiceKeyword"]:
+                        try:
+                            keyword = getattr(a, attr, lambda: None)()
+                            if keyword:
+                                break
+                        except Exception:
+                            pass
+                
                 keyword = self._u(keyword).strip().upper() if keyword else u""
 
                 if patient_uid and keyword:
                     portal = self.context.portal_url.getPortalObject()
                     catalog = getToolByName(portal, "portal_catalog")
-
-                    ar_brains = catalog.searchResults(
-                        portal_type="AnalysisRequest",
-                        getPatientUID=patient_uid,
-                        sort_on="created",
-                        sort_order="ascending",
-                    )
+                    
+                    # Buscar por paciente y ordenar por fecha de muestreo
+                    query = {
+                        "portal_type": "AnalysisRequest",
+                        "getPatientUID": patient_uid,
+                        "sort_on": "getDateSampled",  # Usar fecha de muestreo, no creación
+                        "sort_order": "ascending",
+                    }
+                    
+                    # En Senaite 2.6, algunos campos pueden tener nombres diferentes
+                    try:
+                        ar_brains = catalog(**query)
+                    except Exception:
+                        # Fallback: buscar sin filtro de paciente UID si falla
+                        query.pop("getPatientUID", None)
+                        ar_brains = catalog(**query)
 
                     fb_pts = []
                     for br in ar_brains:
                         try:
                             ar_obj = br.getObject()
-                            # lista de análisis del AR
-                            ana_list = None
+                            
+                            # Verificar que este AR pertenece al paciente
+                            current_patient_uid = None
+                            for attr in ["getPatientUID", "PatientUID", "patient_uid"]:
+                                try:
+                                    current_patient_uid = getattr(ar_obj, attr, lambda: None)()
+                                    if current_patient_uid == patient_uid:
+                                        break
+                                except Exception:
+                                    pass
+                            
+                            if current_patient_uid != patient_uid:
+                                continue
+
+                            # Obtener análisis del AR
+                            ana_list = []
                             for g in ("getAnalyses", "analyses", "getAnalysis"):
                                 v = getattr(ar_obj, g, None)
                                 if callable(v):
@@ -1493,47 +1555,81 @@ class InfolabsaResultsWithState(BrowserView):
                                         ana_list = v(full_objects=True)
                                     except TypeError:
                                         ana_list = v()
-                                if ana_list:
-                                    break
+                                    if ana_list:
+                                        break
+                            
                             if not ana_list:
                                 continue
 
                             for an in ana_list:
                                 try:
-                                    # keyword del análisis
-                                    svc2 = self._get(an, "getService")
-                                    kw2 = (self._get(svc2, "getKeyword") if svc2 else None) \
-                                          or self._get(an, "getKeyword") \
-                                          or self._get(an, "getServiceKeyword")
-                                    kw2 = self._u(kw2).strip().upper() if kw2 else u""
-                                    if kw2 != keyword:
+                                    # Verificar keyword del análisis
+                                    current_keyword = None
+                                    current_svc = self._get_service(an)
+                                    if current_svc:
+                                        for attr in ["getKeyword", "Keyword", "keyword"]:
+                                            try:
+                                                current_keyword = getattr(current_svc, attr, lambda: None)()
+                                                if current_keyword:
+                                                    break
+                                            except Exception:
+                                                pass
+                                    
+                                    if not current_keyword:
+                                        for attr in ["getKeyword", "Keyword", "keyword", "getServiceKeyword"]:
+                                            try:
+                                                current_keyword = getattr(an, attr, lambda: None)()
+                                                if current_keyword:
+                                                    break
+                                            except Exception:
+                                                pass
+                                    
+                                    current_keyword = self._u(current_keyword).strip().upper() if current_keyword else u""
+                                    if current_keyword != keyword:
                                         continue
 
+                                    # Obtener resultado numérico
                                     res = self._get_result(an)
                                     y = _to_num(res)
                                     if y is None:
                                         continue
 
-                                    # Fecha/hora más precisa disponible
+                                    # Obtener fecha de muestreo más precisa
                                     dt = (self._get(an, "getDateSampled") or
                                           self._get(ar_obj, "getDateSampled") or
+                                          self._get(an, "getDateVerified") or
+                                          self._get(ar_obj, "getDatePublished") or
                                           self._get(an, "creation_date") or
                                           self._get(ar_obj, "creation_date"))
+                                    
                                     dt = _as_DateTime_any(dt)
-                                    ms = int(float(dt) * 1000.0) if dt else 0
+                                    if not dt:
+                                        continue
+                                        
+                                    ms = int(float(dt) * 1000.0)
                                     sid = self._get(ar_obj, "getId") or self._get(ar_obj, "getSampleID") or u""
-                                    fb_pts.append({'x': ms, 'y': y, 'sid': sid})
+                                    
+                                    fb_pts.append({
+                                        'x': ms, 
+                                        'y': y, 
+                                        'sid': sid,
+                                        'date': dt,
+                                        'ar_id': ar_obj.getId()
+                                    })
+                                    
                                 except Exception:
                                     continue
                         except Exception:
                             continue
 
+                    # Aplicar normalización a los puntos reconstruidos
                     norm_fb = _normalize(fb_pts)
                     if len(norm_fb) >= 2:
-                        log_info(u"[infolabsa] Tendencia reconstruida por catálogo: %s puntos", len(norm_fb))
+                        log_info(u"[infolabsa] Tendencia reconstruida: %s puntos para %s", len(norm_fb), keyword)
                         return norm_fb
+                        
             except Exception as e:
-                log_exc(u"[infolabsa] Fallback de tendencia falló: %s", e)
+                log_exc(u"[infolabsa] Error en reconstrucción de tendencia: %s", e)
 
         return norm
 
@@ -1548,7 +1644,7 @@ class InfolabsaResultsWithState(BrowserView):
         result = self._get_result(a)
 
         unit_raw = self._get_unit(a)
-        unit = _sanitize_unit_for_flags(unit_raw)  # <- evita “L” naranja en mg/L
+        unit = _sanitize_unit_for_flags(unit_raw)  # <- evita "L" naranja en mg/L
 
         # Prioridad actualizada para rangos
         ref_text, low, high, ref_src = self._compute_ref_range(a)
@@ -1624,7 +1720,7 @@ class InfolabsaResultsWithState(BrowserView):
             'status': wf_state,
             'status_text': wf_state,
 
-            # Etiquetas “bonitas” del workflow (usar estas en la columna Estado)
+            # Etiquetas "bonitas" del workflow (usar estas en la columna Estado)
             'state_label': wf_label,
             'state_icon': wf_icon,
             'state_class': wf_class,
