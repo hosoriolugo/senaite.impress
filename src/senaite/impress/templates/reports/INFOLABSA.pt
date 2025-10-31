@@ -800,7 +800,7 @@
                  or
                  (hasattr(p,'get') and
                   (
-                    ( unicode(p.get('ms') or p.get('x') or p.get('date') or u'') +
+                    ( (p.get('ms') or p.get('x') or p.get('date') or u'') +
                       u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
                     (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)
                   ))
@@ -841,21 +841,8 @@
            _distinct_sids_fallback_count python:len(_delta_prev_ids | _sid_current_set);
            _distinct_sids python:(_distinct_sids_base if _distinct_sids_base else _distinct_sids_fallback_count);
 
-           # RELAJO: si no hay SIDs, contamos puntos por índice para permitir estudios del mismo día
-           _relaxed_keys python:[
-             u'%s|%s|%s' % (
-               unicode(idx),
-               unicode((p.get('ms') or p.get('x') or p.get('date') or u'')),
-               unicode((p.get('sid') or p.get('sample_id') or p.get('id') or u''))
-             )
-             for s in _series
-             for (idx, p) in enumerate(s.get('data') or [])
-             if (hasattr(p,'get') and (p.get('y') not in (None, u'', u'\u2014')))
-           ];
-           _distinct_points_relaxed python:len(set(_relaxed_keys));
-
-           has_two_points python:(_distinct_points >= 2 or _distinct_points_relaxed >= 2);
-           has_two_sids python:(_distinct_sids >= 2 or _distinct_points_relaxed >= 2)
+           has_two_points python:(_distinct_points >= 2);
+           has_two_sids python:(_distinct_sids >= 2)
          "
          tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
 
@@ -901,7 +888,7 @@
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
-            var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
+            var trendsData = <tal:span tal:replace="structure python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
             var seen = {};
@@ -930,25 +917,6 @@
                 }
               });
             } catch(e) { distinct = 0; }
-            if (distinct < 2) {
-              // RELAXED: contar puntos numéricos totales como último recurso (para estudios mismo día sin SID)
-              var count = 0;
-              try {
-                trendsData.series.forEach(function(s){
-                  var d = (s && s.data) ? s.data : [];
-                  for (var i=0; i<d.length; i++){
-                    var p = d[i];
-                    var y = (p && typeof p === 'object')
-                              ? (Array.isArray(p) ? p[1] : p.y)
-                              : p;
-                    if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                      count++;
-                    }
-                  }
-                });
-              } catch(e) { count = 0; }
-              if (count >= 2) { distinct = 2; }
-            }
             if (distinct < 2) return;
 
             var cats = trendsData.categories || [];
