@@ -2,7 +2,7 @@
 from Products.Five import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from DateTime import DateTime
-ALLOWED_TREND_STATES = ('verified','published','to_be_verified','pending','assigned','sample_received')
+ALLOWED_TREND_STATES = ('verified', 'published', 'to_be_verified', 'pending', 'assigned', 'sample_received')
 from Products.CMFCore.utils import getToolByName
 
 try:
@@ -206,147 +206,6 @@ def _as_DateTime_any(x):
     except Exception:
         return None
 
-
-def _trend_points_same_day_ok(self, a):
-    """Historial por paciente+servicio incluyendo estados VERIFICADOS y mismo día."""
-    try:
-        # Import local para no romper si no existe en otros entornos
-        from Products.CMFCore.utils import getToolByName
-    except Exception:
-        getToolByName = None
-
-    try:
-        ar = getattr(a, 'getAnalysisRequest', lambda: None)() or None
-        patient = None
-        if ar and hasattr(ar, 'getPatient'):
-            patient = ar.getPatient()
-        if not patient and hasattr(a, 'getPatient'):
-            patient = a.getPatient()
-        patient_uid = patient and (getattr(patient, 'UID', lambda: None)() or None)
-
-        svc = getattr(a, 'getService', lambda: None)()
-        svc_uid = svc and (getattr(svc, 'UID', lambda: None)() or None)
-        kw = getattr(a, 'getKeyword', lambda: None)() or None
-
-        context = getattr(self, 'context', None) or getattr(a, 'aq_parent', None)
-        portal = getattr(context, 'portal_url', None)
-        if callable(portal):
-            portal = portal()
-        portal_obj = getattr(context, 'portal_url', None)
-        if callable(portal_obj):
-            portal_obj = portal_obj.getPortalObject()
-        else:
-            # Try acquisition
-            portal_obj = getattr(context, 'portal_url', None)
-            if callable(portal_obj):
-                portal_obj = portal_obj.getPortalObject()
-
-        catalog = None
-        try:
-            if getToolByName:
-                # Prefer the analysis catalog
-                catalog = getToolByName(context, 'senaite_catalog_analysis')
-        except Exception:
-            catalog = None
-        if catalog is None and getToolByName:
-            try:
-                catalog = getToolByName(context, 'portal_catalog')
-            except Exception:
-                catalog = None
-        if catalog is None:
-            return []
-
-        query = dict(
-            portal_type='Analysis',
-            sort_on='getDateSampled',
-            sort_order='ascending',
-        )
-        # Estados permitidos: incluir verificados y pendientes
-        query['review_state'] = ALLOWED_TREND_STATES
-
-        # Filtros de paciente/servicio
-        if patient_uid:
-            # muchos catálogos tienen getPatientUID indexado
-            query['getPatientUID'] = patient_uid
-        if svc_uid:
-            # preferimos servicio por UID
-            query['getServiceUID'] = svc_uid
-        elif kw:
-            # si no hay UID, probar por keyword si está indexada
-            query['getKeyword'] = kw
-
-        brains = []
-        try:
-            brains = catalog.searchResults(**query)
-        except Exception:
-            # Si falla por índices desconocidos, relajar a portal_catalog básico
-            try:
-                q2 = dict(portal_type='Analysis', sort_on='created', sort_order='ascending')
-                if 'review_state' in query:
-                    q2['review_state'] = query['review_state']
-                brains = catalog.searchResults(**q2)
-            except Exception:
-                return []
-
-        # Timestamp de referencia: ahora mismo o fecha del AR actual
-        nowdt = getattr(a, 'getResultCaptureDate', lambda: None)()                     or getattr(a, 'getDateSampled', lambda: None)()                     or getattr(a, 'created', None)                     or DateTime()
-
-        pts = []
-        seen_ms = set()
-
-        for b in brains:
-            try:
-                obj = b.getObject()
-            except Exception:
-                obj = None
-            if obj is None:
-                continue
-
-            # Validar que sea el mismo servicio/keyword si no filtró arriba
-            if svc_uid:
-                try:
-                    bs = getattr(obj, 'getService', lambda: None)()
-                    if not (bs and getattr(bs, 'UID', lambda: None)() == svc_uid):
-                        continue
-                except Exception:
-                    continue
-            elif kw:
-                try:
-                    if getattr(obj, 'getKeyword', lambda: None)() != kw:
-                        continue
-                except Exception:
-                    continue
-
-            # Fecha (incluir mismo día y mismo segundo)
-            dt = getattr(obj, 'getResultCaptureDate', lambda: None)()                      or getattr(obj, 'getDateSampled', lambda: None)()                      or getattr(obj, 'created', None)
-            if not dt or dt > nowdt:
-                continue
-
-            # Valor numérico
-            val = getattr(obj, 'getResult', lambda: None)()
-            try:
-                y = float(str(val).replace(',', '.'))
-            except Exception:
-                continue
-
-            try:
-                ms = int(dt.timeTime() * 1000)
-            except Exception:
-                try:
-                    ms = int(float(dt) * 1000)
-                except Exception:
-                    continue
-
-            while ms in seen_ms:
-                ms += 1
-            seen_ms.add(ms)
-
-            iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second())
-            pts.append({'x': ms, 'y': y, 'date': iso})
-
-        return pts
-    except Exception:
-        return []
 
 def _sort_points_by_fulltime(points):
     """
@@ -1520,38 +1379,170 @@ class InfolabsaResultsWithState(BrowserView):
         return u""
 
     # --------- tendencia (con fallback a catálogo) ----------
-    def _trend_points(self, a):
+
+    def _trend_points_same_day_ok(self, a):
         """
-        VERSIÓN CORREGIDA - Maneja correctamente múltiples estudios el mismo día
+        Fallback específico: si hay varios estudios el MISMO DÍA para el mismo paciente+servicio,
+        devolver TODOS esos puntos (con ms únicos).
         """
-        providers = ("getTrendData", "getHistoricalResults", "getResultsHistory", "getTrendPoints")
-        pts = []
-        for name in providers:
-            fn = getattr(a, name, None)
-            if callable(fn):
+        try:
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+            if not patient:
+                return []
+
+            # Referencia de día a partir del AR actual (sampled o captured)
+            ref_dt = (self._get(a, 'getResultCaptureDate') or
+                      self._get(a, 'getDateSampled') or
+                      self._get(a, 'created') or DateTime())
+            y, m, d = ref_dt.year(), ref_dt.month(), ref_dt.day()
+
+            patient_uid = None
+            if hasattr(patient, 'UID'):
                 try:
-                    cand = fn()
-                    if cand:
-                        try:
-                            pts = list(cand)
-                        except Exception:
-                            pts = cand
-                        break
+                    patient_uid = patient.UID()
                 except Exception:
+                    pass
+            if not patient_uid and ar and hasattr(ar, 'getPatientUID'):
+                try:
+                    patient_uid = ar.getPatientUID()
+                except Exception:
+                    pass
+            if not patient_uid:
+                return []
+
+            svc = self._get_service(a)
+            svc_uid = None
+            if svc and hasattr(svc, 'UID'):
+                try:
+                    svc_uid = svc.UID()
+                except Exception:
+                    pass
+            keyword = None
+            for attr in ('getKeyword', 'Keyword', 'keyword', 'getServiceKeyword'):
+                fn = getattr(svc or a, attr, None)
+                if callable(fn):
+                    try:
+                        keyword = fn()
+                        if keyword:
+                            break
+                    except Exception:
+                        pass
+            if keyword:
+                keyword = self._u(keyword).strip().upper()
+
+            # Catálogo
+            try:
+                portal = self.context.portal_url.getPortalObject()
+                catalog = getToolByName(portal, 'senaite_catalog_analysis')
+            except Exception:
+                catalog = None
+            if catalog is None:
+                try:
+                    portal = self.context.portal_url.getPortalObject()
+                    catalog = getToolByName(portal, 'portal_catalog')
+                except Exception:
+                    return []
+
+            query = dict(
+                portal_type='Analysis',
+                review_state=ALLOWED_TREND_STATES,
+                sort_on='created',
+                sort_order='ascending',
+                getPatientUID=patient_uid
+            )
+            if svc_uid:
+                query['getServiceUID'] = svc_uid
+            elif keyword:
+                query['getKeyword'] = keyword
+
+            try:
+                brains = catalog.searchResults(**query)
+            except Exception:
+                brains = []
+
+            pts = []
+            seen_ms = set()
+            for b in brains:
+                try:
+                    obj = b.getObject()
+                except Exception:
+                    obj = None
+                if not obj:
                     continue
 
-        # Si no hay suficientes puntos, intentar con la función especializada para mismo día
-        if len(pts) < 2:
-            same_day_pts = self._trend_points_same_day_ok(a)
-            if same_day_pts:
-                pts = same_day_pts
+                dt = (self._get(obj, 'getResultCaptureDate') or
+                      self._get(obj, 'getDateSampled') or
+                      self._get(obj, 'created'))
+                if not dt:
+                    continue
+                if (dt.year(), dt.month(), dt.day()) != (y, m, d):
+                    continue
 
+                # Validar keyword si no tuvimos getServiceUID
+                if not svc_uid and keyword:
+                    cur_kw = None
+                    cur_svc = self._get_service(obj)
+                    for attr in ('getKeyword', 'Keyword', 'keyword', 'getServiceKeyword'):
+                        fn = getattr(cur_svc or obj, attr, None)
+                        if callable(fn):
+                            try:
+                                cur_kw = fn()
+                                if cur_kw:
+                                    break
+                            except Exception:
+                                pass
+                    if self._u(cur_kw).strip().upper() != keyword:
+                        continue
+
+                # Valor numérico
+                val = (self._get(obj, 'getFormattedResult') or
+                       self._get(obj, 'getResult') or
+                       self._get(obj, 'result'))
+                yv = _to_num(val)
+                if yv is None:
+                    continue
+
+                try:
+                    ms = int(dt.timeTime() * 1000)
+                except Exception:
+                    try:
+                        ms = int(float(dt) * 1000)
+                    except Exception:
+                        continue
+                while ms in seen_ms:
+                    ms += 1
+                seen_ms.add(ms)
+
+                iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (
+                    dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second()
+                )
+                ar_id = u""
+                try:
+                    ar_of = getattr(obj, 'getAnalysisRequest', lambda: None)()
+                    if ar_of:
+                        ar_id = getattr(ar_of, 'getId', lambda: None)() or u""
+                except Exception:
+                    pass
+
+                pts.append({'x': ms, 'y': yv, 'date': iso, 'sid': ar_id})
+            return pts
+        except Exception as e:
+            log_exc(u"[infolabsa] _trend_points_same_day_ok error: %s", e)
+            return []
+
+    def _trend_points(self, a):
+        """
+        Historial por PACIENTE + SERVICIO/KEYWORD desde catálogo de Análisis,
+        incluyendo estados: verified / published / to_be_verified / pending / assigned / sample_received.
+        Permite múltiples puntos el mismo día/segundo (resuelve con +1ms).
+        Devuelve dicts: {'x': ms, 'y': float, 'date': 'YYYY-MM-DDTHH:MM:SS', 'sid': 'ARID'}.
+        """
         def _normalize(points):
             pts_sorted = _sort_points_by_fulltime(points or [])
             norm = []
-            seen_timestamps = set()
-            
+            seen = set()
             for p in pts_sorted:
+                # Coerción a dict {x,y,...}
                 if isinstance(p, dict):
                     d = dict(p)
                 else:
@@ -1561,61 +1552,222 @@ class InfolabsaResultsWithState(BrowserView):
                         x, y = (p, None)
                     d = {'x': x, 'y': y}
 
-                # Obtener timestamp más preciso posible
+                # Fecha base (en DateTime)
                 dt = None
-                for field in ['ms', 'x', 'date', 'datetime', 'sampled', 'verified']:
-                    if field in d:
-                        dt = _as_DateTime_any(d[field])
-                        if dt:
+                for field in ('ms', 'x', 'date', 'datetime', 'sampled', 'verified', 'created'):
+                    if field in d and d.get(field) not in (None, u"", ""):
+                        cand = _as_DateTime_any(d[field])
+                        if cand:
+                            dt = cand
                             break
-                
                 if dt is None:
                     continue
 
-                # Usar milisegundos como base y agregar microsegundos para desduplicación
-                base_ms = int(float(dt) * 1000.0)
-                
-                # Crear clave única que incluya el valor Y para diferenciar puntos del mismo momento
-                original_ms = base_ms
-                counter = 0
-                while base_ms in seen_timestamps:
-                    counter += 1
-                    base_ms = original_ms + counter  # Agregar 1ms por duplicado
-                
-                seen_timestamps.add(base_ms)
-                
-                # Normalizar valor Y
-                y_val = d.get('y') or d.get('value')
+                # ms únicos y ordenados
+                try:
+                    base_ms = int(dt.timeTime() * 1000)
+                except Exception:
+                    try:
+                        base_ms = int(float(dt) * 1000)
+                    except Exception:
+                        continue
+                ms = base_ms
+                while ms in seen:
+                    ms += 1  # +1 ms por colisión
+                seen.add(ms)
+
+                # Y numérico
+                y_val = d.get('y') if d.get('y') not in (None, u"", "") else d.get('value')
                 if y_val is None and 'result' in d:
                     y_val = d.get('result')
-                
                 y_val = _to_num(y_val)
                 if y_val is None:
                     continue
 
-                d['ms'] = base_ms
-                d['x'] = base_ms
-                d['y'] = y_val
-                d.setdefault('sid', d.get('sid') or d.get('sample_id') or d.get('id') or '')
-                norm.append(d)
-            
+                # ISO de respaldo
+                iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (
+                    dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second()
+                )
+
+                out = dict(d)
+                out['ms'] = ms
+                out['x'] = ms
+                out['y'] = y_val
+                out['date'] = out.get('date') or iso
+                out.setdefault('sid', out.get('sid') or out.get('sample_id') or out.get('id') or u'')
+                norm.append(out)
             return norm
+
+        # -------- 1) Consulta principal al catálogo de Análisis --------
+        pts = []
+        try:
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+
+            patient_uid = None
+            if patient and hasattr(patient, 'UID'):
+                try:
+                    patient_uid = patient.UID()
+                except Exception:
+                    pass
+            if not patient_uid and ar and hasattr(ar, 'getPatientUID'):
+                try:
+                    patient_uid = ar.getPatientUID()
+                except Exception:
+                    pass
+            if not patient_uid:
+                return []
+
+            svc = self._get_service(a)
+            svc_uid = None
+            if svc and hasattr(svc, 'UID'):
+                try:
+                    svc_uid = svc.UID()
+                except Exception:
+                    pass
+            keyword = None
+            for attr in ('getKeyword', 'Keyword', 'keyword', 'getServiceKeyword'):
+                fn = getattr(svc or a, attr, None)
+                if callable(fn):
+                    try:
+                        keyword = fn()
+                        if keyword:
+                            break
+                    except Exception:
+                        pass
+            if keyword:
+                keyword = self._u(keyword).strip().upper()
+
+            nowdt = (self._get(a, 'getResultCaptureDate') or
+                     self._get(a, 'getDateSampled') or
+                     self._get(a, 'created') or DateTime())
+
+            # Catálogo
+            portal = self.context.portal_url.getPortalObject()
+            try:
+                catalog = getToolByName(portal, 'senaite_catalog_analysis')
+            except Exception:
+                catalog = None
+            if catalog is None:
+                try:
+                    catalog = getToolByName(portal, 'portal_catalog')
+                except Exception:
+                    return []
+
+            query = dict(
+                portal_type='Analysis',
+                review_state=ALLOWED_TREND_STATES,
+                sort_on='getDateSampled',
+                sort_order='ascending',
+                getPatientUID=patient_uid
+            )
+            if svc_uid:
+                query['getServiceUID'] = svc_uid
+            elif keyword:
+                query['getKeyword'] = keyword
+
+            try:
+                brains = catalog.searchResults(**query)
+            except Exception:
+                # Relajar si faltan índices
+                q2 = dict(portal_type='Analysis', review_state=ALLOWED_TREND_STATES,
+                          sort_on='created', sort_order='ascending', getPatientUID=patient_uid)
+                brains = catalog.searchResults(**q2)
+
+            seen_ms = set()
+            for b in brains:
+                try:
+                    obj = b.getObject()
+                except Exception:
+                    obj = None
+                if obj is None:
+                    continue
+
+                # Validación adicional cuando filtramos por keyword
+                if not svc_uid and keyword:
+                    cur_kw = None
+                    cur_svc = self._get_service(obj)
+                    for attr in ('getKeyword', 'Keyword', 'keyword', 'getServiceKeyword'):
+                        fn = getattr(cur_svc or obj, attr, None)
+                        if callable(fn):
+                            try:
+                                cur_kw = fn()
+                                if cur_kw:
+                                    break
+                            except Exception:
+                                pass
+                    if self._u(cur_kw).strip().upper() != keyword:
+                        continue
+
+                # Validación paciente (por si caímos a portal_catalog)
+                try:
+                    cur_pat = getattr(obj, 'getPatient', lambda: None)()
+                    if cur_pat and hasattr(cur_pat, 'UID'):
+                        if cur_pat.UID() != patient_uid:
+                            continue
+                except Exception:
+                    pass
+
+                dt = (self._get(obj, 'getResultCaptureDate') or
+                      self._get(obj, 'getDateSampled') or
+                      self._get(obj, 'created'))
+                if not dt or dt > nowdt:
+                    continue
+
+                val = (self._get(obj, 'getFormattedResult') or
+                       self._get(obj, 'getResult') or
+                       self._get(obj, 'result'))
+                yv = _to_num(val)
+                if yv is None:
+                    continue
+
+                try:
+                    ms = int(dt.timeTime() * 1000)
+                except Exception:
+                    try:
+                        ms = int(float(dt) * 1000)
+                    except Exception:
+                        continue
+                while ms in seen_ms:
+                    ms += 1
+                seen_ms.add(ms)
+
+                iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (
+                    dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second()
+                )
+                ar_id = None
+                try:
+                    ar_of = getattr(obj, 'getAnalysisRequest', lambda: None)()
+                    if ar_of:
+                        ar_id = getattr(ar_of, 'getId', lambda: None)()
+                except Exception:
+                    pass
+
+                pts.append({'x': ms, 'y': yv, 'date': iso, 'sid': ar_id or u''})
+        except Exception as e:
+            log_exc(u"[infolabsa] _trend_points main query error: %s", e)
+            pts = []
 
         norm = _normalize(pts)
 
-        # RECONSTRUCCIÓN DESDE CATÁLOGO - VERSIÓN CORREGIDA
+        # -------- 2) Fallback si <2 puntos: MISMO DÍA --------
+        if len(norm) < 2:
+            same_day_pts = self._trend_points_same_day_ok(a)
+            norm_sd = _normalize(same_day_pts)
+            if len(norm_sd) >= 2:
+                return norm_sd
+
+        # -------- 3) Fallback reconstrucción via ARs si aún <2 --------
         if len(norm) < 2:
             try:
                 ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
-                
-                # Obtener paciente UID de forma más robusta
+
+                # Paciente UID robusto
                 patient_uid = None
                 if patient and hasattr(patient, "UID"):
                     try:
                         patient_uid = patient.UID()
                     except Exception:
                         pass
-                
                 if not patient_uid and ar:
                     for attr in ["getPatientUID", "PatientUID", "patient_uid"]:
                         try:
@@ -1625,7 +1777,7 @@ class InfolabsaResultsWithState(BrowserView):
                         except Exception:
                             pass
 
-                # Obtener keyword del servicio de forma más precisa
+                # Keyword del servicio
                 svc = self._get_service(a)
                 keyword = None
                 if svc:
@@ -1636,7 +1788,6 @@ class InfolabsaResultsWithState(BrowserView):
                                 break
                         except Exception:
                             pass
-                
                 if not keyword:
                     for attr in ["getKeyword", "Keyword", "keyword", "getServiceKeyword"]:
                         try:
@@ -1645,26 +1796,22 @@ class InfolabsaResultsWithState(BrowserView):
                                 break
                         except Exception:
                             pass
-                
                 keyword = self._u(keyword).strip().upper() if keyword else u""
 
                 if patient_uid and keyword:
                     portal = self.context.portal_url.getPortalObject()
                     catalog = getToolByName(portal, "portal_catalog")
-                    
-                    # Buscar por paciente y ordenar por fecha de muestreo
+
                     query = {
                         "portal_type": "AnalysisRequest",
                         "getPatientUID": patient_uid,
-                        "sort_on": "getDateSampled",  # Usar fecha de muestreo, no creación
+                        "sort_on": "getDateSampled",
                         "sort_order": "ascending",
                     }
-                    
-                    # En Senaite 2.6, algunos campos pueden tener nombres diferentes
+
                     try:
                         ar_brains = catalog(**query)
                     except Exception:
-                        # Fallback: buscar sin filtro de paciente UID si falla
                         query.pop("getPatientUID", None)
                         ar_brains = catalog(**query)
 
@@ -1672,8 +1819,7 @@ class InfolabsaResultsWithState(BrowserView):
                     for br in ar_brains:
                         try:
                             ar_obj = br.getObject()
-                            
-                            # Verificar que este AR pertenece al paciente
+
                             current_patient_uid = None
                             for attr in ["getPatientUID", "PatientUID", "patient_uid"]:
                                 try:
@@ -1682,11 +1828,9 @@ class InfolabsaResultsWithState(BrowserView):
                                         break
                                 except Exception:
                                     pass
-                            
                             if current_patient_uid != patient_uid:
                                 continue
 
-                            # Obtener análisis del AR
                             ana_list = []
                             for g in ("getAnalyses", "analyses", "getAnalysis"):
                                 v = getattr(ar_obj, g, None)
@@ -1697,13 +1841,11 @@ class InfolabsaResultsWithState(BrowserView):
                                         ana_list = v()
                                     if ana_list:
                                         break
-                            
                             if not ana_list:
                                 continue
 
                             for an in ana_list:
                                 try:
-                                    # Verificar keyword del análisis
                                     current_keyword = None
                                     current_svc = self._get_service(an)
                                     if current_svc:
@@ -1714,7 +1856,6 @@ class InfolabsaResultsWithState(BrowserView):
                                                     break
                                             except Exception:
                                                 pass
-                                    
                                     if not current_keyword:
                                         for attr in ["getKeyword", "Keyword", "keyword", "getServiceKeyword"]:
                                             try:
@@ -1723,51 +1864,43 @@ class InfolabsaResultsWithState(BrowserView):
                                                     break
                                             except Exception:
                                                 pass
-                                    
                                     current_keyword = self._u(current_keyword).strip().upper() if current_keyword else u""
                                     if current_keyword != keyword:
                                         continue
 
-                                    # Obtener resultado numérico
                                     res = self._get_result(an)
-                                    y = _to_num(res)
-                                    if y is None:
+                                    yv = _to_num(res)
+                                    if yv is None:
                                         continue
 
-                                    # Obtener fecha de muestreo más precisa
-                                    dt = (self._get(an, "getDateSampled") or
-                                          self._get(ar_obj, "getDateSampled") or
-                                          self._get(an, "getDateVerified") or
-                                          self._get(ar_obj, "getDatePublished") or
-                                          self._get(an, "creation_date") or
-                                          self._get(ar_obj, "creation_date"))
-                                    
-                                    dt = _as_DateTime_any(dt)
+                                    dt = (_as_DateTime_any(self._get(an, "getDateSampled")) or
+                                          _as_DateTime_any(self._get(ar_obj, "getDateSampled")) or
+                                          _as_DateTime_any(self._get(an, "getDateVerified")) or
+                                          _as_DateTime_any(self._get(ar_obj, "getDatePublished")) or
+                                          _as_DateTime_any(self._get(an, "creation_date")) or
+                                          _as_DateTime_any(self._get(ar_obj, "creation_date")))
                                     if not dt:
                                         continue
-                                        
+
                                     ms = int(float(dt) * 1000.0)
                                     sid = self._get(ar_obj, "getId") or self._get(ar_obj, "getSampleID") or u""
-                                    
+
                                     fb_pts.append({
-                                        'x': ms, 
-                                        'y': y, 
+                                        'x': ms,
+                                        'y': yv,
                                         'sid': sid,
                                         'date': dt,
-                                        'ar_id': ar_obj.getId()
+                                        'ar_id': getattr(ar_obj, 'getId', lambda: u'')()
                                     })
-                                    
                                 except Exception:
                                     continue
                         except Exception:
                             continue
 
-                    # Aplicar normalización a los puntos reconstruidos
                     norm_fb = _normalize(fb_pts)
                     if len(norm_fb) >= 2:
                         log_info(u"[infolabsa] Tendencia reconstruida: %s puntos para %s", len(norm_fb), keyword)
                         return norm_fb
-                        
             except Exception as e:
                 log_exc(u"[infolabsa] Error en reconstrucción de tendencia: %s", e)
 
@@ -1885,6 +2018,36 @@ class InfolabsaResultsWithState(BrowserView):
         return [self.row(a) for a in self.analyses()]
 
     # ------------------------- rendering -------------------------
+
+    def _json_safe_rows(self, rows):
+        """Convierte DateTime en ISO dentro de trend_points."""
+        out = []
+        for r in rows or []:
+            try:
+                c = dict(r)
+                tps = c.get('trend_points') or []
+                tps2 = []
+                for p in tps:
+                    try:
+                        d = dict(p)
+                        dv = d.get('date')
+                        if dv and not isinstance(dv, (str, unicode)):
+                            try:
+                                iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (
+                                    dv.year(), dv.month(), dv.day(), dv.hour(), dv.minute(), dv.second()
+                                )
+                                d['date'] = iso
+                            except Exception:
+                                d['date'] = self._u(dv)
+                        tps2.append(d)
+                    except Exception:
+                        tps2.append(p)
+                c['trend_points'] = tps2
+                out.append(c)
+            except Exception:
+                out.append(r)
+        return out
+
     def __call__(self):
         # Decide JSON output if caller explicitly asks (?format=json),
         # negotiates via Accept header, or is an XHR request.
@@ -1901,12 +2064,12 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             xrw = u''
 
-        wants_json = (fmt == u'json') or (u'application/json' in accept) or (xrw == u'xmlhttprequest')
+        wants_json = (fmt == u'json') or (self.request.get('json') in (u'1', u'true', u'True', True)) or (u'application/json' in accept) or (xrw == u'xmlhttprequest')
 
         if wants_json:
             try:
                 import json
-                data = {'items': self.rows()}
+                data = {'items': self._json_safe_rows(self.rows())}
                 self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
                 return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
             except Exception as exc:
