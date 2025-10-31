@@ -892,6 +892,7 @@
 <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
+      var isMs = false;
             var trendsData = {};
       try { trendsData = JSON.parse((document.getElementById('trends-json')||{}).textContent || '{}'); } catch(e) { trendsData = {}; }
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
