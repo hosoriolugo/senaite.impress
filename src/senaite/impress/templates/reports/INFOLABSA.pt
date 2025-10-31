@@ -843,7 +843,7 @@
            has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="python:bool(_series) or (_delta and _delta.get('has_chart'))">
+         tal:condition="python:bool(_series)">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -885,20 +885,15 @@
       </div>
 
       
-      <!-- JSON payload for trends (safe for browser & ignored by WeasyPrint) -->
-      /* trends-json moved above */
+      <!-- JSON seguro para tendencias -->
+      <script type="application/json" id="trends-json">
+        <tal:span tal:replace="python:json.dumps(trends_data)" />
+      </script>
 <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
-            var trendsDataEl = document.getElementById('trends-json');
             var trendsData = {};
-            try { trendsData = JSON.parse(trendsDataEl ? trendsDataEl.textContent : '{}'); } catch(e) { trendsData = {}; }
-
-            /* trends-json moved above */
-var trendsDataEl = document.getElementById('trends-json');
-            var trendsData = {};
-            try { trendsData = JSON.parse(trendsDataEl ? trendsDataEl.textContent : '{}'); } catch(e) { trendsData = {}; }
-
+      try { trendsData = JSON.parse((document.getElementById('trends-json')||{}).textContent || '{}'); } catch(e) { trendsData = {}; }
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
             var numericCount = 0;
@@ -916,25 +911,19 @@ try {
 } catch(e) { numericCount = 0; }
 if (numericCount < 2) return;
 
-            var isMs = (trendsData && trendsData.x_mode === 'ms');
-            var cats = isMs ? undefined : (trendsData.categories || []);
-            var n = isMs ? (((trendsData.series || [])[0] || {}).data || []).length : (cats.length || 0);
+            var cats = trendsData.categories || [];
+            var n = cats.length || 0;
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
               var mapped = d.map(function(p, i){
-                if (isMs) {
-                  var x = Array.isArray(p) ? p[0] : (p && typeof p === 'object' ? (('ms' in p) ? p.ms : (('x' in p) ? p.x : i)) : i);
-                  var y = Array.isArray(p) ? p[1] : (p && typeof p === 'object' ? (('y' in p) ? p.y : (('value' in p) ? p.value : null)) : p);
-                  return [x, y];
-                } else {
-                  var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
-                  return [i, y];
-                }
-              });
-              var copy = Object.assign({}, s);
+  var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+  return [i, y];
+});
+var copy = Object.assign({}, s);
               copy.data = mapped;
               return copy;
             });
+
             var step = (n <= 6) ? 1 : Math.ceil(n / 6);
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
@@ -944,11 +933,7 @@ if (numericCount < 2) return;
                        style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
               subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
                           style: { color: '#6c757d', fontSize: '12px' } },
-              xAxis: (isMs ? {
-                type: 'datetime',
-                labels: { style: { color: '#333' } },
-                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } }
-              } : {
+              xAxis: {
                 categories: cats,
                 tickPositions: tickPositions,
                 labels: { style: { color: '#333' }, rotation: -45, step: step },
@@ -996,6 +981,15 @@ if (numericCount < 2) return;
               credits: { enabled: false },
               exporting: { enabled: false }
             };
+      /*__XAXIS_PATCH__*/
+      if (isMs && options && (!options.xAxis || !options.xAxis.type)) {
+        options.xAxis = {
+          type: 'datetime',
+          labels: { style: { color: '#333' } },
+          title: { text: 'Fecha/hora', style: { color: '#000', fontWeight: 'bold' } }
+        };
+      }
+
 
             if (typeof Highcharts !== 'undefined') {
               var chart = Highcharts.chart('trends-chart-container', options);
