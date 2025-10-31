@@ -60,22 +60,18 @@ def _norm(s):
     return u" ".join(_u(s).strip().lower().split()) if s else u""
 
 
+ALLOWED_TREND_STATES = (
+    "verified", "published", "to_be_published",
+    "to_be_verified", "pending", "assigned", "sample_received",
+    "verified_duplicate",
+)
+
 class InfolabsaDeltaCheck(BrowserView):
     """Delta check robusto por paciente y analito con fechas ISO-8601 + JSON crudo."""
 
     PERIOD_DAYS = 365
     MAX_POINTS = 24
-    ALLOWED_TREND_STATES = (
-        'verified',
-        'published',
-        'to_be_published',
-        'to_be_verified',
-        'pending',
-        'assigned',
-        'sample_received',
-        'verified_duplicate',
-    )
-    STATES_OK = set(ALLOWED_TREND_STATES)
+    STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
 
     # ------------------ utils base ------------------
     def _get(self, obj, name, default=None):
@@ -617,12 +613,6 @@ class InfolabsaDeltaCheck(BrowserView):
             "portal_type": "Analysis",
             "getRequestID": ar_ids,
         }
-        # Also filter by allowed states at catalog level (faster and ensures same-day unverified analyses are included)
-        try:
-            query["review_state"] = tuple(self.STATES_OK)
-        except Exception:
-            pass
-
         sort_on = "getResultCaptureDate" if self._catalog_has_index("getResultCaptureDate", analyses=True) else "created"
 
         try:
