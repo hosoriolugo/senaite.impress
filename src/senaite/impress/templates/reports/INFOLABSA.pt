@@ -843,7 +843,7 @@
            has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="python:bool(_series)">
+         tal:condition="python:bool(_series) or (_delta and _delta.get('has_chart'))">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
