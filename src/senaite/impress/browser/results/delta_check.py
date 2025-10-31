@@ -619,7 +619,7 @@ class InfolabsaDeltaCheck(BrowserView):
         }
         # Also filter by allowed states at catalog level (faster and ensures same-day unverified analyses are included)
         try:
-            query[\"review_state\"] = tuple(self.STATES_OK)
+            query["review_state"] = tuple(self.STATES_OK)
         except Exception:
             pass
 
