@@ -2,6 +2,7 @@
 from Products.Five import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from DateTime import DateTime
+ALLOWED_TREND_STATES = ('verified','published','to_be_verified','pending')
 from Products.CMFCore.utils import getToolByName
 
 try:
@@ -205,6 +206,148 @@ def _as_DateTime_any(x):
     except Exception:
         return None
 
+
+
+    def _trend_points_same_day_ok(self, a):
+        """Historial por paciente+servicio incluyendo estados VERIFICADOS y mismo día."""
+        try:
+            # Import local para no romper si no existe en otros entornos
+            from Products.CMFCore.utils import getToolByName
+        except Exception:
+            getToolByName = None
+
+        try:
+            ar = getattr(a, 'getAnalysisRequest', lambda: None)() or None
+            patient = None
+            if ar and hasattr(ar, 'getPatient'):
+                patient = ar.getPatient()
+            if not patient and hasattr(a, 'getPatient'):
+                patient = a.getPatient()
+            patient_uid = patient and (getattr(patient, 'UID', lambda: None)() or None)
+
+            svc = getattr(a, 'getService', lambda: None)()
+            svc_uid = svc and (getattr(svc, 'UID', lambda: None)() or None)
+            kw = getattr(a, 'getKeyword', lambda: None)() or None
+
+            context = getattr(self, 'context', None) or getattr(a, 'aq_parent', None)
+            portal = getattr(context, 'portal_url', None)
+            if callable(portal):
+                portal = portal()
+            portal_obj = getattr(context, 'portal_url', None)
+            if callable(portal_obj):
+                portal_obj = portal_obj.getPortalObject()
+            else:
+                # Try acquisition
+                portal_obj = getattr(context, 'portal_url', None)
+                if callable(portal_obj):
+                    portal_obj = portal_obj.getPortalObject()
+
+            catalog = None
+            try:
+                if getToolByName:
+                    # Prefer the analysis catalog
+                    catalog = getToolByName(context, 'senaite_catalog_analysis')
+            except Exception:
+                catalog = None
+            if catalog is None and getToolByName:
+                try:
+                    catalog = getToolByName(context, 'portal_catalog')
+                except Exception:
+                    catalog = None
+            if catalog is None:
+                return []
+
+            query = dict(
+                portal_type='Analysis',
+                sort_on='getDateSampled',
+                sort_order='ascending',
+            )
+            # Estados permitidos: incluir verificados y pendientes
+            query['review_state'] = ALLOWED_TREND_STATES
+
+            # Filtros de paciente/servicio
+            if patient_uid:
+                # muchos catálogos tienen getPatientUID indexado
+                query['getPatientUID'] = patient_uid
+            if svc_uid:
+                # preferimos servicio por UID
+                query['getServiceUID'] = svc_uid
+            elif kw:
+                # si no hay UID, probar por keyword si está indexada
+                query['getKeyword'] = kw
+
+            brains = []
+            try:
+                brains = catalog.searchResults(**query)
+            except Exception:
+                # Si falla por índices desconocidos, relajar a portal_catalog básico
+                try:
+                    q2 = dict(portal_type='Analysis', sort_on='created', sort_order='ascending')
+                    if 'review_state' in query:
+                        q2['review_state'] = query['review_state']
+                    brains = catalog.searchResults(**q2)
+                except Exception:
+                    return []
+
+            # Timestamp de referencia: ahora mismo o fecha del AR actual
+            nowdt = getattr(a, 'getResultCaptureDate', lambda: None)()                     or getattr(a, 'getDateSampled', lambda: None)()                     or getattr(a, 'created', None)                     or DateTime()
+
+            pts = []
+            seen_ms = set()
+
+            for b in brains:
+                try:
+                    obj = b.getObject()
+                except Exception:
+                    obj = None
+                if obj is None:
+                    continue
+
+                # Validar que sea el mismo servicio/keyword si no filtró arriba
+                if svc_uid:
+                    try:
+                        bs = getattr(obj, 'getService', lambda: None)()
+                        if not (bs and getattr(bs, 'UID', lambda: None)() == svc_uid):
+                            continue
+                    except Exception:
+                        continue
+                elif kw:
+                    try:
+                        if getattr(obj, 'getKeyword', lambda: None)() != kw:
+                            continue
+                    except Exception:
+                        continue
+
+                # Fecha (incluir mismo día y mismo segundo)
+                dt = getattr(obj, 'getResultCaptureDate', lambda: None)()                      or getattr(obj, 'getDateSampled', lambda: None)()                      or getattr(obj, 'created', None)
+                if not dt or dt > nowdt:
+                    continue
+
+                # Valor numérico
+                val = getattr(obj, 'getResult', lambda: None)()
+                try:
+                    y = float(str(val).replace(',', '.'))
+                except Exception:
+                    continue
+
+                try:
+                    ms = int(dt.timeTime() * 1000)
+                except Exception:
+                    try:
+                        ms = int(float(dt) * 1000)
+                    except Exception:
+                        continue
+
+                while ms in seen_ms:
+                    ms += 1
+                seen_ms.add(ms)
+
+                iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second())
+                pts.append({'x': ms, 'y': y, 'date': iso})
+
+            return pts
+        except Exception:
+            return []
 
 def _sort_points_by_fulltime(points):
     """
@@ -1744,39 +1887,6 @@ class InfolabsaResultsWithState(BrowserView):
     def rows(self):
         return [self.row(a) for a in self.analyses()]
 
-    def _json_safe_rows(self, rows):
-        try:
-            out = []
-            for r in rows:
-                try:
-                    c = dict(r)
-                    tps = c.get('trend_points') or []
-                    tps2 = []
-                    for p in tps:
-                        try:
-                            d = dict(p)
-                            if 'date' in d:
-                                dt = d.get('date')
-                                try:
-                                    # Zope DateTime
-                                    iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second())
-                                except Exception:
-                                    try:
-                                        iso = unicode(d['date'])
-                                    except Exception:
-                                        iso = None
-                                d['date'] = iso
-                            tps2.append(d)
-                        except Exception:
-                            tps2.append(p)
-                    c['trend_points'] = tps2
-                    out.append(c)
-                except Exception:
-                    out.append(r)
-            return out
-        except Exception:
-            return rows
-
     # ------------------------- rendering -------------------------
     def __call__(self):
         # Decide JSON output if caller explicitly asks (?format=json),
@@ -1794,12 +1904,12 @@ class InfolabsaResultsWithState(BrowserView):
         except Exception:
             xrw = u''
 
-        wants_json = (fmt == u'json') or (self.request.get('json') in (u'1', u'true', u'True', True)) or (u'application/json' in accept) or (xrw == u'xmlhttprequest')
+        wants_json = (fmt == u'json') or (u'application/json' in accept) or (xrw == u'xmlhttprequest')
 
         if wants_json:
             try:
                 import json
-                data = {'items': self._json_safe_rows(self.rows())}
+                data = {'items': self.rows()}
                 self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
                 return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
             except Exception as exc:
