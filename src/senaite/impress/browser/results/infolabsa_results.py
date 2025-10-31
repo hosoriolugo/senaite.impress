@@ -1613,7 +1613,7 @@ class InfolabsaResultsWithState(BrowserView):
                                         'x': ms, 
                                         'y': y, 
                                         'sid': sid,
-                                        'date': (_uformat(u'%04d-%02d-%02dT%02d:%02d:%02d', dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second()) if dt else None),
+                                        'date': dt,
                                         'ar_id': ar_obj.getId()
                                     })
                                     
@@ -1744,6 +1744,39 @@ class InfolabsaResultsWithState(BrowserView):
     def rows(self):
         return [self.row(a) for a in self.analyses()]
 
+    def _json_safe_rows(self, rows):
+        try:
+            out = []
+            for r in rows:
+                try:
+                    c = dict(r)
+                    tps = c.get('trend_points') or []
+                    tps2 = []
+                    for p in tps:
+                        try:
+                            d = dict(p)
+                            if 'date' in d:
+                                dt = d.get('date')
+                                try:
+                                    # Zope DateTime
+                                    iso = u"%04d-%02d-%02dT%02d:%02d:%02d" % (dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second())
+                                except Exception:
+                                    try:
+                                        iso = unicode(d['date'])
+                                    except Exception:
+                                        iso = None
+                                d['date'] = iso
+                            tps2.append(d)
+                        except Exception:
+                            tps2.append(p)
+                    c['trend_points'] = tps2
+                    out.append(c)
+                except Exception:
+                    out.append(r)
+            return out
+        except Exception:
+            return rows
+
     # ------------------------- rendering -------------------------
     def __call__(self):
         # Decide JSON output if caller explicitly asks (?format=json),
@@ -1766,7 +1799,7 @@ class InfolabsaResultsWithState(BrowserView):
         if wants_json:
             try:
                 import json
-                data = {'items': self.rows()}
+                data = {'items': self._json_safe_rows(self.rows())}
                 self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
                 return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
             except Exception as exc:
