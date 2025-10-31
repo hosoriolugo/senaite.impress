@@ -1441,8 +1441,20 @@ class InfolabsaResultsWithState(BrowserView):
                 seen_timestamps.add(timestamp_key)
                 
                 # Convertir a milisegundos para el gráfico
-                base_ms = int(float(dt) * 1000.0)
+                try:
+                    base_ms = int(float(getattr(dt, 'timeTime', lambda: float(dt))()) * 1000.0)
+                except Exception:
+                    try:
+                        base_ms = int(dt.timeTime() * 1000.0)
+                    except Exception:
+                        base_ms = int(float(dt) * 1000.0)
                 unique_ms = base_ms + (counter * 1000)  # Agregar milisegundos para diferenciar
+
+                # Serializar fecha legible para JSON
+                try:
+                    d['date'] = getattr(dt, 'ISO', lambda: str(dt))()
+                except Exception:
+                    d['date'] = _to_unicode(dt)
 
                 # Normalizar valor Y
                 y_val = d.get('y') or d.get('value')
