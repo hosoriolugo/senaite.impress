@@ -905,19 +905,25 @@ try {
 } catch(e) { numericCount = 0; }
 if (numericCount < 2) return;
 
-            var cats = trendsData.categories || [];
-            var n = cats.length || 0;
+            var isMs = (trendsData && trendsData.x_mode === 'ms');
+            var cats = isMs ? undefined : (trendsData.categories || []);
+            var n = isMs ? (((trendsData.series || [])[0] || {}).data || []).length : (cats.length || 0);
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
               var mapped = d.map(function(p, i){
-  var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
-  return [i, y];
-});
-var copy = Object.assign({}, s);
+                if (isMs) {
+                  var x = Array.isArray(p) ? p[0] : (p && typeof p === 'object' ? (('ms' in p) ? p.ms : (('x' in p) ? p.x : i)) : i);
+                  var y = Array.isArray(p) ? p[1] : (p && typeof p === 'object' ? (('y' in p) ? p.y : (('value' in p) ? p.value : null)) : p);
+                  return [x, y];
+                } else {
+                  var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+                  return [i, y];
+                }
+              });
+              var copy = Object.assign({}, s);
               copy.data = mapped;
               return copy;
             });
-
             var step = (n <= 6) ? 1 : Math.ceil(n / 6);
             var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
@@ -927,7 +933,11 @@ var copy = Object.assign({}, s);
                        style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
               subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
                           style: { color: '#6c757d', fontSize: '12px' } },
-              xAxis: {
+              xAxis: (isMs ? {
+                type: 'datetime',
+                labels: { style: { color: '#333' } },
+                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } }
+              } : {
                 categories: cats,
                 tickPositions: tickPositions,
                 labels: { style: { color: '#333' }, rotation: -45, step: step },
