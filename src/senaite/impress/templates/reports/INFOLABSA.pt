@@ -800,8 +800,7 @@
                  or
                  (hasattr(p,'get') and
                   (
-                    ( (p.get('ms') or p.get('x') or p.get('date') or u'') +
-                      u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
+                    ( unicode(p.get('ms') or p.get('x') or p.get('date') or u'') + u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
                     (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)
                   ))
                  or
@@ -844,7 +843,7 @@
            has_two_points python:(_distinct_points >= 2);
            has_two_sids python:(_distinct_sids >= 2)
          "
-         tal:condition="python:bool(trends_data) and bool(_series) and has_two_points and has_two_sids">
+         tal:condition="python:bool(_series)">
 
       <!-- Contenedor para Highcharts (solo navegador) -->
       <div class="chart-center-wrap no-weasyprint">
@@ -891,45 +890,30 @@
             var trendsData = <tal:span tal:replace="structure python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            var seen = {};
-            var distinct = 0;
-            try {
-              trendsData.series.forEach(function(s){
-                var d = (s && s.data) ? s.data : [];
-                for (var i=0; i<d.length; i++){
-                  var p = d[i];
-                  var x = (p && typeof p === 'object')
-                            ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
-                            : i;
-                  var y = (p && typeof p === 'object')
-                            ? (Array.isArray(p) ? p[1] : p.y)
-                            : p;
-
-                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
-                  var sid = (p && typeof p === 'object' && !Array.isArray(p))
-                              ? (p.sid || p.sample_id || p.id || '')
-                              : '';
-                  var key = String(x) + '|' + String(sid);
-
-                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
-                    if (!seen[key]) { seen[key] = true; distinct++; }
-                  }
-                }
-              });
-            } catch(e) { distinct = 0; }
-            if (distinct < 2) return;
+            var numericCount = 0;
+try {
+  (trendsData.series || []).forEach(function(s){
+    var d = (s && s.data) ? s.data : [];
+    for (var i=0;i<d.length;i++){
+      var p = d[i];
+      var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+      var yn = parseFloat(y);
+      if (!isNaN(yn) && isFinite(yn)) numericCount++;
+      if (numericCount >= 2) break;
+    }
+  });
+} catch(e) { numericCount = 0; }
+if (numericCount < 2) return;
 
             var cats = trendsData.categories || [];
             var n = cats.length || 0;
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
               var mapped = d.map(function(p, i){
-                var y = (p && typeof p === 'object')
-                          ? (Array.isArray(p) ? p[1] : p.y)
-                          : p;
-                return [i, y];
-              });
-              var copy = Object.assign({}, s);
+  var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+  return [i, y];
+});
+var copy = Object.assign({}, s);
               copy.data = mapped;
               return copy;
             });
