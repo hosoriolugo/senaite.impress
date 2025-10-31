@@ -60,12 +60,6 @@ def _norm(s):
     return u" ".join(_u(s).strip().lower().split()) if s else u""
 
 
-ALLOWED_TREND_STATES = (
-    "verified", "published", "to_be_published",
-    "to_be_verified", "pending", "assigned", "sample_received",
-    "verified_duplicate",
-)
-
 class InfolabsaDeltaCheck(BrowserView):
     """Delta check robusto por paciente y analito con fechas ISO-8601 + JSON crudo."""
 
