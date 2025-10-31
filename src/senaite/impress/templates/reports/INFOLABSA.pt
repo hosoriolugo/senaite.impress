@@ -884,11 +884,18 @@
         </div>
       </div>
 
-      <script type="text/javascript">
+      
+      <!-- JSON payload for trends (safe for browser & ignored by WeasyPrint) -->
+      /* trends-json moved above */
+<script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
-            <script type="application/json" id="trends-json"><tal:span tal:replace="python:json.dumps(trends_data)" /></script>
             var trendsDataEl = document.getElementById('trends-json');
+            var trendsData = {};
+            try { trendsData = JSON.parse(trendsDataEl ? trendsDataEl.textContent : '{}'); } catch(e) { trendsData = {}; }
+
+            /* trends-json moved above */
+var trendsDataEl = document.getElementById('trends-json');
             var trendsData = {};
             try { trendsData = JSON.parse(trendsDataEl ? trendsDataEl.textContent : '{}'); } catch(e) { trendsData = {}; }
 
