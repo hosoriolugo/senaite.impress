@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<tal:report i18n:domain="senaite.impress">
+<tal:report i18n:domain="senaite.impress" tal:define=\"json python:modules['json']\">
   <!-- INFOLABSA.pt :: FINAL -->
 
   <!-- Assets estándar de Impress -->
@@ -889,82 +889,112 @@
         <tal:span tal:replace="structure python:json.dumps(trends_data)" />
       </script>
 <script type="text/javascript">
-(function(){
-  if (typeof window.WeasyPrint !== 'undefined') return;
-  try {
-    var el = document.getElementById('trends-json');
-    var trendsText = el ? (el.textContent || el.innerText || '') : '';
-    var trendsData = {};
-    try { trendsData = JSON.parse(trendsText || '{}'); } catch(_e) { trendsData = {}; }
+        (function() {
+          if (typeof window.WeasyPrint === 'undefined') {
+            var trendsData = <tal:span tal:replace="structure python:json.dumps(trends_data)" />;
+            if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-    var isMs = !!(trendsData && trendsData.x_mode === 'ms');
+            var numericCount = 0;
+try {
+  (trendsData.series || []).forEach(function(s){
+    var d = (s && s.data) ? s.data : [];
+    for (var i=0;i<d.length;i++){
+      var p = d[i];
+      var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+      var yn = parseFloat(y);
+      if (!isNaN(yn) && isFinite(yn)) numericCount++;
+      if (numericCount >= 2) break;
+    }
+  });
+} catch(e) { numericCount = 0; }
+if (numericCount < 2) return;
 
-    var series = [];
-    if (trendsData && trendsData.series && trendsData.series.length) {
-      for (var i = 0; i < trendsData.series.length; i++) {
-        var s = trendsData.series[i] || {};
-        var d = s.data || [];
-        var mapped = [];
-        for (var j = 0; j < d.length; j++) {
-          var p = d[j];
-          if (p && p.constructor === Array) {
-            mapped.push([p[0], p[1]]);
-          } else if (p && typeof p === 'object') {
-            var hasX = (p.hasOwnProperty('ms') || p.hasOwnProperty('x'));
-            var x = p.hasOwnProperty('ms') ? p.ms : (hasX ? p.x : j);
-            var y = p.hasOwnProperty('y') ? p.y : (p.hasOwnProperty('value') ? p.value : null);
-            mapped.push([x, y]);
-          } else {
-            mapped.push([j, p]);
+            var cats = trendsData.categories || [];
+            var n = cats.length || 0;
+            var series = (trendsData.series || []).map(function(s){
+              var d = s.data || [];
+              var mapped = d.map(function(p, i){
+  var y = (p && typeof p === 'object') ? (Array.isArray(p) ? p[1] : p.y) : p;
+  return [i, y];
+});
+var copy = Object.assign({}, s);
+              copy.data = mapped;
+              return copy;
+            });
+
+            var step = (n <= 6) ? 1 : Math.ceil(n / 6);
+            var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
+
+            var options = {
+              chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
+              title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
+                       style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
+              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+                          style: { color: '#6c757d', fontSize: '12px' } },
+              xAxis: {
+                categories: cats,
+                tickPositions: tickPositions,
+                labels: { style: { color: '#333' }, rotation: -45, step: step },
+                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                tickmarkPlacement: 'on'
+              },
+              yAxis: {
+                title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
+                labels: { style: { color: '#333' } },
+                min: trendsData.yMin,
+                max: trendsData.yMax,
+                gridLineColor: '#f0f0f0'
+              },
+              legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
+                        itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
+              plotOptions: {
+                line: {
+                  marker: { enabled: true, radius: 4 },
+                  dataLabels: {
+                    enabled: true,
+                    formatter: function(){
+                      var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
+                      return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
+                    },
+                    style: { textOutline: '1px contrast' }
+                  },
+                  enableMouseTracking: true
+                }
+              },
+              tooltip: {
+                shared: true, crosshairs: true,
+                formatter: function() {
+                  var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
+                  var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
+                  var s = '<b>' + fecha + '</b>';
+                  this.points.forEach(function(p) {
+                    var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
+                    s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
+                         ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
+                  });
+                  return s;
+                }
+              },
+              series: series,
+              credits: { enabled: false },
+              exporting: { enabled: false }
+            };
+
+            if (typeof Highcharts !== 'undefined') {
+              var chart = Highcharts.chart('trends-chart-container', options);
+              var el = document.getElementById('trends-chart-container');
+              if (el) { el.style.display = 'block'; }
+              if (Highcharts.charts && Highcharts.charts.length) {
+                var c = Highcharts.charts[Highcharts.charts.length - 1];
+                if (c && c.reflow) c.reflow();
+              }
+              var fb = document.querySelector('.section-trends .weasy-fallback');
+              if (fb) fb.style.display = 'none';
+              try { document.body.classList.add('has-highcharts'); } catch(e){}
+            }
           }
-        }
-        series.push({
-          name: s.name,
-          data: mapped,
-          tooltip: { valueSuffix: (s.unit ? (' ' + s.unit) : '') }
-        });
-      }
-    }
-
-    var xAxisCfg = isMs ? {
-      type: 'datetime',
-      labels: { style: { color: '#333' } },
-      title: { text: 'Fecha/hora', style: { color: '#000', fontWeight: 'bold' } }
-    } : {
-      categories: (trendsData.categories || []),
-      labels: { style: { color: '#333' } },
-      title: { text: 'Muestras', style: { color: '#000', fontWeight: 'bold' } }
-    };
-
-    if (typeof Highcharts === 'undefined') {
-      console.warn('Highcharts no cargó: ++plone++/senaite.impress.static/modules/highcharts/highcharts.js');
-      var ctr = document.getElementById('trends-chart-container');
-      if (ctr) ctr.style.display = 'block';
-      return;
-    }
-
-    var opt = {
-      chart: { type: 'line', backgroundColor: 'transparent' },
-      title: { text: 'Tendencias de Resultados en el Tiempo' },
-      xAxis: xAxisCfg,
-      yAxis: { title: { text: '' }, labels: { style: { color: '#333' } } },
-      tooltip: { shared: true },
-      legend: { enabled: true },
-      series: series,
-      credits: { enabled: false }
-    };
-
-    var container = document.getElementById('trends-chart-container');
-    if (container) {
-      container.style.display = 'block';
-      Highcharts.chart('trends-chart-container', opt);
-      if (document.body && document.body.classList) document.body.classList.add('has-highcharts');
-    }
-  } catch (err) {
-    console.error('Tendencias: error de render', err);
-  }
-})();
-</script>
+        })();
+      </script>
     </div>
 
     <!-- =========== Anexos (al final, solo si hay contenido) =========== -->
