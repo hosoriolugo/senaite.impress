@@ -64,7 +64,7 @@ class InfolabsaDeltaCheck(BrowserView):
     """Delta check robusto por paciente y analito con fechas ISO-8601 + JSON crudo."""
 
     PERIOD_DAYS = 365
-    MAX_POINTS  = 8
+    MAX_POINTS = 24
     STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
 
     # ------------------ utils base ------------------
@@ -852,7 +852,7 @@ class InfolabsaDeltaCheck(BrowserView):
                     "unit": keys["unit"] or u"",
                     "series": points,  # objetos completos
                     "xy": [{'x': pt['x'], 'y': pt['y']} for pt in points],
-                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],  # <- NUMÉRICO
+                    "data": [[pt['ms'], pt['y']] for pt in points if pt.get('ms') is not None],  # <- NUMÉRICO
                     "categories_ddmmyy": [pt['ddmmyy'] for pt in points],
                 })
 
@@ -944,7 +944,7 @@ class InfolabsaDeltaCheck(BrowserView):
             })
 
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
-        has_chart = bool([s for s in multi_series if len(s.get("series") or []) >= 2])
+        has_chart = bool([s for s in multi_series if len(s.get("data") or []) >= 2])
 
         # --- RETORNAR DICCIONARIO, NO JSON ---
         payload = {
