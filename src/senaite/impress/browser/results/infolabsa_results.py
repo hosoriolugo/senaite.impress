@@ -1,25 +1,23 @@
 # -*- coding: utf-8 -*-
 from Products.Five import BrowserView
+from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
+from DateTime import DateTime
 from Products.CMFCore.utils import getToolByName
 
 try:
-    from bika.lims import api, logger
+    unicode
+except NameError:
+    unicode = str
+
+try:
+    from bika.lims import logger, api
 except Exception:
-    api = None
     import logging
     logger = logging.getLogger("senaite.impress")
+    api = None  # fallback protegido
 
-import json
-import re
-import unicodedata
-import datetime
-import time
 
-# ----------------------------------------------------------------------
-# Utilidades base (compatibles con Py2.7)
-# ----------------------------------------------------------------------
-
-def _u(v):
+def _to_unicode(v):
     try:
         return unicode(v)
     except Exception:
@@ -29,1075 +27,1364 @@ def _u(v):
             return u""
 
 
-def _strip_accents(s):
-    try:
-        s = _u(s)
-        return u"".join(
-            c for c in unicodedata.normalize("NFD", s)
-            if unicodedata.category(c) != "Mn"
-        )
-    except Exception:
-        return _u(s)
-
-
 def _to_num(x):
-    """Convierte x a float si es posible. Acepta '1,23', '<1', '> 3.5'."""
     try:
         if x in (None, u"", ""):
             return None
+        # Python 2 long; en Py3 no existe, pero no rompe
         try:
-            num_types = (int, long, float)  # long existe en Py2
-        except NameError:
-            num_types = (int, float)
-        if isinstance(x, num_types):
+            long  # noqa
+        except Exception:
+            long = int  # type: ignore
+        if isinstance(x, (int, long, float)):
             return float(x)
-        s = _u(x)
-        s = s.replace("<", "").replace(">", "")
-        s = s.replace(",", ".")
+        s = _to_unicode(x).replace(",", ".")
         return float(s)
     except Exception:
         return None
 
 
-def _norm(s):
-    return u" ".join(_u(s).strip().lower().split()) if s else u""
+# ------------------------- helpers de presentación -------------------------
 
-
-def _safe_get(obj, name, default=None):
-    if not obj:
-        return default
-    attr = getattr(obj, name, None)
-    if callable(attr):
-        try:
-            return attr()
-        except Exception:
-            return default
-    return attr if attr is not None else default
-
-
-def _title_of(obj):
-    for g in ("Title", "title_or_id"):
-        if hasattr(obj, g):
-            try:
-                t = getattr(obj, g)()
-                if t:
-                    return _u(t)
-            except Exception:
-                pass
-    return _u(getattr(obj, "id", ""))
-
-
-def _wftool(context):
-    try:
-        portal = context.portal_url.getPortalObject()
-        return getToolByName(portal, "portal_workflow")
-    except Exception:
-        return None
-
-
-def _state_of(context, obj, brain=None):
-    try:
-        if brain is not None:
-            rs = getattr(brain, "review_state", None)
-            if rs:
-                return _u(rs)
-    except Exception:
-        pass
-    for g in ("getReviewState", "review_state", "state"):
-        try:
-            v = getattr(obj, g, None)
-            v = v() if callable(v) else v
-            if v:
-                return _u(v)
-        except Exception:
-            continue
-    try:
-        wft = _wftool(context)
-        if wft:
-            v = wft.getInfoFor(obj, "review_state", default=None)
-            if v:
-                return _u(v)
-    except Exception:
-        pass
-    return None
-
-
-def _iso(dt):
-    if not dt:
+def _pretty_src(ref_src, debug=False):
+    """Mapea el origen técnico a una etiqueta amable; oculta 'not_found' para usuario."""
+    if not ref_src:
         return u""
-    if api:
-        try:
-            zdt = api.to_datetime(dt)
-            return zdt.strftime("%Y-%m-%dT%H:%M:%S")
-        except Exception:
-            pass
-    try:
-        return dt.ISO8601()
-    except Exception:
-        return _u(dt)
+    s = _to_unicode(ref_src or u"").strip().lower()
+    if s in (u"not_found", u"unknown", u""):
+        return u"" if not debug else u"origen: " + _to_unicode(ref_src)
+    mapa = {
+        u"patient.pipeline": u"ajustado por edad/género",
+        u"linked.dx": u"especificación dinámica",
+        u"linked.at": u"especificación",
+        u"linked.spec": u"especificación",
+        u"svc.refranges": u"servicio (edad/género)",
+        u"analysis.getresultsrange": u"análisis",
+        u"analysis.spec.resultsrange": u"especificación",
+        u"analysis.spec.direct": u"especificación",
+        u"service.getresultsrange": u"servicio",
+        u"ar.spec.keyword": u"spec del AR",
+        u"dynamic": u"especificación dinámica",
+        u"spec": u"especificación",
+        u"refdef": u"definición de referencia",
+        u"analysis": u"análisis",
+        u"service": u"servicio",
+        u"service.refvalues": u"valores de referencia",
+    }
+    return mapa.get(s, u"" if not debug else u"origen: " + _to_unicode(ref_src))
 
 
-def _fmt_local(context, dt):
-    if not dt:
-        return u"—"
-    if api:
-        try:
-            return api.to_localized_time(dt)
-        except Exception:
-            pass
-    try:
-        return context.toLocalizedTime(dt)
-    except Exception:
-        pass
-    try:
-        return _u(dt)
-    except Exception:
-        return u"—"
+def _format_ref_text_with_unit(ref_text, unit):
+    """Devuelve el rango con unidad, sin duplicar ni dejar espacios raros."""
+    t = _to_unicode(ref_text or u"").strip()
+    u_ = _to_unicode(unit or u"").strip()
+    if not t:
+        return u""
+    if u_ and not (t.endswith(u_) or t.endswith(u" " + u_)):
+        return (t + u" " + u_).strip()
+    return t
 
 
-def _fmt_ddmmyy(iso):
-    try:
-        s = _u(iso).replace("Z", "")
-        fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
-        dt = datetime.datetime.strptime(s, fmt)
-        return dt.strftime("%d%m%y")
-    except Exception:
-        return re.sub(r"\D+", "", _u(iso))[:6] or _u(iso)
+def _sanitize_unit_for_flags(unit):
+    """
+    Evita que 'L'/'H' en la unidad se confundan con banderas visuales (Low/High).
+    Insertamos un “word joiner” U+2060 después de L/H cuando forman parte de la unidad.
+    No altera cálculos; solo presentación.
+    """
+    if not unit:
+        return unit
+    u = _to_unicode(unit)
+    # Casos típicos: /L, /H, por si hay equipos que marcan H (high) en unidades raras
+    u = u.replace(u"/L", u"/L\u2060").replace(u"/H", u"/H\u2060")
+    # También “por L” y variantes con espacios finos
+    u = u.replace(u" L", u" L\u2060")
+    return u
 
-
-def _to_epoch_ms(iso):
-    """Convierte ISO-8601 a epoch ms (para charts), limpiando zona horaria si viene con '+hh:mm'."""
-    try:
-        clean_iso = _u(iso).replace("Z", "").split('+')[0]
-        if 'T' in clean_iso:
-            fmt = "%Y-%m-%dT%H:%M:%S"
-        else:
-            fmt = "%Y-%m-%d"
-        dt = datetime.datetime.strptime(clean_iso, fmt)
-        timestamp = time.mktime(dt.timetuple()) * 1000.0
-        return int(timestamp)
-    except Exception as e:
-        try:
-            logger.error("Error convirtiendo fecha %s a epoch: %s" % (iso, str(e)))
-        except Exception:
-            pass
-        return None
-
-
-# ======================================================================
-# VISTA 1: @@infolabsa-results-with-state  (HTML tabla)
-# ======================================================================
 
 class InfolabsaResultsWithState(BrowserView):
-    STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
+    """
+    Renderiza la tabla 'cool' usando templates/results_with_state.pt
+    VERSION 3: añade estados de workflow, alertas unificadas y rangos por edad/género
+    """
+    index = ViewPageTemplateFile("../templates/results_with_state.pt")
 
-    def _analyses_of(self, ar):
-        for g in ("getAnalyses", "analyses", "getAnalysis"):
-            v = _safe_get(ar, g)
-            if v:
-                try:
-                    return list(v)
-                except Exception:
-                    return v
-        return []
+    # ------------------------- helpers -------------------------
+    def _get(self, obj, name, default=None):
+        if not obj:
+            return default
+        attr = getattr(obj, name, None)
+        if callable(attr):
+            try:
+                return attr()
+            except Exception:
+                return default
+        return attr if attr is not None else default
 
-    def _service_of(self, a):
+    def _u(self, v):
+        return _to_unicode(v)
+
+    def _first_text_from_lo_hi(self, lo, hi):
+        lo_t = u"" if lo in (None, u"", "") else self._u(lo)
+        hi_t = u"" if hi in (None, u"", "") else self._u(hi)
+        return (lo_t + (u" - " if lo_t or hi_t else u"") + hi_t).strip()
+
+    def _get_service(self, a):
         try:
-            return getattr(a, "getAnalysisService", lambda: None)()
+            return getattr(a, "getService", lambda: None)()
         except Exception:
             return None
 
-    def _unit_of(self, a):
-        for g in ("getUnit", "Unit", "getUnitAbbreviation"):
-            v = _safe_get(a, g)
-            if v:
-                return _u(v)
-        return u""
-
-    def _name_of(self, a):
-        svc = self._service_of(a)
-        if svc:
-            t = _title_of(svc)
-            if t:
-                return t
-        t2 = _safe_get(a, "Title")
-        return _u(t2) if t2 else u""
-
-    def _formatted_result(self, a):
-        for g in ("getResult", "Result", "result", "getValue"):
-            v = _safe_get(a, g)
-            if v not in (None, u"", ""):
-                fr = _safe_get(a, "getFormattedResult")
-                return (fr if fr not in (None, u"", "") else _u(v))
-        fr = _safe_get(a, "getFormattedResult")
-        if fr not in (None, u"", ""):
-            return _u(fr)
-        return u"—"
-
-    def _ref_range(self, a):
-        lo = _safe_get(a, "getLowerReferenceRange")
-        hi = _safe_get(a, "getUpperReferenceRange")
-        if lo in (None, u"", "") and hi in (None, u"", ""):
-            return u""
-        lo_s = _u(lo) if lo not in (None, u"", "") else u""
-        hi_s = _u(hi) if hi not in (None, u"", "") else u""
-        if lo_s and hi_s:
-            return u"%s – %s" % (lo_s, hi_s)
-        return lo_s or hi_s
-
-    def _verified_dt(self, a):
-        for g in ("getResultCaptureDate", "getDateVerified", "getDatePublished"):
-            v = _safe_get(a, g)
-            if v:
-                return v
-        ar = getattr(a, "aq_parent", None)
-        if ar:
-            for g in ("getDateVerified", "getDatePublished", "getDateReceived", "created"):
-                v = _safe_get(ar, g)
-                if v:
-                    return v
-        return None
-
-    def __call__(self):
-        ar = self.context
-        rows = []
-        for a in self._analyses_of(ar):
-            name = self._name_of(a) or u""
-            unit = self._unit_of(a) or u""
-            res  = self._formatted_result(a) or u"—"
-            rng  = self._ref_range(a) or u""
-            st   = _state_of(self.context, a) or u""
-            dt   = self._verified_dt(a)
-            dt_s = _fmt_local(self.context, dt) if dt else u"—"
-
-            rows.append({
-                "name": name,
-                "result": res,
-                "unit": unit,
-                "range": rng,
-                "state": st,
-                "date": dt_s,
-            })
-
-        out = []
-        out.append(u'<table class="table table-condensed table-sm">')
-        out.append(u"<thead><tr>")
-        out.append(u"<th>Analito</th>")
-        out.append(u"<th>Resultado</th>")
-        out.append(u"<th>Unidades</th>")
-        out.append(u"<th>Rangos</th>")
-        out.append(u"<th>Estado</th>")
-        out.append(u"<th>Fecha</th>")
-        out.append(u"</tr></thead>")
-        out.append(u"<tbody>")
-        for r in rows:
-            out.append(u"<tr>")
-            out.append(u"<td>%s</td>" % (r["name"],))
-            out.append(u"<td>%s</td>" % (r["result"],))
-            out.append(u"<td>%s</td>" % (r["unit"],))
-            out.append(u"<td>%s</td>" % (r["range"],))
-            out.append(u"<td>%s</td>" % (r["state"],))
-            out.append(u"<td>%s</td>" % (r["date"],))
-            out.append(u"</tr>")
-        out.append(u"</tbody></table>")
-        return u"".join(out)
-
-
-# ======================================================================
-# VISTA 2: @@infolabsa-delta-check (dict para Tendencia)
-# ======================================================================
-
-class InfolabsaDeltaCheck(BrowserView):
-    PERIOD_DAYS = 365
-    MAX_POINTS  = 8
-    STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
-
-    def _cat(self):
-        portal = self.context.portal_url.getPortalObject()
-        cat = getToolByName(portal, "senaite_catalog_sample", None)
-        if cat:
-            return cat
-        return getToolByName(portal, "portal_catalog")
-
-    def _acat(self):
-        portal = self.context.portal_url.getPortalObject()
-        acat = getToolByName(portal, "senaite_catalog_analysis", None)
-        if acat:
-            return acat
-        return getToolByName(portal, "portal_catalog")
-
-    def _catalog_has_index(self, name, analyses=False):
-        try:
-            cat = self._acat() if analyses else self._cat()
-            return name in cat.indexes()
-        except Exception:
-            return False
-
-    def _list_indexes(self, analyses=False):
-        try:
-            cat = self._acat() if analyses else self._cat()
-            return sorted(list(cat.indexes()))
-        except Exception:
-            return []
-
-    def _state_of(self, obj, brain=None):
-        return _state_of(self.context, obj, brain=brain)
-
-    def _get(self, obj, name, default=None):
-        return _safe_get(obj, name, default)
-
-    def _title_of(self, obj):
-        return _title_of(obj)
-
-    def _date_of_ar(self, ar):
-        for g in ("getDateVerified", "getDatePublished", "getDateReceived", "created"):
-            v = self._get(ar, g)
-            if v:
-                return v
-        return None
-
-    def _received_date_of_ar(self, ar):
-        for g in ("getDateReceived", "getReceptionDate", "getSamplingDate", "created"):
-            v = self._get(ar, g)
-            if v:
-                return v
-        return None
-
-    def _patient_obj(self, ar):
+    def _get_ar_ctx(self, a):
+        """Devuelve (ar, sample, sampletype, client, contact, patient) si existen"""
+        ar = getattr(a, "getAnalysisRequest", lambda: None)()
+        sample = getattr(ar, "getSample", lambda: None)() if ar else None
+        st = getattr(sample, "getSampleType", lambda: None)() if sample else None
+        client = getattr(ar, "getClient", lambda: None)() if ar else None
+        contact = getattr(ar, "getContact", lambda: None)() if ar else None
+        patient = None
         for pa in ("getPatient", "Patient", "getRelatedPatient"):
             if hasattr(ar, pa):
                 try:
-                    p = getattr(ar, pa)()
-                    if p:
-                        return p
+                    patient = getattr(ar, pa)()
+                    if patient:
+                        break
                 except Exception:
                     pass
-        return None
+        return ar, sample, st, client, contact, patient
 
-    def _mrn_of_ar(self, ar, patient):
-        for obj in (ar, patient):
-            if not obj:
-                continue
-            for name in (
-                "getMedicalRecordNumberValue", "getMedicalRecordNumber", "getMRN",
-                "getClientPatientID", "getPatientID", "getIdentifier",
-            ):
-                v = self._get(obj, name)
-                if v:
-                    return _u(v).strip()
-        return None
-
-    def _patient_uid_of(self, patient):
-        for name in ("UID", "getUID", "getId"):
-            v = getattr(patient, name, None)
-            try:
-                v = v() if callable(v) else v
-            except Exception:
-                pass
-            if v:
-                return _u(v)
-        return None
-
-    def _patient_keys(self, ar, patient):
-        keys = {}
-        mrn = self._mrn_of_ar(ar, patient)
-        if mrn:
-            keys["mrn"] = mrn
-        if patient:
-            puid = self._patient_uid_of(patient)
-            if puid:
-                keys["patient_uid"] = puid
-        full = None
-        for obj in (ar, patient):
-            if not obj:
-                continue
-            for name in ("getPatientFullName", "getFullname", "Title"):
-                v = self._get(obj, name)
-                if v:
-                    full = _u(v).strip()
-                    break
-            if full:
-                break
-        if full:
-            keys["fullname"] = _norm(full)
-        return keys
-
-    def _analyses_of(self, ar):
-        for g in ("getAnalyses", "analyses", "getAnalysis"):
-            v = self._get(ar, g)
-            if v:
-                try:
-                    return list(v)
-                except Exception:
-                    return v
-        return []
-
-    def _service_of(self, a):
-        try:
-            return getattr(a, "getAnalysisService", lambda: None)()
-        except Exception:
-            return None
-
-    def _service_uid_of(self, a):
-        for g in ("getServiceUID", "ServiceUID"):
-            v = self._get(a, g)
-            if v:
-                return _u(v)
-        svc = self._service_of(a)
-        return self._get(svc, "UID")
-
-    def _service_code(self, svc):
-        for g in ("getAnalysisCode", "getCode", "getServiceID", "getId", "id"):
-            v = self._get(svc, g)
-            if v:
-                return _u(v)
-        return None
-
-    def _unit_of(self, a):
-        for g in ("getUnit", "Unit", "getUnitAbbreviation"):
-            v = self._get(a, g)
-            if v:
-                return _u(v)
-        return u""
-
-    def _analysis_keys(self, a):
-        svc = self._service_of(a)
-        svc_uid = self._get(svc, "UID") or self._service_uid_of(a)
-        kw = self._get(svc, "getKeyword") if svc else None
-        if not kw:
-            kw = self._get(a, "getKeyword")
-        title = _title_of(svc) if svc else (self._get(a, "Title") or u"")
-        code = self._service_code(svc) if svc else None
-
-        uid = None
-        if svc_uid:
-            uid = _u(svc_uid)
-        elif kw:
-            uid = u"kw:" + _u(kw).strip().lower()
-        elif title:
-            uid = u"title:" + _u(title).strip().lower()
-
-        return {
-            "svc_uid": _u(svc_uid) if svc_uid else None,
-            "keyword": _u(kw).strip() if kw else None,
-            "title": _u(title).strip() if title else None,
-            "code": _u(code).strip() if code else None,
-            "uid": uid,
-            "unit": self._unit_of(a),
-            "name": _u(title or kw or self._get(a, "Title") or u""),
-        }
-
-    def _result_value(self, a):
-        for g in ("getResult", "Result", "result", "getValue"):
+    # ---------- extracción robusta de Resultado / Unidad ----------
+    def _get_result(self, a):
+        for g in ("getFormattedResult", "getResult", "Result", "result", "formatted_result", "getValue"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
-                num = _to_num(v)
-                if num is not None:
-                    fr = self._get(a, "getFormattedResult")
-                    return (fr if fr not in (None, u"", "") else _u(v)), float(num)
-        fr = self._get(a, "getFormattedResult")
-        if fr not in (None, u"", ""):
-            s = _u(fr)
-            m = re.search(r'[-<>]?\s*\d+(?:[.,]\d+)?', s)
-            if m:
-                num = _to_num(m.group(0))
-                if num is not None:
-                    return (s, float(num))
-            sn = _norm(_strip_accents(s))
-            neg = (u"ausente", u"no detectado", u"no-detectado", u"nd",
-                   u"negativo", u"sin crecimiento", u"no growth",
-                   u"absent", u"none detected", u"not detected", u"no se detecta")
-            pos = (u"presente", u"detectado", u"positivo", u"con crecimiento",
-                   u"present", u"detected", u"growth")
-            if any(k in sn for k in neg):
-                return (s, 0.0)
-            if any(k in sn for k in pos):
-                return (s, 1.0)
-        return u"—", None
+                return v
+        return u"—"
 
-    def _same_patient(self, other_ar, pkeys):
-        found = set()
-        for name in (
-            "getMedicalRecordNumberValue", "getMedicalRecordNumber", "getMRN",
-            "getClientPatientID", "getPatientID", "getIdentifier",
-        ):
-            v = self._get(other_ar, name)
-            if v:
-                found.add(_u(v).strip())
-        if found and pkeys.get("mrn"):
-            if pkeys["mrn"] in found:
-                return True
+    def _get_unit(self, a):
+        for g in ("getUnit", "Unit", "unit", "getFormattedUnit", "getUnitAbbreviation"):
+            v = self._get(a, g)
+            if v not in (None, u"", ""):
+                return v
+        return u""
 
-        full = None
-        for name in ("getPatientFullName", "getFullname", "Title"):
-            v = self._get(other_ar, name)
-            if v:
-                full = _norm(v)
+    # ---------- low/high genéricos ----------
+    def _get_low_high_candidates(self, obj):
+        """Intenta leer low/high de muchos alias habituales."""
+        if not obj:
+            return None, None
+        low_names = (
+            "getLowerLimit", "getLowerResultLimit", "getLowerRange",
+            "getMin", "getMinimum", "LowerLimit", "lower", "lower_limit",
+            "getMinValue", "MinValue", "minValue",
+            "getLowerNormal", "LowerNormal", "LowerNormalLimit",
+            "getLowerDetectionLimit", "getLowerQuantitationLimit", "getLowerQuantificationLimit",
+        )
+        high_names = (
+            "getUpperLimit", "getUpperResultLimit", "getUpperRange",
+            "getMax", "getMaximum", "UpperLimit", "upper", "upper_limit",
+            "getMaxValue", "MaxValue", "maxValue",
+            "getUpperNormal", "UpperNormal", "UpperNormalLimit",
+            "getUpperDetectionLimit", "getUpperQuantitationLimit", "getUpperQuantificationLimit",
+        )
+        low = high = None
+        for n in low_names:
+            v = self._get(obj, n)
+            if v not in (None, u"", ""):
+                low = v
                 break
-        if full and pkeys.get("fullname") and full == pkeys["fullname"]:
-            return True
-        return False
-
-    def _best_patient_query_for_catalog(self, cat, pkeys):
-        try:
-            indexes = set(cat.indexes())
-        except Exception:
-            indexes = set()
-
-        puid = pkeys.get("patient_uid")
-        for idx in ("getPatientUIDExact", "getPatientUID"):
-            if puid and idx in indexes:
-                return {idx: puid}
-
-        mrn = pkeys.get("mrn")
-        for idx in ("getMedicalRecordNumber", "medical_record_number",
-                    "getClientPatientID", "getPatientID", "getIdentifier"):
-            if mrn and idx in indexes:
-                return {idx: mrn}
-        return {}
-
-    def _candidate_ars(self, current_ar, patient, pkeys):
-        cat = self._cat()
-        cur_uid = self._get(current_ar, "UID")
-
-        from DateTime import DateTime as ZDT
-        try:
-            cutoff = ZDT() - self.PERIOD_DAYS
-        except Exception:
-            cutoff = None
-
-        query = {
-            "portal_type": "AnalysisRequest",
-            "sort_on": "created",
-            "sort_order": "descending",
-        }
-        patient_filter = self._best_patient_query_for_catalog(cat, pkeys)
-        query.update(patient_filter)
-
-        try:
-            idxs = set(cat.indexes())
-        except Exception:
-            idxs = set()
-        if "getDateReceived" in idxs:
-            if cutoff:
-                query["getDateReceived"] = {"query": cutoff, "range": "min"}
-        elif "created" in idxs:
-            if cutoff:
-                query["created"] = {"query": cutoff, "range": "min"}
-
-        try:
-            if patient_filter:
-                brains = cat.searchResults(**query)
-            else:
-                brains = cat.searchResults(
-                    portal_type="AnalysisRequest",
-                    sort_on="created",
-                    sort_order="descending",
-                )[:500]
-        except Exception:
-            brains = []
-
-        out = []
-        seen = set([cur_uid])
-
-        for b in brains:
-            if getattr(b, "UID", None) in seen:
-                continue
-            try:
-                b_state = getattr(b, "review_state", None)
-                if b_state and _u(b_state) not in self.STATES_OK:
-                    continue
-            except Exception:
-                pass
-            try:
-                obj = b.getObject()
-            except Exception:
-                continue
-            if not getattr(b, "review_state", None):
-                st = self._state_of(obj)
-                if st and st not in self.STATES_OK:
-                    continue
-            if not patient_filter:
-                if not self._same_patient(obj, pkeys):
-                    continue
-            out.append(obj)
-            seen.add(b.UID)
-        return out
-
-    def _choose_prev_ar_global(self, current_ar, candidate_ars):
-        cur_recv = self._received_date_of_ar(current_ar)
-        if not cur_recv:
-            return None
-        dated = []
-        for ar in candidate_ars:
-            dt = self._received_date_of_ar(ar)
-            if not dt:
-                continue
-            try:
-                if dt >= cur_recv:
-                    continue
-            except Exception:
-                continue
-            st = self._state_of(ar)
-            if st and _u(st) not in self.STATES_OK:
-                continue
-            dated.append((dt, ar))
-        if not dated:
-            return None
-        dated.sort(key=lambda x: x[0])
-        return dated[-1][1]
-
-    def _find_prev_value_in_ar(self, prev_ar, target_keys):
-        if not prev_ar:
-            return (u"—", None)
-
-        tgt_svc_uid = (target_keys or {}).get("svc_uid")
-        tgt_kw      = (target_keys or {}).get("keyword")
-        tgt_code    = (target_keys or {}).get("code")
-        tgt_title_n = _norm((target_keys or {}).get("title"))
-        tgt_name_n  = _norm((target_keys or {}).get("name"))
-        tgt_unit_n  = _norm((target_keys or {}).get("unit"))
-
-        analyses = self._analyses_of(prev_ar)
-
-        def _service_code(svc):
-            for g in ("getAnalysisCode", "getCode", "getServiceID", "getId", "id"):
-                v = self._get(svc, g)
-                if v:
-                    return _u(v)
-            return None
-
-        def _kw_of(a):
-            svc = self._service_of(a)
-            return (self._get(svc, "getKeyword") or self._get(a, "getKeyword"))
-
-        def _match_and_return(a):
-            raw, num = self._result_value(a)
-            if (num is not None) or (raw not in (None, u"", "")):
-                return (raw if raw not in (None, u"", "") else u"—", num)
-            return None
-
-        if tgt_svc_uid:
-            for a in analyses:
-                svc = self._service_of(a)
-                svuid = self._get(svc, "UID") or self._service_uid_of(a)
-                if svuid and _u(svuid) == tgt_svc_uid:
-                    r = _match_and_return(a)
-                    return r if r else (u"—", None)
-
-        if tgt_kw:
-            for a in analyses:
-                kw_other = _kw_of(a)
-                if kw_other and _u(kw_other).strip().lower() == _u(tgt_kw).strip().lower():
-                    r = _match_and_return(a)
-                    return r if r else (u"—", None)
-
-        if tgt_code:
-            for a in analyses:
-                code_other = _service_code(self._service_of(a))
-                if code_other and _norm(code_other) == _norm(tgt_code):
-                    r = _match_and_return(a)
-                    return r if r else (u"—", None)
-
-        if tgt_title_n:
-            for a in analyses:
-                t_other = _title_of(self._service_of(a)) if self._service_of(a) else (self._get(a, "Title") or u"")
-                if _norm(t_other) == tgt_title_n:
-                    r = _match_and_return(a)
-                    return r if r else (u"—", None)
-
-        for a in analyses:
-            unit_o = self._unit_of(a)
-            name_o = _title_of(self._service_of(a)) if self._service_of(a) else (self._get(a, "Title") or u"")
-            if _norm(name_o) == tgt_name_n and _norm(unit_o) == tgt_unit_n:
-                r = _match_and_return(a)
-                return r if r else (u"—", None)
-
-        return (u"—", None)
-
-    def _series_for_uid(self, ars, analito_uid, keyword, title):
-        acat = self._acat()
-
-        ar_by_id = {}
-        ar_ids = []
-        for ar in ars:
-            rid = self._get(ar, "getRequestID") or self._get(ar, "getId")
-            if not rid:
-                continue
-            ar_ids.append(rid)
-            ar_by_id[rid] = (ar, self._date_of_ar(ar))
-        if not ar_ids:
-            return []
-
-        query = {
-            "portal_type": "Analysis",
-            "getRequestID": ar_ids,
-        }
-        sort_on = "getResultCaptureDate" if self._catalog_has_index("getResultCaptureDate", analyses=True) else "created"
-
-        try:
-            abrains = acat.searchResults(sort_on=sort_on, sort_order="ascending", **query)
-        except Exception:
-            abrains = []
-
-        pts = []
-        ok_states = self.STATES_OK
-        tgt_uid = analito_uid or u""
-        tgt_kw  = (keyword or u"").strip().lower()
-        tgt_title_n = _norm(title)
-
-        for ab in abrains:
-            try:
-                astate = getattr(ab, "review_state", None)
-                if astate and _u(astate) not in ok_states:
-                    continue
-            except Exception:
-                pass
-
-            try:
-                aobj = ab.getObject()
-            except Exception:
-                continue
-
-            svc = self._service_of(aobj)
-            svuid = self._get(svc, "UID") or self._service_uid_of(aobj)
-            kw_other = (self._get(svc, "getKeyword") or self._get(aobj, "getKeyword") or u"").strip().lower()
-            title_other = _title_of(svc) if svc else (self._get(aobj, "Title") or u"")
-            title_other_n = _norm(title_other)
-
-            match = False
-            if tgt_uid and svuid and _u(svuid) == tgt_uid:
-                match = True
-            elif tgt_kw and kw_other and kw_other == tgt_kw:
-                match = True
-            elif tgt_title_n and title_other_n and title_other_n == tgt_title_n:
-                match = True
-            if not match:
-                continue
-
-            raw_val, fval = self._result_value(aobj)
-            if fval is None:
-                continue
-
-            rid = getattr(ab, "getRequestID", None)
-            rid = rid() if callable(rid) else rid
-            ar_ref, ar_dt = ar_by_id.get(rid, (None, None))
-            dt = ar_dt or getattr(ab, "getResultCaptureDate", None) or getattr(ab, "created", None)
-            if not dt:
-                continue
-
-            iso = _iso(dt).replace("Z", "")
-            pts.append({
-                "date": iso,
-                "value": float(fval),
-                "raw": _u(raw_val),
-                "ar": ar_ref or self.context,
-                "rid": rid
-            })
-
-        if not pts:
-            cur_ar = self.context
-            cur_rid = self._get(cur_ar, "getRequestID") or self._get(cur_ar, "getId")
-            dt = self._date_of_ar(cur_ar)
-            for a in self._analyses_of(cur_ar):
-                keys = self._analysis_keys(a)
-                ok = False
-                if analito_uid and keys["uid"] == analito_uid:
-                    ok = True
-                elif keyword and keys["keyword"] and keys["keyword"].lower() == (keyword or "").lower():
-                    ok = True
-                elif title and keys["title"] and keys["title"].lower() == (title or "").lower():
-                    ok = True
-                if not ok:
-                    continue
-                raw, f = self._result_value(a)
-                if f is None:
-                    continue
-                iso = _iso(dt).replace("Z", "")
-                pts.append({"date": iso, "value": float(f), "raw": _u(raw), "ar": cur_ar, "rid": cur_rid})
+        for n in high_names:
+            v = self._get(obj, n)
+            if v not in (None, u"", ""):
+                high = v
                 break
+        return low, high
 
-        by_rid = {}
-        for p in pts:
-            rid = p.get("rid")
-            if not rid:
-                continue
-            prev = by_rid.get(rid)
-            if prev is None or p["date"] > prev["date"]:
-                by_rid[rid] = p
+    def _ref_range_from_any(self, rr):
+        """Convierte 'rr' (str/dict/objeto) a (texto, low, high)."""
+        if isinstance(rr, dict):
+            text = rr.get("text") or rr.get("label") or u""
+            lo = rr.get("lower", rr.get("min"))
+            hi = rr.get("upper", rr.get("max"))
+            if not text:
+                text = self._first_text_from_lo_hi(lo, hi)
+            return text, lo, hi
+        if rr not in (None, u"", ""):
+            return self._u(rr), None, None
+        return u"", None, None
 
-        pts = list(by_rid.values())
-        pts.sort(key=lambda p: p["date"])
-        if len(pts) > self.MAX_POINTS:
-            pts = pts[-self.MAX_POINTS:]
-        return pts
+    # ---------- formateador ResultsRange ----------
+    def _format_results_range(self, results_range):
+        if not isinstance(results_range, dict):
+            return u"", None, None, None
 
-    def _trend_dir(self, series_points):
-        try:
-            n = len(series_points or [])
-            if n < 2:
-                return u"∙"
+        u_ = self._u
 
-            def _to_ts_days(iso):
+        comment = (results_range.get("rangecomment")
+                   or results_range.get("comment")
+                   or results_range.get("RangeComment"))
+        if comment not in (None, u"", ""):
+            lo = (results_range.get("min") or results_range.get("Min")
+                  or results_range.get("lower") or results_range.get("Lower")
+                  or results_range.get("LowerLimit"))
+            hi = (results_range.get("max") or results_range.get("Max")
+                  or results_range.get("upper") or results_range.get("Upper")
+                  or results_range.get("UpperLimit"))
+            return u_(comment), lo, hi, None
+
+        eq_val = (results_range.get("result") or results_range.get("value")
+                  or results_range.get("Result") or results_range.get("Value"))
+        if eq_val not in (None, u"", ""):
+            return u"=" + u_(eq_val), None, None, u_(eq_val)
+
+        lo = (results_range.get("min") or results_range.get("Min")
+              or results_range.get("lower") or results_range.get("Lower")
+              or results_range.get("LowerLimit"))
+        hi = (results_range.get("max") or results_range.get("Max")
+              or results_range.get("upper") or results_range.get("Upper")
+              or results_range.get("UpperLimit"))
+
+        hide_min = (results_range.get("hidemin") == "on"
+                    or results_range.get("hide_min") == "on")
+        hide_max = (results_range.get("hidemax") == "on"
+                    or results_range.get("hide_max") == "on")
+
+        lo_txt = (None if hide_min else lo)
+        hi_txt = (None if hide_max else hi)
+        text = self._first_text_from_lo_hi(lo_txt, hi_txt)
+        return text, lo, hi, None
+
+    # ---------- pipeline senaite.patient ----------
+    def _get_patient_results_range(self, a):
+        if api:
+            for fname in ("get_results_range", "getResultsRangeFor"):
                 try:
-                    dt = datetime.datetime.strptime(iso.replace("Z",""), "%Y-%m-%dT%H:%M:%S")
-                except Exception:
-                    try:
-                        dt = datetime.datetime.strptime(iso[:10], "%Y-%m-%d")
-                    except Exception:
-                        return None
-                return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
-
-            pts = [(_to_ts_days(p["date"]), float(p["value"])) for p in series_points if p.get("date") and p.get("value") is not None]
-            pts = [p for p in pts if p[0] is not None]
-            if len(pts) < 2:
-                return u"∙"
-
-            if len(pts) == 2:
-                return u"▲" if pts[-1][1] > pts[0][1] else (u"▼" if pts[-1][1] < pts[0][1] else u"∙")
-
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
-            xbar = sum(xs) / float(len(xs))
-            ybar = sum(ys) / float(len(ys))
-            sxy = sum((x - xbar)*(y - ybar) for x,y in pts)
-            sxx = sum((x - xbar)*(x - xbar) for x in xs) or 1.0
-            slope = sxy / sxx
-
-            t_span = max(xs) - min(xs) or 1.0
-            y_span = max(ys) - min(ys) or 1.0
-            rel = abs(slope) * t_span / y_span
-            if rel < 0.005:
-                return u"∙"
-            return u"▲" if slope > 0 else u"▼"
-        except Exception:
-            return u"∙"
-
-    def _debug_summary(self, ar, patient, pkeys, prev_ars, now_analyses, multi_series, patient_filter):
-        sample_indexes = self._list_indexes(analyses=False)
-        analysis_indexes = self._list_indexes(analyses=True)
-
-        prev_summary = []
-        for x in prev_ars[:30]:
-            rid = self._get(x, "getRequestID") or self._get(x, "getId") or u""
-            dt = self._received_date_of_ar(x) or self._date_of_ar(x)
-            rs = self._state_of(x)
-            prev_summary.append({
-                "rid": _u(rid),
-                "date": _iso(dt) if dt else u"",
-                "date_fmt": _fmt_local(self.context, dt) if dt else u"",
-                "state": rs or u"",
-            })
-
-        a_summ = []
-        for a in now_analyses:
-            k = self._analysis_keys(a)
-            a_summ.append({
-                "name": k["name"],
-                "unit": k["unit"],
-                "svc_uid": k["svc_uid"],
-                "keyword": k["keyword"],
-                "code": k["code"],
-            })
-
-        msum = []
-        for s in multi_series:
-            pts = s.get("series") or []
-            msum.append({
-                "name": s.get("name"),
-                "unit": s.get("unit"),
-                "points": len(pts),
-                "from": (pts[0]["date"] if pts else ""),
-                "to": (pts[-1]["date"] if pts else ""),
-            })
-
-        return {
-            "patient_keys": pkeys,
-            "patient_uid_present": bool(pkeys.get("patient_uid")),
-            "mrn_present": bool(pkeys.get("mrn")),
-            "sample_catalog_indexes": sample_indexes,
-            "analysis_catalog_indexes": analysis_indexes,
-            "patient_filter_used_in_catalog_query": patient_filter,
-            "period_days": self.PERIOD_DAYS,
-            "max_points_per_analyte": self.MAX_POINTS,
-            "candidate_ARs_found": len(prev_ars),
-            "candidate_ARs_preview": prev_summary,
-            "current_AR_id": self._get(ar, "getRequestID") or self._get(ar, "getId"),
-            "current_AR_date": _fmt_local(self.context, self._date_of_ar(ar)),
-            "current_analyses_meta": a_summ,
-            "multi_series_after_flow": msum,
-        }
-
-    def __call__(self):
-        ar = self.context
-        patient = self._patient_obj(ar)
-        pkeys = self._patient_keys(ar, patient)
-
-        prev_ars = self._candidate_ars(ar, patient, pkeys)
-        ars_for_series = list(prev_ars) + [ar]
-
-        rows = []
-        multi_series = []
-        now_analyses = self._analyses_of(ar)
-
-        prev_ar_global = self._choose_prev_ar_global(ar, prev_ars)
-
-        for a in now_analyses:
-            keys = self._analysis_keys(a)
-            raw_now, val_now = self._result_value(a)
-
-            series_pts = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
-
-            points = []
-            for p in series_pts:
-                iso = p.get('date')
-                val = p.get('value')
-                if iso is None or val is None:
-                    continue
-                ddmmyy = _fmt_ddmmyy(iso)
-                ms = _to_epoch_ms(iso)
-                points.append({
-                    'date': iso,
-                    'value': float(val),
-                    'x': iso,
-                    'y': float(val),
-                    'ddmmyy': ddmmyy,
-                    'ms': ms,
-                })
-
-            if len(points) >= 2:
-                multi_series.append({
-                    "name": keys["name"],
-                    "unit": keys["unit"] or u"",
-                    "series": points,
-                    "xy": [{'x': pt['x'], 'y': pt['y']} for pt in points],
-                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],
-                    "categories_ddmmyy": [pt['ddmmyy'] for pt in points],
-                })
-
-            if len(points) < 2 or val_now is None:
-                continue
-
-            prev_raw, prev_num = self._find_prev_value_in_ar(prev_ar_global, keys)
-
-            delta_abs = None
-            delta_pct = u"N/A"
-            delta_dir = u"∙"
-
-            if prev_num is not None:
-                try:
-                    delta_abs = float(val_now) - float(prev_num)
-                    if prev_num != 0:
-                        pct = ((float(val_now) - float(prev_num)) / abs(float(prev_num))) * 100.0
-                        delta_pct = u"%.1f%%" % pct
-                    if float(val_now) > float(prev_num):
-                        delta_dir = u"▲"
-                    elif float(val_now) < float(prev_num):
-                        delta_dir = u"▼"
-                    else:
-                        delta_dir = u"Δ"
+                    fn = getattr(api, fname, None)
+                    if callable(fn):
+                        rr = fn(a)
+                        if isinstance(rr, dict):
+                            text, lo, hi, _eq = self._format_results_range(rr)
+                            if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                                return text, lo, hi
                 except Exception:
                     pass
 
-            prev_id = u"—"
-            prev_date = u"—"
-            prev_date_fmt = u"—"
-            if prev_ar_global:
-                prev_id = (self._get(prev_ar_global, "getRequestID") or
-                           self._get(prev_ar_global, "getId") or u"—")
-                pdt = self._date_of_ar(prev_ar_global)
-                prev_date = _iso(pdt).replace("Z","") if pdt else u"—"
-                prev_date_fmt = _fmt_local(self.context, pdt) if pdt else u"—"
-
-            delta_abs_fmt = u"—"
+        for mname in ("getPatientResultsRange", "getDynamicResultsRange", "getFinalResultsRange"):
             try:
-                if delta_abs is not None:
-                    delta_abs_fmt = u"{:+.2f}".format(delta_abs)
+                rr = getattr(a, mname)()
+                if isinstance(rr, dict):
+                    text, lo, hi, _eq = self._format_results_range(rr)
+                    if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                        return text, lo, hi
             except Exception:
                 pass
-            delta_combo_fmt = (u"%s (%s)" % (delta_abs_fmt, delta_pct)
-                               if delta_abs is not None
-                               else u"—")
-
-            trend_dir = self._trend_dir(points)
-
-            prev_value_raw = prev_raw if prev_raw not in (None, u"", "") else (u"%s" % prev_num if prev_num is not None else u"—")
-
-            trend_from_fmt = _fmt_ddmmyy(points[0]['date']) if points else u"—"
-            trend_to_fmt   = _fmt_ddmmyy(points[-1]['date']) if points else u"—"
-
-            rows.append({
-                'uid': keys["uid"],
-                'name': keys["name"],
-                'unit': keys["unit"] or u'',
-                'value_now': (raw_now if raw_now not in (None, u"", "") else u'—'),
-
-                'delta_pct': delta_pct,
-                'delta_dir': delta_dir,
-                'delta_abs_fmt': delta_abs_fmt,
-                'delta_combo_fmt': delta_combo_fmt,
-                'delta_note': u'',
-
-                'prev_sample_id': prev_id,
-                'prev_date': prev_date,
-                'prev_date_fmt': prev_date_fmt,
-                'prev_value': prev_value_raw,
-
-                'rcv_pct': None,
-                'trend_dir': trend_dir,
-
-                'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],
-
-                'trend_from_fmt': trend_from_fmt,
-                'trend_to_fmt': trend_to_fmt,
-            })
-
-        chart_v2_series = []
-        for s in multi_series:
-            chart_v2_series.append({
-                "name": s.get("name"),
-                "unit": s.get("unit") or u"",
-                "data": s.get("data") or [],
-                "categories_ddmmyy": s.get("categories_ddmmyy") or [],
-            })
-
-        label = u'%d meses' % (self.PERIOD_DAYS // 30)
-        has_chart = bool([s for s in multi_series if len(s.get("series") or []) >= 2])
-
-        payload = {
-            'period_label': label,
-            'rows': rows,
-            'chart': {
-                'series': multi_series,
-                'max_points': self.MAX_POINTS,
-                'window_days': self.PERIOD_DAYS,
-            },
-            'chart_v2': {
-                'x_mode': 'ms',
-                'series': chart_v2_series,
-                'max_points': self.MAX_POINTS,
-                'window_days': self.PERIOD_DAYS,
-            },
-            'has_chart': bool(has_chart),
-        }
 
         try:
-            if self.request.form.get("debug") or self.request.get("debug"):
-                cat = self._cat()
-                pf = self._best_patient_query_for_catalog(cat, pkeys)
-                payload["_debug"] = self._debug_summary(ar, patient, pkeys, prev_ars, self._analyses_of(ar), multi_series, pf)
+            rr = getattr(a, "getResultsRange", None)
+            rr = rr() if callable(rr) else None
+            if isinstance(rr, dict):
+                text, lo, hi, _eq = self._format_results_range(rr)
+                if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                    return text, lo, hi
         except Exception:
             pass
 
-        return payload
+        return u"", None, None
+
+    # ---------- helpers para spec enlazada ----------
+    def _age_days(self, patient, ar):
+        try:
+            if patient:
+                for fn in ("getBirthDate", "getDateOfBirth"):
+                    dob = getattr(patient, fn, lambda: None)()
+                    if dob:
+                        try:
+                            dob = dob.asdatetime().date()
+                        except Exception:
+                            dob = getattr(dob, "date", lambda: dob)()
+                        import datetime
+                        today = datetime.date.today()
+                        return (today - dob).days
+        except Exception:
+            pass
+        yrs = self._age_years(patient, ar)
+        try:
+            if yrs is not None:
+                return int(yrs) * 365
+        except Exception:
+            pass
+        return None
+
+    def _analysis_keyword(self, a):
+        for name in ("getKeyword", "getId", "getServiceKeyword"):
+            fn = getattr(a, name, None)
+            if callable(fn):
+                try:
+                    v = fn()
+                    if v:
+                        return self._u(v)
+                except Exception:
+                    pass
+        return u""
+
+    def _patient_gender_MF(self, patient, ar):
+        for obj, attr in ((patient, "getGender"), (patient, "getSex"), (ar, "getGender"), (ar, "getSex")):
+            if obj and hasattr(obj, attr):
+                try:
+                    raw = getattr(obj, attr)()
+                    if raw:
+                        s = self._u(raw).strip().lower()
+                        if s in ("m", "male", "masculino", "hombre"):
+                            return u"M"
+                        if s in ("f", "female", "femenino", "mujer"):
+                            return u"F"
+                        break
+                except Exception:
+                    pass
+        return None
+
+    def _get_aspec(self, analysis):
+        fn = getattr(analysis, "getAnalysisSpec", None)
+        if callable(fn):
+            try:
+                try:
+                    return fn(create=False)
+                except TypeError:
+                    return fn()
+            except Exception:
+                pass
+        try:
+            schema = getattr(analysis, "Schema", lambda: None)()
+        except Exception:
+            schema = None
+        if schema and "AnalysisSpec" in schema:
+            try:
+                return schema["AnalysisSpec"].get(analysis)
+            except Exception:
+                pass
+        return None
+
+    def _current_spec_linked(self, analysis):
+        for kind, getter in (("dx", "getDynamicAnalysisSpec"), ("at", "getSpecification")):
+            fn = getattr(analysis, getter, None)
+            if callable(fn):
+                try:
+                    obj = fn()
+                    if obj:
+                        return kind, obj
+                except Exception:
+                    pass
+        aspec = self._get_aspec(analysis)
+        if aspec:
+            for kind, getter in (("dx", "getDynamicAnalysisSpec"), ("at", "getSpecification")):
+                fn = getattr(aspec, getter, None)
+                if callable(fn):
+                    try:
+                        obj = fn()
+                        if obj:
+                            return kind, obj
+                    except Exception:
+                        pass
+        return None, None
+
+    def _rows_from_dx(self, dx):
+        for attr in ("getRows", "getData", "get_data", "rows", "data"):
+            val = getattr(dx, attr, None)
+            if callable(val):
+                try:
+                    rows = val()
+                except Exception:
+                    rows = None
+            else:
+                rows = val
+            if rows:
+                return rows
+        return []
+
+    def _resolve_dx_row_for_analysis(self, dx, analysis, patient, ar):
+        rows = self._rows_from_dx(dx)
+        if not rows:
+            return None
+
+        kw = self._analysis_keyword(analysis).strip().upper()
+        gender_MF = self._patient_gender_MF(patient, ar)
+        age_days = self._age_days(patient, ar)
+
+        client_uid = None
+        if ar and getattr(ar, "aq_parent", None) and hasattr(ar.aq_parent, "UID"):
+            try:
+                client_uid = ar.aq_parent.UID()
+            except Exception:
+                pass
+        sampletype_uid = self._get(analysis, "getSampleTypeUID")
+        method_uid = self._get(analysis, "getMethodUID")
+
+        def N(x):
+            if x is None:
+                return None
+            try:
+                return self._u(x).strip().upper()
+            except Exception:
+                return x
+
+        candidates = []
+        for r in rows:
+            r_kw = N(r.get("Keyword") or r.get("keyword") or r.get("service_keyword"))
+            if not r_kw or r_kw != kw:
+                continue
+
+            r_gender = r.get("gender")
+            if r_gender:
+                r_gender = N(r_gender)
+                if gender_MF and r_gender not in (gender_MF, u"*", u"ANY", u"ALL"):
+                    continue
+
+            ok_age = True
+            if age_days is not None:
+                amin = _to_num(r.get("age_min_days") or r.get("age_min"))
+                amax = _to_num(r.get("age_max_days") or r.get("age_max"))
+                if amin is not None and age_days < amin:
+                    ok_age = False
+                if amax is not None and age_days > amax:
+                    ok_age = False
+            if not ok_age:
+                continue
+
+            def match_uid(field, given):
+                rv = r.get(field) or r.get(field.capitalize()) or r.get(field.replace("_uid", "").title()+"UID")
+                if not rv or not given:
+                    return True
+                return N(rv) == N(given)
+
+            if not match_uid("client_uid", client_uid):
+                continue
+            if not match_uid("sampletype_uid", sampletype_uid):
+                continue
+            if not match_uid("method_uid", method_uid):
+                continue
+
+            candidates.append(r)
+
+        return candidates[0] if candidates else None
+
+    def _dict_from_dx_row(self, row):
+        if not row:
+            return None
+        return {
+            "unit": self._u(row.get("unit")) if row.get("unit") else None,
+            "min": _to_num(row.get("min")),
+            "max": _to_num(row.get("max")),
+            "warn_low": _to_num(row.get("warn_low")),
+            "warn_high": _to_num(row.get("warn_high")),
+            "panic_low": _to_num(row.get("panic_low")),
+            "panic_high": _to_num(row.get("panic_high")),
+            "target": _to_num(row.get("target")),
+            "notes": self._u(row.get("notes") or u"") or None,
+            "_source": "dx",
+        }
+
+    def _dict_from_at(self, spec_at):
+        getv = lambda o, n: getattr(o, "get" + n, lambda: None)()
+        return {
+            "unit": self._u(getv(spec_at, "Unit") or u"") or None,
+            "min": _to_num(getv(spec_at, "Min")),
+            "max": _to_num(getv(spec_at, "Max")),
+            "warn_low": _to_num(getv(spec_at, "WarnLow")),
+            "warn_high": _to_num(getv(spec_at, "WarnHigh")),
+            "panic_low": _to_num(getv(spec_at, "PanicLow")),
+            "panic_high": _to_num(getv(spec_at, "PanicHigh")),
+            "target": _to_num(getv(spec_at, "Target")),
+            "notes": self._u(getv(spec_at, "Notes") or u"") or None,
+            "_source": "at",
+        }
+
+    def _compute_from_linked_spec(self, a):
+        kind, obj = self._current_spec_linked(a)
+        if not obj:
+            return u"", None, None, None
+
+        ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+
+        if kind == "dx":
+            row = self._resolve_dx_row_for_analysis(obj, a, patient, ar)
+            dd = self._dict_from_dx_row(row)
+            if dd:
+                txt = self._first_text_from_lo_hi(dd.get("min"), dd.get("max"))
+                unit = dd.get("unit")
+                if unit:
+                    txt = (txt + u" " + unit).strip()
+                return txt, dd.get("min"), dd.get("max"), u"linked.dx"
+
+        if kind == "at":
+            dd = self._dict_from_at(obj)
+            if dd and any(dd.get(k) is not None for k in ("min", "max", "target", "panic_low", "panic_high")):
+                txt = self._first_text_from_lo_hi(dd.get("min"), dd.get("max"))
+                unit = dd.get("unit")
+                if not txt and dd.get("target") is not None:
+                    txt = u"≈%s" % (self._u(int(dd.get("target"))) if dd.get("target") is not None else u"")
+                if not txt and (dd.get("panic_low") is not None or dd.get("panic_high") is not None):
+                    lo = dd.get("panic_low"); hi = dd.get("panic_high")
+                    if lo is not None and hi is not None:
+                        txt = self._first_text_from_lo_hi(lo, hi)
+                    elif lo is not None:
+                        txt = u"≥%s" % self._u(int(lo))
+                    elif hi is not None:
+                        txt = u"≤%s" % self._u(int(hi))
+                if unit and txt:
+                    txt = (txt + u" " + unit).strip()
+                return txt, dd.get("min"), dd.get("max"), u"linked.at"
+
+        return u"", None, None, None
+
+    # ---------- rangos por edad/género desde Service.getReferenceRanges ----------
+    def _age_years(self, patient, ar):
+        try:
+            if patient and hasattr(patient, "getAge"):
+                age = patient.getAge()
+                if hasattr(age, "years"):
+                    return int(age.years)
+                try:
+                    long  # noqa
+                except Exception:
+                    long = int  # type: ignore
+                if isinstance(age, (int, long)):
+                    return int(age)
+        except Exception:
+            pass
+        try:
+            if api and patient:
+                for fn in ("getDateOfBirth", "getBirthDate"):
+                    dob = getattr(patient, fn, lambda: None)()
+                    if dob:
+                        today = api.to_datetime(api.date_now())
+                        years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                        return max(0, int(years))
+        except Exception:
+            pass
+        try:
+            if ar and hasattr(ar, "getAge"):
+                age = ar.getAge()
+                if hasattr(age, "years"):
+                    return int(age.years)
+                try:
+                    long  # noqa
+                except Exception:
+                    long = int  # type: ignore
+                if isinstance(age, (int, long)):
+                    return int(age)
+        except Exception:
+            pass
+        return None
+
+    def _gender_code(self, patient, ar):
+        raw = None
+        for obj, attr in ((patient, "getGender"), (patient, "getSex"), (ar, "getGender"), (ar, "getSex")):
+            if obj and hasattr(obj, attr):
+                try:
+                    raw = getattr(obj, attr)()
+                    if raw:
+                        break
+                except Exception:
+                    pass
+        if not raw:
+            return None
+        s = self._u(raw).strip().lower()
+        if s in ("m", "male", "masculino", "hombre"):
+            return "male"
+        if s in ("f", "female", "femenino", "mujer"):
+            return "female"
+        return None
+
+    def _extract_service_reference_ranges_by_age_gender(self, a):
+        svc = self._get_service(a)
+        if not svc:
+            return None, None, None
+        rows = self._get(svc, "getReferenceRanges") or []
+        if not rows:
+            return None, None, None
+
+        ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+        yrs = self._age_years(patient, ar)
+        gcode = self._gender_code(patient, ar)
+
+        def _ok(row):
+            try:
+                g = self._u(row.get("Gender", "")).strip().lower()
+                if g and gcode and g != gcode:
+                    return False
+                amin = row.get("AgeMin")
+                amax = row.get("AgeMax")
+                if yrs is not None:
+                    if amin not in (None, u"", "") and yrs < int(amin):
+                        return False
+                    if amax not in (None, u"", "") and yrs > int(amax):
+                        return False
+                return True
+            except Exception:
+                return True
+
+        for rr in rows:
+            if isinstance(rr, dict) and _ok(rr):
+                lo = _to_num(rr.get("Min"))
+                hi = _to_num(rr.get("Max"))
+                if lo is not None or hi is not None:
+                    txt = self._first_text_from_lo_hi(lo, hi)
+                    return txt, lo, hi
+        return None, None, None
+
+    # ---------- 1) dinÁMICAS ----------
+    def _extract_dynamic_specs_minmax(self, a, keyword):
+        try:
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+            candidates = []
+            for holder, origin in (
+                (a, "Analysis"),
+                (ar, "AR"),
+                (client, "Client"),
+                (contact, "Contact"),
+                (st, "SampleType"),
+            ):
+                if not holder:
+                    continue
+                for name in (
+                    "getDynamicAnalysisSpecifications",
+                    "getDynamicSpecifications",
+                    "getPatientDynamicSpecifications",
+                    "getApplicableDynamicSpecifications",
+                ):
+                    fn = getattr(holder, name, None)
+                    if callable(fn):
+                        try:
+                            candidates.append((origin + "." + name, fn()))
+                        except Exception:
+                            pass
+
+            def _match_spec(container):
+                if not container:
+                    return None
+                if isinstance(container, dict) and container.get(keyword):
+                    return container.get(keyword)
+                if isinstance(container, (list, tuple)):
+                    for row in container:
+                        k = None
+                        if isinstance(row, dict):
+                            k = (row.get("keyword") or row.get("service") or row.get("Service"))
+                            if hasattr(k, "getKeyword"):
+                                k = k.getKeyword()
+                        else:
+                            for gk in ("getKeyword", "Keyword", "keyword", "getServiceKeyword"):
+                                gv = getattr(row, gk, None)
+                                k = gv() if callable(gv) else None
+                                if k:
+                                    break
+                        if k == keyword:
+                            return row
+                return None
+
+            for origin, container in candidates:
+                spec = _match_spec(container)
+                if not spec:
+                    continue
+
+                def _read(spec, x):
+                    if isinstance(spec, dict):
+                        return spec.get(x) or spec.get(x.capitalize())
+                    v = getattr(spec, x, None)
+                    return v() if callable(v) else v
+
+                lo = _read(spec, "min") or _read(spec, "minimum")
+                hi = _read(spec, "max") or _read(spec, "maximum")
+                if lo is not None or hi is not None:
+                    logger.info("[impress] RefRange via DynamicSpecifications (%s) %s", origin, keyword)
+                    return lo, hi, u"dynamic"
+        except Exception:
+            pass
+        return None, None, None
+
+    # ---------- 2) ANALYSIS SPECIFICATIONS ----------
+    def _extract_specs_minmax_for_analysis(self, a):
+        try:
+            service = self._get_service(a)
+            keyword = (getattr(service, "getKeyword", lambda: None)() if service else None) \
+                      or self._get(a, "getKeyword") \
+                      or self._get(a, "getServiceKeyword")
+            if not keyword:
+                return None, None, None
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+
+            candidates = []
+            for holder, label in (
+                (ar, "AR"),
+                (client, "Client"),
+                (contact, "Contact"),
+                (st, "SampleType"),
+                (service, "Service"),
+            ):
+                if not holder:
+                    continue
+                for name in (
+                    "getAnalysisSpecifications",
+                    "getSpecifications",
+                    "getApplicableSpecifications",
+                    "getActiveAnalysisSpecifications",
+                    "getAnalysisSpecificationsFor",
+                    "getSpecificationsFor",
+                ):
+                    fn = getattr(holder, name, None)
+                    if callable(fn):
+                        try:
+                            if name.endswith("For"):
+                                ctx = ar or st or sample
+                                if ctx is not None:
+                                    candidates.append((label + "." + name, fn(ctx)))
+                            else:
+                                candidates.append((label + "." + name, fn()))
+                        except Exception:
+                            pass
+
+            def _match(container):
+                if isinstance(container, dict):
+                    return container.get(keyword)
+                if isinstance(container, (list, tuple)):
+                    for row in container:
+                        k = None
+                        if isinstance(row, dict):
+                            k = row.get("keyword")
+                            if not k:
+                                svc = row.get("Service", row.get("service"))
+                                if hasattr(svc, "getKeyword"):
+                                    k = svc.getKeyword()
+                                elif isinstance(svc, (str, unicode)):
+                                    k = svc
+                        else:
+                            for gk in ("getKeyword", "Keyword", "keyword", "ServiceKeyword", "getServiceKeyword"):
+                                gv = getattr(row, gk, None)
+                                k = gv() if callable(gv) else None
+                                if k:
+                                    break
+                        if k == keyword:
+                            return row
+                return None
+
+            for origin, container in candidates:
+                spec = _match(container)
+                if not spec:
+                    continue
+
+                def _read(x):
+                    if isinstance(spec, dict):
+                        return spec.get(x) or spec.get(x.capitalize())
+                    v = getattr(spec, x, None)
+                    return v() if callable(v) else v
+
+                lo = _read("min") or _read("minimum")
+                hi = _read("max") or _read("maximum")
+                if lo is not None or hi is not None:
+                    logger.info("[impress] RefRange via AnalysisSpecifications (%s)", origin)
+                    return lo, hi, u"spec"
+        except Exception:
+            pass
+        return None, None, None
+
+    # ---------- 3) REFERENCE DEFINITIONS ----------
+    def _extract_refdef_minmax(self, a):
+        try:
+            service = self._get_service(a)
+            if not service:
+                return None, None, None
+
+            keyword = self._get(service, "getKeyword")
+            title = self._get(service, "Title")
+            service_uid = self._get(service, "UID")
+
+            portal = self.context.portal_url.getPortalObject()
+            catalog = getToolByName(portal, "portal_catalog")
+            brains = catalog.searchResults(
+                portal_type=["ReferenceDefinition", "BikaReferenceDefinition"],
+                sort_on="created",
+                sort_order="descending",
+            )
+
+            for brain in brains:
+                try:
+                    obj = brain.getObject()
+                    rows = None
+                    for getter_name in ("getReferenceValues", "getResultsRange", "ReferenceValues",
+                                        "reference_values", "getValues", "results_range"):
+                        fn = getattr(obj, getter_name, None)
+                        if fn:
+                            rows = fn() if callable(fn) else fn
+                            if rows:
+                                break
+                    if not rows:
+                        continue
+                    if isinstance(rows, dict):
+                        rows = [rows]
+                    for row in rows:
+                        try:
+                            row_keyword = None
+                            row_service = None
+                            row_service_uid = None
+                            if isinstance(row, dict):
+                                row_keyword = row.get("keyword") or row.get("Keyword")
+                                row_service = row.get("Service") or row.get("service")
+                                if row_service and hasattr(row_service, "getKeyword"):
+                                    row_keyword = row_service.getKeyword()
+                                    if hasattr(row_service, "UID"):
+                                        row_service_uid = row_service.UID()
+                                elif isinstance(row_service, (str, unicode)):
+                                    row_keyword = row_service
+                            else:
+                                for gk in ("getKeyword", "Keyword", "keyword", "getServiceKeyword"):
+                                    gv = getattr(row, gk, None)
+                                    row_keyword = gv() if callable(gv) else gv
+                                    if row_keyword:
+                                        break
+                                for gs in ("getService", "Service", "service"):
+                                    sv = getattr(row, gs, None)
+                                    row_service = sv() if callable(sv) else sv
+                                    if row_service:
+                                        try:
+                                            if hasattr(row_service, "getKeyword"):
+                                                row_keyword = row_service.getKeyword()
+                                            if hasattr(row_service, "UID"):
+                                                row_service_uid = row_service.UID()
+                                        except Exception:
+                                            pass
+                                        break
+
+                            is_match = False
+                            if row_service_uid and service_uid and row_service_uid == service_uid:
+                                is_match = True
+                            elif row_keyword:
+                                if keyword and _to_unicode(row_keyword).strip().lower() == _to_unicode(keyword).strip().lower():
+                                    is_match = True
+                                elif title and _to_unicode(row_keyword).strip().lower() == _to_unicode(title).strip().lower():
+                                    is_match = True
+                            if not is_match:
+                                continue
+
+                            lo = hi = None
+                            if isinstance(row, dict):
+                                lo = (row.get("min") or row.get("Min") or row.get("minimum") or row.get("Minimum"))
+                                hi = (row.get("max") or row.get("Max") or row.get("maximum") or row.get("Maximum"))
+                            else:
+                                for gl in ("getMin", "getMinimum", "Min", "Minimum", "min", "minimum"):
+                                    lv = getattr(row, gl, None)
+                                    lo = lv() if callable(lv) else (lo or lv)
+                                    if lo is not None:
+                                        break
+                                for gh in ("getMax", "getMaximum", "Max", "Maximum", "max", "maximum"):
+                                    hv = getattr(row, gh, None)
+                                    hi = hv() if callable(hv) else (hi or hv)
+                                    if hi is not None:
+                                        break
+                            if lo is not None or hi is not None:
+                                return lo, hi, u"refdef"
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+            return None, None, None
+        except Exception as e:
+            logger.exception("[impress] _extract_refdef_minmax error: %s", e)
+            return None, None, None
+
+    # ---------- 4) límites del análisis o del servicio ----------
+    def _extract_analysis_or_service_minmax(self, a):
+        try:
+            lo, hi = self._get_low_high_candidates(a)
+            if lo is not None or hi is not None:
+                return lo, hi, u"analysis"
+            svc = self._get_service(a)
+            if svc:
+                lo2, hi2 = self._get_low_high_candidates(svc)
+                if lo2 is not None or hi2 is not None:
+                    return lo2, hi2, u"service"
+        except Exception:
+            pass
+        return None, None, None
+
+    # ---------- 4.b) Fallback: ReferenceValues en el Servicio ----------
+    def _extract_service_refvalues(self, a):
+        try:
+            svc = self._get_service(a)
+            if not svc:
+                return None, None, None
+            rows = None
+            for g in ("getReferenceValues", "ReferenceValues", "reference_values", "getValues"):
+                fn = getattr(svc, g, None)
+                rows = fn() if callable(fn) else getattr(svc, g, None)
+                if rows:
+                    break
+            if not rows:
+                return None, None, None
+
+            def _read_row(row):
+                lo = hi = None
+                if isinstance(row, dict):
+                    lo = (row.get("min") or row.get("Min") or row.get("minimum") or row.get("Minimum"))
+                    hi = (row.get("max") or row.get("Max") or row.get("maximum") or row.get("Maximum"))
+                else:
+                    for gl in ("getMin", "getMinimum", "Min", "Minimum", "min", "minimum", "getMinValue"):
+                        lv = getattr(row, gl, None)
+                        lo = lv() if callable(lv) else (lo or lv)
+                    for gh in ("getMax", "getMaximum", "Max", "Maximum", "max", "maximum", "getMaxValue"):
+                        hv = getattr(row, gh, None)
+                        hi = hv() if callable(hv) else (hi or hv)
+                return lo, hi
+
+            for row in rows:
+                lo, hi = _read_row(row)
+                if lo is not None or hi is not None:
+                    return lo, hi, u"service.refvalues"
+        except Exception:
+            pass
+        return None, None, None
+
+    # ---------- prioridad SENAITE 2.6 ----------
+    def _compute_ref_range(self, a):
+        try:
+            text_p, lo_p, hi_p = self._get_patient_results_range(a)
+            if lo_p is not None or hi_p is not None or (text_p and text_p != u""):
+                return text_p, lo_p, hi_p, u"patient.pipeline"
+        except Exception:
+            pass
+
+        try:
+            txt_l, lo_l, hi_l, src_l = self._compute_from_linked_spec(a)
+            if lo_l is not None or hi_l is not None or (txt_l and txt_l != u""):
+                return txt_l, lo_l, hi_l, src_l or u"linked.spec"
+        except Exception:
+            pass
+
+        txt_ag, lo_ag, hi_ag = self._extract_service_reference_ranges_by_age_gender(a)
+        if lo_ag is not None or hi_ag is not None:
+            return (self._first_text_from_lo_hi(lo_ag, hi_ag), lo_ag, hi_ag, u"svc.refranges")
+
+        try:
+            results_range = self._get(a, "getResultsRange")
+            if results_range and isinstance(results_range, dict):
+                text, lo, hi, _eq = self._format_results_range(results_range)
+                if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                    return text, lo, hi, u"analysis.getResultsRange"
+        except Exception:
+            pass
+
+        try:
+            spec = self._get(a, "getSpecification")
+            if spec:
+                results_range = self._get(spec, "getResultsRange")
+                if results_range and isinstance(results_range, dict):
+                    text, lo, hi, _eq = self._format_results_range(results_range)
+                    if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                        return text, lo, hi, u"analysis.spec.resultsrange"
+                lo = self._get(spec, "min") or self._get(spec, "Min")
+                hi = self._get(spec, "max") or self._get(spec, "Max")
+                if lo is not None or hi is not None:
+                    text = self._first_text_from_lo_hi(lo, hi)
+                    return text, lo, hi, u"analysis.spec.direct"
+        except Exception:
+            pass
+
+        try:
+            service = self._get_service(a)
+            if service:
+                results_range = self._get(service, "getResultsRange")
+                if results_range and isinstance(results_range, dict):
+                    text, lo, hi, _eq = self._format_results_range(results_range)
+                    if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                        return text, lo, hi, u"service.getResultsRange"
+        except Exception:
+            pass
+
+        try:
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+            if ar:
+                ar_spec = self._get(ar, "getSpecification")
+                if ar_spec:
+                    service = self._get_service(a)
+                    keyword = (self._get(service, "getKeyword") if service else None) \
+                              or self._get(a, "getKeyword") \
+                              or self._get(a, "getServiceKeyword")
+                    if keyword and hasattr(ar_spec, "getResultsRange"):
+                        rr = ar_spec.getResultsRange(keyword)
+                        if rr and isinstance(rr, dict):
+                            text, lo, hi, _eq = self._format_results_range(rr)
+                            if any(v not in (None, u"", "") for v in (text, lo, hi)):
+                                return text, lo, hi, u"ar.spec.keyword"
+        except Exception:
+            pass
+
+        service = self._get_service(a)
+        kw = (self._get(service, "getKeyword") if service else None) \
+             or self._get(a, "getKeyword") \
+             or self._get(a, "getServiceKeyword")
+        if kw:
+            dlo, dhi, dsrc = self._extract_dynamic_specs_minmax(a, kw)
+            if dlo is not None or dhi is not None:
+                txt = self._first_text_from_lo_hi(dlo, dhi)
+                return txt, dlo, dhi, dsrc
+
+        slo, shi, ssrc = self._extract_specs_minmax_for_analysis(a)
+        if slo is not None or shi is not None:
+            txt = self._first_text_from_lo_hi(slo, shi)
+            return txt, slo, shi, ssrc
+
+        rlo, rhi, rsrc = self._extract_refdef_minmax(a)
+        if rlo is not None or rhi is not None:
+            txt = self._first_text_from_lo_hi(rlo, rhi)
+            return txt, rlo, rhi, rsrc
+
+        alo, ahi, asrc = self._extract_analysis_or_service_minmax(a)
+        if alo is not None or ahi is not None:
+            txt = self._first_text_from_lo_hi(alo, ahi)
+            return txt, alo, ahi, asrc
+
+        sv_lo, sv_hi, sv_src = self._extract_service_refvalues(a)
+        if sv_lo is not None or sv_hi is not None:
+            txt = self._first_text_from_lo_hi(sv_lo, sv_hi)
+            return txt, sv_lo, sv_hi, sv_src
+
+        try:
+            keyword = ((self._get(service, "getKeyword") if service else None)
+                       or self._get(a, "getKeyword") or "UNKNOWN")
+            title = self._get(a, "Title") or "UNKNOWN"
+            uid = self._get(a, "UID")
+            logger.warning("[impress] NO RANGO para '%s' (kw=%s, uid=%s)", title, keyword, uid)
+        except Exception:
+            pass
+        return u"", None, None, u"not_found"
+
+    # ---------- ref_eq (=) si existe ----------
+    def _extract_ref_eq(self, a):
+        try:
+            if api and hasattr(api, "get_results_range"):
+                rr = api.get_results_range(a)
+                if isinstance(rr, dict):
+                    v = rr.get("result") or rr.get("value")
+                    if v not in (None, u"", ""):
+                        return self._u(v)
+        except Exception:
+            pass
+        for mname in ("getPatientResultsRange", "getDynamicResultsRange", "getFinalResultsRange", "getResultsRange"):
+            try:
+                rr = getattr(a, mname)() if hasattr(a, mname) else None
+                if isinstance(rr, dict):
+                    v = rr.get("result") or rr.get("value")
+                    if v not in (None, u"", ""):
+                        return self._u(v)
+            except Exception:
+                pass
+
+        try:
+            rr = self._get(a, "getResultsRange")
+            if isinstance(rr, dict):
+                val = rr.get("result") or rr.get("value")
+                if val not in (None, u"", ""):
+                    return self._u(val)
+        except Exception:
+            pass
+        try:
+            spec = self._get(a, "getSpecification")
+            rr = spec and self._get(spec, "getResultsRange")
+            if isinstance(rr, dict):
+                val = rr.get("result") or rr.get("value")
+                if val not in (None, u"", ""):
+                    return self._u(val)
+        except Exception:
+            pass
+        try:
+            svc = self._get_service(a)
+            rr = svc and self._get(svc, "getResultsRange")
+            if isinstance(rr, dict):
+                val = rr.get("result") or rr.get("value")
+                if val not in (None, u"", ""):
+                    return self._u(val)
+        except Exception:
+            pass
+        try:
+            ar, sample, st, client, contact, patient = self._get_ar_ctx(a)
+            ar_spec = ar and self._get(ar, "getSpecification")
+            if ar_spec:
+                svc = self._get_service(a)
+                keyword = self._get(svc, "getKeyword") if svc else None
+                if keyword and hasattr(ar_spec, "getResultsRange"):
+                    rr = ar_spec.getResultsRange(keyword)
+                    if isinstance(rr, dict):
+                        val = rr.get("result") or rr.get("value")
+                        if val not in (None, u"", ""):
+                            return self._u(val)
+        except Exception:
+            pass
+        return None
+
+    # ---------- estado de workflow del análisis ----------
+    def _workflow_state(self, a):
+        if api:
+            try:
+                st = api.get_workflow_status_of(a)
+                if st:
+                    return self._u(st)
+            except Exception:
+                pass
+        for name in ("review_state", "getReviewState", "workflow_state"):
+            v = self._get(a, name)
+            if v:
+                return self._u(v)
+        return u""
+
+    def _workflow_viz(self, wf_state):
+        """
+        Mapea el estado interno a etiqueta/icono/clase UI.
+        No cambia texto fuente; solo la presentación.
+        """
+        s = (self._u(wf_state) or u"").strip().lower()
+        # Etiqueta, Icono, Clase
+        mapping = {
+            # preliminares / recepción / asignación
+            "to_be_verified": (u"Preliminar", u"○", u"wf-pre"),
+            "assigned":       (u"Preliminar", u"○", u"wf-pre"),
+            "sample_received":(u"Preliminar", u"○", u"wf-pre"),
+            # verificado
+            "verified":       (u"Validado",   u"✓", u"wf-ok"),
+            # publicado/final
+            "published":      (u"Final",      u"■", u"wf-final"),
+            "final":          (u"Final",      u"■", u"wf-final"),
+            # en proceso / acciones pendientes
+            "retest":         (u"En proceso", u"…", u"wf-proc"),
+            "attachment_due": (u"En proceso", u"…", u"wf-proc"),
+            "awaiting":       (u"En proceso", u"…", u"wf-proc"),
+            # retractado
+            "retracted":      (u"Retractado", u"↩︎", u"wf-ret"),
+            # cancelado / inválido / rechazado
+            "cancelled":      (u"Anulado",    u"×", u"wf-cancel"),
+            "rejected":       (u"Anulado",    u"×", u"wf-cancel"),
+            "invalid":        (u"Anulado",    u"×", u"wf-cancel"),
+        }
+        # default
+        return mapping.get(s, (wf_state or u"", u"•", u"wf-unk"))
+
+    # ------------------------- data extraction -------------------------
+    def analyses(self):
+        ctx = self.context
+        for g in ('getAnalyses', 'analyses', 'getAnalysis'):
+            items = self._get(ctx, g)
+            if items:
+                try:
+                    return list(items)
+                except Exception:
+                    return items
+        return []
+
+    def _status_payload(self, value, low, high, is_critical=False, delta_flag=None):
+        estado_class = u''
+        estado_symbol = u'—'
+        estado_text = u'No aplica'
+
+        v = _to_num(value)
+        lo = _to_num(low)
+        hi = _to_num(high)
+
+        if is_critical:
+            estado_class = u'al-critical'
+            estado_symbol = u'●'
+            estado_text = u'Crítico'
+        elif v is not None and (lo is not None or hi is not None):
+            if lo is not None and v < lo:
+                estado_class = u'fr-alert'
+                estado_symbol = u'⚠'
+                estado_text = u'Fuera de rango'
+            elif hi is not None and v > hi:
+                estado_class = u'fr-alert'
+                estado_symbol = u'⚠'
+                estado_text = u'Fuera de rango'
+            else:
+                estado_class = u'fr-ok'
+                estado_symbol = u'✓'
+                estado_text = u'En rango'
+
+        alert_classes = u''
+        alert_text = u''
+        alert_title = u''
+
+        if delta_flag:
+            try:
+                alert_classes = u'al-delta'
+                sym = delta_flag.get('symbol') or u'▲'
+                txt = delta_flag.get('text') or u'Δ fuera de límite'
+                alert_text = u'%s %s' % (sym, txt)
+                alert_title = delta_flag.get('title') or u'Delta fuera de límite'
+            except Exception:
+                pass
+
+        if is_critical:
+            alert_text = (alert_text + (u'; ' if alert_text else u'') + u'Crítico').strip('; ')
+
+        if not alert_text and estado_text == u'Fuera de rango':
+            alert_text = u'Fuera de rango'
+
+        # Anexar (sin romper) alertas adicionales si el análisis trae flags conocidos
+        extra = self._extra_alerts_from_flags(value)
+        if extra:
+            alert_text = (alert_text + (u'; ' if alert_text else u'') + extra).strip('; ')
+
+        return estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title
+
+    def _extra_alerts_from_flags(self, value):
+        """
+        Gancho suave para sumar alertas tipo ND/LOQ/LOD, sin interferir con lo existente.
+        Si no aplica, retorna ''.
+        """
+        txt = self._u(value or u"").strip().upper()
+        if not txt:
+            return u""
+        # Casos típicos de guías: ND (no detectable), <LOQ, <LOD
+        if txt in (u"ND", u"NO DETECTABLE"):
+            return u"ND"
+        if txt.startswith(u"<LOQ") or u" LOQ" in txt:
+            return u"<LOQ"
+        if txt.startswith(u"<LOD") or u" LOD" in txt:
+            return u"<LOD"
+        return u""
+
+    # --------- tendencia (solo bandera de pintado) ----------
+    def _trend_points(self, a):
+        """
+        Intenta recuperar puntos históricos de tendencia.
+        No imponemos formato; retornamos una lista cualquiera si existe.
+        """
+        for name in ("getTrendData", "getHistoricalResults", "getResultsHistory", "getTrendPoints"):
+            fn = getattr(a, name, None)
+            if callable(fn):
+                try:
+                    pts = fn()
+                    if pts:
+                        try:
+                            return list(pts)
+                        except Exception:
+                            return pts
+                except Exception:
+                    pass
+        return []
+
+    def row(self, a):
+        name = (
+            self._get(a, 'Title') or
+            self._get(a, 'title') or
+            self._get(a, 'getKeyword') or
+            u''
+        )
+
+        result = self._get_result(a)
+
+        unit_raw = self._get_unit(a)
+        unit = _sanitize_unit_for_flags(unit_raw)  # <- evita “L” naranja en mg/L
+
+        # Prioridad actualizada para rangos
+        ref_text, low, high, ref_src = self._compute_ref_range(a)
+
+        try:
+            logger.info("[impress] RefRange SRC=%s → %s (lo=%s hi=%s)", ref_src, ref_text or u"", low, high)
+        except Exception:
+            pass
+
+        wf_state = self._workflow_state(a) or u''
+        wf_label, wf_icon, wf_class = self._workflow_viz(wf_state)  # <- Estado profesional de workflow
+
+        is_critical = bool(self._get(a, 'getCritical', False) or self._get(a, 'isCritical', False))
+        try:
+            delta_flag = self._get(a, 'getDeltaFlag')
+        except Exception:
+            delta_flag = None
+
+        estado_class, estado_symbol, estado_text, alert_classes, alert_text, alert_title = \
+            self._status_payload(result, low, high, is_critical=is_critical, delta_flag=delta_flag)
+
+        alerts = alert_text or u'—'
+
+        if not ref_text and (low is not None or high is not None):
+            ref_text = self._first_text_from_lo_hi(low, high)
+
+        ref_eq = self._extract_ref_eq(a)
+
+        # --- saneo visual de origen y rango con unidad ---
+        ref_src_label = _pretty_src(ref_src, debug=bool(self.request.get('debug_refsrc')))
+        ref_src_display = ref_src_label
+        reference_range_with_unit = _format_ref_text_with_unit(ref_text, unit)
+
+        # Tendencia: solo permitir gráfico si hay 2+ puntos
+        tpoints = self._trend_points(a)
+        can_plot_trend = bool(tpoints and len(tpoints) >= 2)
+
+        return {
+            # Display
+            'name': name,
+            'result': result,
+            'unit': unit,           # <- segura para pintar
+            'unit_raw': unit_raw,   # <- original por si se necesita
+
+            # Rango de referencia
+            'ref_range': ref_text or u'',
+            'ref_low': low,
+            'ref_high': high,
+            'ref_src_raw': ref_src or u'',
+            'ref_src': ref_src_display or u'',
+            'ref_src_label': ref_src_label,
+            'ref_eq': ref_eq,
+
+            # Alias por compatibilidad con plantillas
+            'reference_range': (ref_text or u''),
+            'reference_range_with_unit': reference_range_with_unit,
+            'range_text': (ref_text or u''),
+            'range': (ref_text or u''),
+
+            'reference_low': low,
+            'reference_high': high,
+
+            # Estado clínico (rango)
+            'estado_class': estado_class,
+            'estado_symbol': estado_symbol,
+            'estado_text': estado_text,
+
+            # Estado de workflow (para columna Estado)
+            'state': wf_state,            # crudo
+            'state_text': wf_state,
+            'status': wf_state,
+            'status_text': wf_state,
+
+            # Etiquetas “bonitas” del workflow (usar estas en la columna Estado)
+            'state_label': wf_label,
+            'state_icon': wf_icon,
+            'state_class': wf_class,
+
+            # Alias histórico (si alguna plantilla usa 'estado' para mostrar algo)
+            'estado': estado_text,
+
+            # Alertas combinadas
+            'alert_classes': alert_classes,
+            'alert_text': alerts,
+            'alert_title': alert_title,
+            'alerts': alerts,
+            'alert': alerts,
+
+            # Tendencia
+            'trend_points': tpoints,
+            'can_plot_trend': can_plot_trend,
+        }
+
+    def rows(self):
+        return [self.row(a) for a in self.analyses()]
+
+    # ------------------------- rendering -------------------------
+    def __call__(self):
+        if (self.request.get('format', '').lower() == 'json'):
+            import json
+            data = {'items': self.rows()}
+            self.request.response.setHeader('Content-Type', 'application/json; charset=utf-8')
+            return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+        logger.info("[infolabsa] Render COOL table via results_with_state.pt")
+        return self.index()
 
 
-# ======================================================================
-# ALIAS retro-compatible para ZCML antiguos:
-#   Algunos configure.zcml esperan "class=.results.infolabsa_results.InfolabsaResults"
-#   Creamos el alias para no tocar tu ZCML existente.
-# ======================================================================
-
-class InfolabsaResults(InfolabsaResultsWithState):
-    """Alias retro-compatible. No cambia comportamiento."""
-    pass
+# Compatibilidad
+InfolabsaResults = InfolabsaResultsWithState
