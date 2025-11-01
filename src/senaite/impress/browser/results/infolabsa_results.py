@@ -46,7 +46,7 @@ def _to_num(x):
         if x in (None, u"", ""):
             return None
         try:
-            num_types = (int, long, float)  # noqa: F821 (long solo existe en Py2)
+            num_types = (int, long, float)  # long existe en Py2
         except NameError:
             num_types = (int, float)
         if isinstance(x, num_types):
@@ -185,8 +185,7 @@ def _to_epoch_ms(iso):
 
 
 # ======================================================================
-# VISTA 1: @@infolabsa-results-with-state
-#   Devuelve HTML con tabla de resultados + estado (para incrustar en INFOLABSA.pt)
+# VISTA 1: @@infolabsa-results-with-state  (HTML tabla)
 # ======================================================================
 
 class InfolabsaResultsWithState(BrowserView):
@@ -204,7 +203,6 @@ class InfolabsaResultsWithState(BrowserView):
 
     def _service_of(self, a):
         try:
-            # Preferir getAnalysisService; getService puede estar deprecado
             return getattr(a, "getAnalysisService", lambda: None)()
         except Exception:
             return None
@@ -226,13 +224,11 @@ class InfolabsaResultsWithState(BrowserView):
         return _u(t2) if t2 else u""
 
     def _formatted_result(self, a):
-        # 1) raw numérico
         for g in ("getResult", "Result", "result", "getValue"):
             v = _safe_get(a, g)
             if v not in (None, u"", ""):
                 fr = _safe_get(a, "getFormattedResult")
                 return (fr if fr not in (None, u"", "") else _u(v))
-        # 2) FormattedResult
         fr = _safe_get(a, "getFormattedResult")
         if fr not in (None, u"", ""):
             return _u(fr)
@@ -250,7 +246,6 @@ class InfolabsaResultsWithState(BrowserView):
         return lo_s or hi_s
 
     def _verified_dt(self, a):
-        # Fecha del análisis o del AR (verificado/publicado)
         for g in ("getResultCaptureDate", "getDateVerified", "getDatePublished"):
             v = _safe_get(a, g)
             if v:
@@ -284,8 +279,6 @@ class InfolabsaResultsWithState(BrowserView):
                 "date": dt_s,
             })
 
-        # Render simple (6 columnas: la 2..6 centradas, como espera tu CSS)
-        # Nota: construimos HTML manualmente para evitar dependencias.
         out = []
         out.append(u'<table class="table table-condensed table-sm">')
         out.append(u"<thead><tr>")
@@ -311,9 +304,7 @@ class InfolabsaResultsWithState(BrowserView):
 
 
 # ======================================================================
-# VISTA 2: @@infolabsa-delta-check
-#   Devuelve DICCIONARIO con series/filas para el panel de "Tendencia (Delta check)"
-#   (la plantilla hace json.dumps cuando lo necesita)
+# VISTA 2: @@infolabsa-delta-check (dict para Tendencia)
 # ======================================================================
 
 class InfolabsaDeltaCheck(BrowserView):
@@ -321,7 +312,6 @@ class InfolabsaDeltaCheck(BrowserView):
     MAX_POINTS  = 8
     STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
 
-    # ------------------ helpers de catálogos ------------------
     def _cat(self):
         portal = self.context.portal_url.getPortalObject()
         cat = getToolByName(portal, "senaite_catalog_sample", None)
@@ -350,11 +340,9 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return []
 
-    # ------------------ estado ------------------
     def _state_of(self, obj, brain=None):
         return _state_of(self.context, obj, brain=brain)
 
-    # ------------------ AR/Paciente ------------------
     def _get(self, obj, name, default=None):
         return _safe_get(obj, name, default)
 
@@ -444,7 +432,6 @@ class InfolabsaDeltaCheck(BrowserView):
                     return v
         return []
 
-    # ------------------ Analito keys ------------------
     def _service_of(self, a):
         try:
             return getattr(a, "getAnalysisService", lambda: None)()
@@ -500,9 +487,7 @@ class InfolabsaDeltaCheck(BrowserView):
             "name": _u(title or kw or self._get(a, "Title") or u""),
         }
 
-    # ===== Extraer numérico robusto =====
     def _result_value(self, a):
-        # 1) directo
         for g in ("getResult", "Result", "result", "getValue"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
@@ -510,7 +495,6 @@ class InfolabsaDeltaCheck(BrowserView):
                 if num is not None:
                     fr = self._get(a, "getFormattedResult")
                     return (fr if fr not in (None, u"", "") else _u(v)), float(num)
-        # 2) formatted
         fr = self._get(a, "getFormattedResult")
         if fr not in (None, u"", ""):
             s = _u(fr)
@@ -519,7 +503,6 @@ class InfolabsaDeltaCheck(BrowserView):
                 num = _to_num(m.group(0))
                 if num is not None:
                     return (s, float(num))
-            # 3) cualitativos comunes
             sn = _norm(_strip_accents(s))
             neg = (u"ausente", u"no detectado", u"no-detectado", u"nd",
                    u"negativo", u"sin crecimiento", u"no growth",
@@ -532,7 +515,6 @@ class InfolabsaDeltaCheck(BrowserView):
                 return (s, 1.0)
         return u"—", None
 
-    # ------------------ Búsqueda de AR previos ------------------
     def _same_patient(self, other_ar, pkeys):
         found = set()
         for name in (
@@ -642,7 +624,6 @@ class InfolabsaDeltaCheck(BrowserView):
             seen.add(b.UID)
         return out
 
-    # ------------------ previo global ------------------
     def _choose_prev_ar_global(self, current_ar, candidate_ars):
         cur_recv = self._received_date_of_ar(current_ar)
         if not cur_recv:
@@ -734,11 +715,9 @@ class InfolabsaDeltaCheck(BrowserView):
 
         return (u"—", None)
 
-    # ------------------ Serie por analito ------------------
     def _series_for_uid(self, ars, analito_uid, keyword, title):
         acat = self._acat()
 
-        # AR -> (obj, fecha)
         ar_by_id = {}
         ar_ids = []
         for ar in ars:
@@ -816,7 +795,6 @@ class InfolabsaDeltaCheck(BrowserView):
                 "rid": rid
             })
 
-        # Fallback: actual
         if not pts:
             cur_ar = self.context
             cur_rid = self._get(cur_ar, "getRequestID") or self._get(cur_ar, "getId")
@@ -839,7 +817,6 @@ class InfolabsaDeltaCheck(BrowserView):
                 pts.append({"date": iso, "value": float(f), "raw": _u(raw), "ar": cur_ar, "rid": cur_rid})
                 break
 
-        # Dedup por AR, último punto
         by_rid = {}
         for p in pts:
             rid = p.get("rid")
@@ -855,7 +832,6 @@ class InfolabsaDeltaCheck(BrowserView):
             pts = pts[-self.MAX_POINTS:]
         return pts
 
-    # ------------------ Tendencia ------------------
     def _trend_dir(self, series_points):
         try:
             n = len(series_points or [])
@@ -897,7 +873,6 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return u"∙"
 
-    # ------------------ DEBUG JSON ------------------
     def _debug_summary(self, ar, patient, pkeys, prev_ars, now_analyses, multi_series, patient_filter):
         sample_indexes = self._list_indexes(analyses=False)
         analysis_indexes = self._list_indexes(analyses=True)
@@ -953,7 +928,6 @@ class InfolabsaDeltaCheck(BrowserView):
             "multi_series_after_flow": msum,
         }
 
-    # ------------------ Vista (SIEMPRE retorna dict) ------------------
     def __call__(self):
         ar = self.context
         patient = self._patient_obj(ar)
@@ -974,7 +948,6 @@ class InfolabsaDeltaCheck(BrowserView):
 
             series_pts = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
-            # puntos compatibles
             points = []
             for p in series_pts:
                 iso = p.get('date')
@@ -992,14 +965,13 @@ class InfolabsaDeltaCheck(BrowserView):
                     'ms': ms,
                 })
 
-            # serie para el gráfico (solo si hay ≥ 2 puntos)
             if len(points) >= 2:
                 multi_series.append({
                     "name": keys["name"],
                     "unit": keys["unit"] or u"",
-                    "series": points,  # objetos completos
+                    "series": points,
                     "xy": [{'x': pt['x'], 'y': pt['y']} for pt in points],
-                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],  # NUMÉRICO
+                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],
                     "categories_ddmmyy": [pt['ddmmyy'] for pt in points],
                 })
 
@@ -1080,7 +1052,6 @@ class InfolabsaDeltaCheck(BrowserView):
                 'trend_to_fmt': trend_to_fmt,
             })
 
-        # chart_v2 series numéricas
         chart_v2_series = []
         for s in multi_series:
             chart_v2_series.append({
@@ -1110,7 +1081,6 @@ class InfolabsaDeltaCheck(BrowserView):
             'has_chart': bool(has_chart),
         }
 
-        # Debug opcional embebido
         try:
             if self.request.form.get("debug") or self.request.get("debug"):
                 cat = self._cat()
@@ -1119,5 +1089,15 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             pass
 
-        # IMPORTANTE: devolvemos dict, NO string JSON
         return payload
+
+
+# ======================================================================
+# ALIAS retro-compatible para ZCML antiguos:
+#   Algunos configure.zcml esperan "class=.results.infolabsa_results.InfolabsaResults"
+#   Creamos el alias para no tocar tu ZCML existente.
+# ======================================================================
+
+class InfolabsaResults(InfolabsaResultsWithState):
+    """Alias retro-compatible. No cambia comportamiento."""
+    pass
