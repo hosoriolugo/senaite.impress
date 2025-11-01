@@ -90,7 +90,6 @@ class InfolabsaDeltaCheck(BrowserView):
                     pass
         return _u(getattr(obj, "id", ""))
 
-
     def _cat(self):
         portal = self.context.portal_url.getPortalObject()
         cat = getToolByName(portal, "senaite_catalog_sample", None)
@@ -198,42 +197,18 @@ class InfolabsaDeltaCheck(BrowserView):
     def _to_epoch_ms(self, iso):
         """Convierte ISO-8601 a epoch en milisegundos (para charts)."""
         try:
-            # MEJORA: Manejo más robusto de diferentes formatos de fecha
-            clean_iso = _u(iso).replace("Z", "").split('+')[0]  # Remover timezone
+            # CORRECCIÓN: Limpiar correctamente el string ISO
+            clean_iso = _u(iso).replace("Z", "").split('+')[0]  # Solo quitar timezone, no dividir por guiones
             
-            # Intentar diferentes formatos de fecha
-            formats = [
-                "%Y-%m-%dT%H:%M:%S",    # Formato completo con tiempo
-                "%Y-%m-%dT%H:%M",       # Formato sin segundos  
-                "%Y-%m-%d",             # Solo fecha
-                "%Y-%m-%d %H:%M:%S",    # Formato con espacio
-                "%Y-%m-%d %H:%M"        # Formato con espacio sin segundos
-            ]
+            if 'T' in clean_iso:
+                # Formato con tiempo: "2025-10-04T04:04:47"
+                fmt = "%Y-%m-%dT%H:%M:%S"
+                dt = datetime.datetime.strptime(clean_iso, fmt)
+            else:
+                # Solo fecha: "2025-10-04"
+                fmt = "%Y-%m-%d"
+                dt = datetime.datetime.strptime(clean_iso, fmt)
             
-            dt = None
-            for fmt in formats:
-                try:
-                    dt = datetime.datetime.strptime(clean_iso, fmt)
-                    break
-                except ValueError:
-                    continue
-            
-            if dt is None:
-                # Si ningún formato funciona, intentar parsear fecha flexiblemente
-                try:
-                    # Extraer componentes de fecha usando regex
-                    date_parts = re.findall(r'\d+', clean_iso)
-                    if len(date_parts) >= 3:
-                        year = int(date_parts[0]) if len(date_parts[0]) == 4 else int(date_parts[2])
-                        month = int(date_parts[1])
-                        day = int(date_parts[2]) if len(date_parts[0]) == 4 else int(date_parts[0])
-                        dt = datetime.datetime(year, month, day)
-                except Exception:
-                    pass
-            
-            if dt is None:
-                return None
-                
             # Convertir a timestamp en milisegundos
             timestamp = time.mktime(dt.timetuple()) * 1000
             return int(timestamp)
