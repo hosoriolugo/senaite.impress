@@ -64,7 +64,7 @@ class InfolabsaDeltaCheck(BrowserView):
     """Delta check robusto por paciente y analito con fechas ISO-8601 + JSON crudo."""
 
     PERIOD_DAYS = 365
-    MAX_POINTS  = 8
+    MAX_POINTS  = 6  # Ajustado a 6 como solicitaste
     STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
 
     # ------------------ utils base ------------------
@@ -185,35 +185,24 @@ class InfolabsaDeltaCheck(BrowserView):
             return u"—"
 
     def _fmt_ddmmyy(self, iso):
-        """Devuelve DDMMYY con hora si es del mismo día, para distinguir muestras."""
+        """Devuelve DDMMYY sin hora, a partir de ISO-8601."""
         try:
             s = _u(iso).replace("Z", "")
-            if "T" in s:
-                # Incluir hora para muestras del mismo día
-                fmt = "%Y-%m-%dT%H:%M:%S"
-                dt = datetime.datetime.strptime(s, fmt)
-                # Si hay múltiples muestras el mismo día, mostrar hora
-                return dt.strftime("%d%m%y-%H%M")
-            else:
-                fmt = "%Y-%m-%d"
-                dt = datetime.datetime.strptime(s, fmt)
-                return dt.strftime("%d%m%y")
+            fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
+            dt = datetime.datetime.strptime(s, fmt)
+            return dt.strftime("%d%m%y")
         except Exception:
             return re.sub(r"\D+", "", _u(iso))[:6] or _u(iso)
 
     def _to_epoch_ms(self, iso):
         """Convierte ISO-8601 a epoch en milisegundos (para charts)."""
         try:
-            # Limpiar el string ISO manteniendo la precisión temporal
-            clean_iso = _u(iso).replace("Z", "").split('+')[0]
+            # CORRECCIÓN: Limpiar correctamente el string ISO
+            clean_iso = _u(iso).replace("Z", "").split('+')[0]  # Solo quitar timezone, no dividir por guiones
             
-            # Manejar diferentes formatos de fecha/hora
             if 'T' in clean_iso:
-                # Formato con tiempo: "2025-10-04T04:04:47" o "2025-10-04T04:04:47.123"
-                if '.' in clean_iso:
-                    fmt = "%Y-%m-%dT%H:%M:%S.%f"
-                else:
-                    fmt = "%Y-%m-%dT%H:%M:%S"
+                # Formato con tiempo: "2025-10-04T04:04:47"
+                fmt = "%Y-%m-%dT%H:%M:%S"
                 dt = datetime.datetime.strptime(clean_iso, fmt)
             else:
                 # Solo fecha: "2025-10-04"
@@ -222,10 +211,6 @@ class InfolabsaDeltaCheck(BrowserView):
             
             # Convertir a timestamp en milisegundos
             timestamp = time.mktime(dt.timetuple()) * 1000
-            # Agregar milisegundos si existen
-            if hasattr(dt, 'microsecond'):
-                timestamp += dt.microsecond / 1000.0
-                
             return int(timestamp)
             
         except Exception as e:
@@ -319,7 +304,7 @@ class InfolabsaDeltaCheck(BrowserView):
     # ------------------ Analito keys ------------------
     def _service_of(self, a):
         try:
-            # CORRECCIÓN: Usar getAnalysisService en lugar de getService (deprecated)
+            # Usar getAnalysisService si está disponible
             return getattr(a, "getAnalysisService", lambda: None)()
         except Exception:
             return None
@@ -671,7 +656,8 @@ class InfolabsaDeltaCheck(BrowserView):
             rid = getattr(ab, "getRequestID", None)
             rid = rid() if callable(rid) else rid
             ar_ref, ar_dt = ar_by_id.get(rid, (None, None))
-            dt = ar_dt or getattr(ab, "getResultCaptureDate", None) or getattr(ab, "created", None)
+            # Prioridad: usar fecha/hora del análisis; luego created; al final fecha del AR
+            dt = getattr(ab, "getResultCaptureDate", None) or getattr(ab, "created", None) or ar_dt
             if not dt:
                 continue
 
@@ -684,146 +670,21 @@ class InfolabsaDeltaCheck(BrowserView):
                 "rid": rid
             })
 
-        # Fallback: actual
-        if not pts:
-            cur_ar = self.context
-            cur_rid = self._get(cur_ar, "getRequestID") or self._get(cur_ar, "getId")
-            dt = self._date_of_ar(cur_ar)
-            for a in self._analyses_of(cur_ar):
-                keys = self._analysis_keys(a)
-                ok = False
-                if analito_uid and keys["uid"] == analito_uid:
-                    ok = True
-                elif keyword and keys["keyword"] and keys["keyword"].lower() == (keyword or "").lower():
-                    ok = True
-                elif title and keys["title"] and keys["title"].lower() == (title or "").lower():
-                    ok = True
-                if not ok:
-                    continue
-                raw, f = self._result_value(a)
-                if f is None:
-                    continue
-                iso = self._iso(dt).replace("Z", "")
-                pts.append({"date": iso, "value": float(f), "raw": _u(raw), "ar": cur_ar, "rid": cur_rid})
-                break
-
-        # MODIFICACIÓN: En lugar de deduplicar solo por AR, considerar fecha + AR para permitir múltiples muestras el mismo día
-        by_date_ar = {}
+        # Dedup por AR, último punto
+        by_rid = {}
         for p in pts:
             rid = p.get("rid")
-            date_key = p.get("date")  # Usar la fecha ISO completa
-            if not rid or not date_key:
+            if not rid:
                 continue
-                
-            # Crear clave única por fecha y AR
-            unique_key = f"{date_key}|{rid}"
-            prev = by_date_ar.get(unique_key)
+            prev = by_rid.get(rid)
             if prev is None or p["date"] > prev["date"]:
-                by_date_ar[unique_key] = p
+                by_rid[rid] = p
 
-        pts = list(by_date_ar.values())
+        pts = list(by_rid.values())
         pts.sort(key=lambda p: p["date"])
         if len(pts) > self.MAX_POINTS:
             pts = pts[-self.MAX_POINTS:]
         return pts
-
-    # ------------------ Tendencia ------------------
-    def _trend_dir(self, series_points):
-        try:
-            n = len(series_points or [])
-            if n < 2:
-                return u"∙"
-            import datetime
-            def _to_ts_days(iso):
-                try:
-                    dt = datetime.datetime.strptime(iso.replace("Z",""), "%Y-%m-%dT%H:%M:%S")
-                except Exception:
-                    try:
-                        dt = datetime.datetime.strptime(iso[:10], "%Y-%m-%d")
-                    except Exception:
-                        return None
-                return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
-
-            pts = [( _to_ts_days(p["date"]), float(p["value"]) ) for p in series_points if p.get("date") and p.get("value") is not None]
-            pts = [p for p in pts if p[0] is not None]
-            if len(pts) < 2:
-                return u"∙"
-
-            if len(pts) == 2:
-                return u"▲" if pts[-1][1] > pts[0][1] else (u"▼" if pts[-1][1] < pts[0][1] else u"∙")
-
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
-            xbar = sum(xs) / float(len(xs))
-            ybar = sum(ys) / float(len(ys))
-            sxy = sum((x - xbar)*(y - ybar) for x,y in pts)
-            sxx = sum((x - xbar)*(x - xbar) for x in xs) or 1.0
-            slope = sxy / sxx
-
-            t_span = max(xs) - min(xs) or 1.0
-            y_span = max(ys) - min(ys) or 1.0
-            rel = abs(slope) * t_span / y_span
-            if rel < 0.005:
-                return u"∙"
-            return u"▲" if slope > 0 else u"▼"
-        except Exception:
-            return u"∙"
-
-    # ------------------ DEBUG JSON ------------------
-    def _debug_summary(self, ar, patient, pkeys, prev_ars, now_analyses, multi_series, patient_filter):
-        sample_indexes = self._list_indexes(analyses=False)
-        analysis_indexes = self._list_indexes(analyses=True)
-
-        prev_summary = []
-        for x in prev_ars[:30]:
-            rid = self._get(x, "getRequestID") or self._get(x, "getId") or u""
-            dt = self._received_date_of_ar(x) or self._date_of_ar(x)
-            rs = self._state_of(x)
-            prev_summary.append({
-                "rid": _u(rid),
-                "date": self._iso(dt) if dt else u"",
-                "date_fmt": self._fmt_local(dt) if dt else u"",
-                "state": rs or u"",
-            })
-
-        a_summ = []
-        for a in now_analyses:
-            k = self._analysis_keys(a)
-            a_summ.append({
-                "name": k["name"],
-                "unit": k["unit"],
-                "svc_uid": k["svc_uid"],
-                "keyword": k["keyword"],
-                "code": k["code"],
-            })
-
-        msum = []
-        for s in multi_series:
-            pts = s.get("series") or []
-            msum.append({
-                "name": s.get("name"),
-                "unit": s.get("unit"),
-                "points": len(pts),
-                "from": (pts[0]["date"] if pts else ""),
-                "to": (pts[-1]["date"] if pts else ""),
-            })
-
-        return {
-            "patient_keys": pkeys,
-            "patient_uid_present": bool(pkeys.get("patient_uid")),
-            "mrn_present": bool(pkeys.get("mrn")),
-            "sample_catalog_indexes": sample_indexes,
-            "analysis_catalog_indexes": analysis_indexes,
-            "patient_filter_used_in_catalog_query": patient_filter,
-            "period_days": self.PERIOD_DAYS,
-            "max_points_per_analyte": self.MAX_POINTS,
-            "candidate_ARs_found": len(prev_ars),
-            "candidate_ARs_preview": prev_summary,
-            "current_AR_id": self._get(ar, "getRequestID") or self._get(ar, "getId"),
-            "current_AR_date": self._fmt_local(self._date_of_ar(ar)),
-            "current_analyses_meta": a_summ,
-            "multi_series_after_flow": msum,
-        }
 
     # ------------------ Vista (SIEMPRE JSON) ------------------
     def __call__(self):
@@ -862,6 +723,7 @@ class InfolabsaDeltaCheck(BrowserView):
                     'y': float(val),
                     'ddmmyy': ddmmyy,
                     'ms': ms,
+                    'sid': p.get('rid') or p.get('sid') or u''  # Propagar SID/RID
                 })
 
             # serie para el gráfico (solo si hay ≥ 2 puntos)
@@ -919,7 +781,45 @@ class InfolabsaDeltaCheck(BrowserView):
                                if delta_abs is not None
                                else u"—")
 
-            trend_dir = self._trend_dir(points)
+            # Dirección de tendencia simplificada (opcional)
+            def _trend_dir(series_points):
+                try:
+                    n = len(series_points or [])
+                    if n < 2:
+                        return u"∙"
+                    import datetime as _dt
+                    def _to_ts_days(iso_):
+                        try:
+                            dt_ = _dt.datetime.strptime(iso_.replace("Z",""), "%Y-%m-%dT%H:%M:%S")
+                        except Exception:
+                            try:
+                                dt_ = _dt.datetime.strptime(iso_[:10], "%Y-%m-%d")
+                            except Exception:
+                                return None
+                        return (dt_ - _dt.datetime(1970,1,1)).total_seconds() / 86400.0
+                    pts2 = [( _to_ts_days(p["date"]), float(p["value"]) ) for p in series_points if p.get("date") and p.get("value") is not None]
+                    pts2 = [p for p in pts2 if p[0] is not None]
+                    if len(pts2) < 2:
+                        return u"∙"
+                    if len(pts2) == 2:
+                        return u"▲" if pts2[-1][1] > pts2[0][1] else (u"▼" if pts2[-1][1] < pts2[0][1] else u"∙")
+                    xs = [p[0] for p in pts2]
+                    ys = [p[1] for p in pts2]
+                    xbar = sum(xs) / float(len(xs))
+                    ybar = sum(ys) / float(len(ys))
+                    sxy = sum((x - xbar)*(y - ybar) for x,y in pts2)
+                    sxx = sum((x - xbar)*(x - xbar) for x in xs) or 1.0
+                    slope = sxy / sxx
+                    t_span = max(xs) - min(xs) or 1.0
+                    y_span = max(ys) - min(ys) or 1.0
+                    rel = abs(slope) * t_span / y_span
+                    if rel < 0.005:
+                        return u"∙"
+                    return u"▲" if slope > 0 else u"▼"
+                except Exception:
+                    return u"∙"
+
+            trend_dir = _trend_dir(points)
 
             prev_value_raw = prev_raw if prev_raw not in (None, u"", "") else (u"%s" % prev_num if prev_num is not None else u"—")
 
@@ -933,7 +833,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 'value_now': (raw_now if raw_now not in (None, u"", "") else u'—'),
 
                 'delta_pct': delta_pct,
-                'delta_dir': delta_dir,
+                'delta_dir': trend_dir,
                 'delta_abs_fmt': delta_abs_fmt,
                 'delta_combo_fmt': delta_combo_fmt,
                 'delta_note': u'',
@@ -944,7 +844,6 @@ class InfolabsaDeltaCheck(BrowserView):
                 'prev_value': prev_value_raw,
 
                 'rcv_pct': None,
-                'trend_dir': trend_dir,
 
                 'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],
 
@@ -987,7 +886,16 @@ class InfolabsaDeltaCheck(BrowserView):
         if self.request.form.get("debug") or self.request.get("debug"):
             cat = self._cat()
             pf = self._best_patient_query_for_catalog(cat, pkeys)
-            payload["_debug"] = self._debug_summary(ar, patient, pkeys, prev_ars, now_analyses, multi_series, pf)
+            payload["_debug"] = {
+                "patient_keys": pkeys,
+                "sample_catalog_indexes": self._list_indexes(analyses=False),
+                "analysis_catalog_indexes": self._list_indexes(analyses=True),
+                "patient_filter_used_in_catalog_query": pf,
+                "period_days": self.PERIOD_DAYS,
+                "max_points_per_analyte": self.MAX_POINTS,
+                "candidate_ARs_found": len(prev_ars),
+                "current_AR_id": self._get(ar, "getRequestID") or self._get(ar, "getId"),
+            }
 
         # RETORNAR DICCIONARIO DIRECTAMENTE - NO CONVERTIR A JSON
         return payload
