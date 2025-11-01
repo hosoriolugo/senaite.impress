@@ -429,9 +429,10 @@ class InfolabsaDeltaCheck(BrowserView):
             "name": _u(title or kw or self._get(a, "Title") or u""),
         }
 
-    # ===== EXTRACCIÓN NUMÉRICA ROBUSTA =====
+    # ===== EXTRACCIÓN NUMÉRICA ROBUSTA - VERSIÓN MEJORADA =====
     def _result_value(self, a):
-        # 1) Intento directo
+        """VERSIÓN MEJORADA - Maneja más patrones y casos cualitativos"""
+        # 1) Intento directo con getResult
         for g in ("getResult", "Result", "result", "getValue"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
@@ -439,27 +440,81 @@ class InfolabsaDeltaCheck(BrowserView):
                 if num is not None:
                     fr = self._get(a, "getFormattedResult")
                     return (fr if fr not in (None, u"", "") else _u(v)), float(num)
-        # 2) FormattedResult con número
+        
+        # 2) FormattedResult con número - patrones más robustos
         fr = self._get(a, "getFormattedResult")
         if fr not in (None, u"", ""):
             s = _u(fr)
-            m = re.search(r'[-<>]?\s*\d+(?:[.,]\d+)?', s)
-            if m:
-                num = _to_num(m.group(0))
-                if num is not None:
-                    return (s, float(num))
-            # 3) Cualitativos
+            
+            # Buscar patrones numéricos más complejos
+            patterns = [
+                r'[-<>]?\s*\d+[.,]\d+',  # decimales con coma o punto
+                r'[-<>]?\s*\d+',         # enteros
+                r'[-<>]?\s*\d+[.,]\d+[eE][-+]?\d+',  # notación científica
+            ]
+            
+            for pattern in patterns:
+                m = re.search(pattern, s)
+                if m:
+                    try:
+                        num = _to_num(m.group(0))
+                        if num is not None:
+                            return (s, float(num))
+                    except (ValueError, TypeError):
+                        continue
+            
+            # 3) Cualitativos - lista expandida
             sn = _norm(_strip_accents(s))
-            neg = (u"ausente", u"no detectado", u"no-detectado", u"nd",
-                   u"negativo", u"sin crecimiento", u"no growth",
-                   u"absent", u"none detected", u"not detected", u"no se detecta")
-            pos = (u"presente", u"detectado", u"positivo", u"con crecimiento",
-                   u"present", u"detected", u"growth")
-            if any(k in sn for k in neg):
+            
+            # Valores numéricos para resultados cualitativos
+            qualitative_map = {
+                # Negativos/ausentes = 0
+                u"ausente": 0.0, u"no detectado": 0.0, u"no-detectado": 0.0, u"nd": 0.0,
+                u"negativo": 0.0, u"sin crecimiento": 0.0, u"no growth": 0.0,
+                u"absent": 0.0, u"none detected": 0.0, u"not detected": 0.0, u"no se detecta": 0.0,
+                u"negative": 0.0, u"not found": 0.0, u"not present": 0.0,
+                
+                # Positivos/presentes = 1
+                u"presente": 1.0, u"detectado": 1.0, u"positivo": 1.0, u"con crecimiento": 1.0,
+                u"present": 1.0, u"detected": 1.0, u"growth": 1.0, u"positive": 1.0,
+                u"found": 1.0, u"si": 1.0, u"yes": 1.0,
+                
+                # Valores intermedios
+                u"trace": 0.5, u"traza": 0.5, u"bajo": 0.3, u"low": 0.3,
+                u"alto": 2.0, u"high": 2.0, u"elevado": 2.0,
+            }
+            
+            for qual_key, qual_value in qualitative_map.items():
+                if qual_key in sn:
+                    return (s, qual_value)
+            
+            # Buscar palabras clave en el texto
+            neg_keywords = (u"ausente", u"no detectado", u"negativo", u"sin crecimiento", 
+                          u"absent", u"none detected", u"not detected", u"negative")
+            pos_keywords = (u"presente", u"detectado", u"positivo", u"con crecimiento",
+                          u"present", u"detected", u"positive", u"growth")
+            
+            if any(k in sn for k in neg_keywords):
                 return (s, 0.0)
-            if any(k in sn for k in pos):
+            if any(k in sn for k in pos_keywords):
                 return (s, 1.0)
-        return u"—", None
+        
+        # 4) Último intento: buscar cualquier número en el texto
+        text_to_search = _u(self._get(a, "getFormattedResult") or self._get(a, "getResult") or "")
+        if text_to_search:
+            patterns = [r'\d+[.,]\d+', r'\d+']
+            for pattern in patterns:
+                matches = re.findall(pattern, text_to_search)
+                if matches:
+                    try:
+                        # Tomar el primer número encontrado
+                        num = _to_num(matches[0])
+                        if num is not None:
+                            return (text_to_search, float(num))
+                    except (ValueError, TypeError):
+                        continue
+        
+        return (u"—", None)
 
     # ------------------ BÚSQUEDA OPTIMIZADA DE ARs PREVIOS ------------------
     def _optimized_patient_query(self, pkeys):
@@ -673,7 +728,7 @@ class InfolabsaDeltaCheck(BrowserView):
         # Aplicar estrategia de agrupamiento inteligente
         return self._apply_smart_grouping(series_by_analyte, target_analytes)
 
-    def _extract_analysis_data(self, brain, ar_metadata, target_analytes=None):
+    def _extract_analysis_data(self, brain, ar_metadata):
         """Extrae datos de análisis de forma optimizada."""
         try:
             rid = getattr(brain, "getRequestID", None)
@@ -713,19 +768,10 @@ class InfolabsaDeltaCheck(BrowserView):
             if not iso_date:
                 return None
 
-            # Convertir valor numérico
+            # Convertir valor numérico - VERSIÓN CORREGIDA
             raw_val, num_val = self._parse_result_value(raw_result, formatted_result)
             if num_val is None:
                 return None
-
-            # Si se pasó un filtro de analitos, aseguremos que coincide por UID si está presente
-            if target_analytes:
-                try:
-                    target_uids = set([ta.get("svc_uid") for ta in target_analytes if ta.get("svc_uid")])
-                except Exception:
-                    target_uids = set()
-                if target_uids and service_uid and service_uid not in target_uids:
-                    return None
 
             return {
                 "date": iso_date,
@@ -741,33 +787,44 @@ class InfolabsaDeltaCheck(BrowserView):
             return None
 
     def _parse_result_value(self, raw_result, formatted_result):
-        """Parsea valor de resultado optimizado."""
-        # Primero intentar con raw_result
-        if raw_result not in (None, u"", ""):
-            num = _to_num(raw_result)
-            if num is not None:
-                return (formatted_result if formatted_result not in (None, u"", "") else _u(raw_result)), float(num)
-                
-        # Luego con formatted_result
-        if formatted_result not in (None, u"", ""):
-            s = _u(formatted_result)
-            m = re.search(r'[-<>]?\s*\d+(?:[.,]\d+)?', s)
-            if m:
-                num = _to_num(m.group(0))
+        """VERSIÓN CORREGIDA - Maneja mejor los errores"""
+        try:
+            # Primero intentar con raw_result
+            if raw_result not in (None, u"", ""):
+                num = _to_num(raw_result)
                 if num is not None:
-                    return (s, float(num))
+                    result_text = formatted_result if formatted_result not in (None, u"", "") else _u(raw_result)
+                    return result_text, float(num)
                     
-            # Manejo cualitativo
-            sn = _norm(_strip_accents(s))
-            neg = (u"ausente", u"no detectado", u"no-detectado", u"nd",
-                   u"negativo", u"sin crecimiento", u"no growth")
-            pos = (u"presente", u"detectado", u"positivo", u"con crecimiento")
-            
-            if any(k in sn for k in neg):
-                return (s, 0.0)
-            if any(k in sn for k in pos):
-                return (s, 1.0)
+            # Luego con formatted_result
+            if formatted_result not in (None, u"", ""):
+                s = _u(formatted_result)
+                patterns = [
+                    r'[-<>]?\s*\d+[.,]\d+',
+                    r'[-<>]?\s*\d+',
+                    r'[-<>]?\s*\d+[.,]\d+[eE][-+]?\d+',
+                ]
                 
+                for pattern in patterns:
+                    m = re.search(pattern, s)
+                    if m:
+                        num = _to_num(m.group(0))
+                        if num is not None:
+                            return s, float(num)
+                
+                # Manejo cualitativo
+                sn = _norm(_strip_accents(s))
+                neg_keywords = (u"ausente", u"no detectado", u"negativo", u"sin crecimiento")
+                pos_keywords = (u"presente", u"detectado", u"positivo", u"con crecimiento")
+                
+                if any(k in sn for k in neg_keywords):
+                    return s, 0.0
+                if any(k in sn for k in pos_keywords):
+                    return s, 1.0
+                    
+        except Exception as e:
+            logger.warning("Error parseando resultado: %s" % str(e))
+            
         return u"—", None
 
     def _get_analyte_key(self, analyte_data):
@@ -975,8 +1032,9 @@ class InfolabsaDeltaCheck(BrowserView):
             return u"∙"
         return u"▲" if slope > 0 else u"▼"
 
-    # ------------------ VISTA PRINCIPAL OPTIMIZADA ------------------
+    # ------------------ VISTA PRINCIPAL CORREGIDA ------------------
     def __call__(self):
+        """VISTA PRINCIPAL CORREGIDA - FILTROS MÁS PERMISIVOS"""
         ar = self.context
         patient = self._patient_obj(ar)
         pkeys = self._patient_keys(ar, patient)
@@ -996,13 +1054,31 @@ class InfolabsaDeltaCheck(BrowserView):
         multi_series = []
         chart_v2_series = []
 
+        # Debug info para diagnóstico
+        debug_info = {
+            'total_analyses': len(current_analyses),
+            'analyses_with_values': 0,
+            'analyses_with_series': 0,
+            'analysis_details': []
+        }
+
         for analysis in current_analyses:
             keys = self._analysis_keys(analysis)
             raw_now, val_now = self._result_value(analysis)
             analyte_key = self._get_analyte_key(keys)
 
+            # Debug info para cada análisis
+            analysis_debug = {
+                'name': keys["name"],
+                'raw_now': raw_now,
+                'val_now': val_now,
+                'analyte_key': analyte_key,
+                'has_value': val_now is not None
+            }
+
             # Obtener puntos de la serie optimizada
             points = series_data.get(analyte_key, [])
+            analysis_debug['series_points'] = len(points)
             
             # Preparar puntos para visualización
             display_points = []
@@ -1024,15 +1100,39 @@ class InfolabsaDeltaCheck(BrowserView):
                     'raw': p.get('raw', '')
                 })
 
-            # Solo procesar si hay puntos válidos
-            if not display_points or val_now is None:
-                continue
+            analysis_debug['display_points'] = len(display_points)
 
-            # Calcular deltas y tendencias
+            # ✅ CORRECCIÓN CRÍTICA: Mostrar análisis aunque no tenga puntos históricos
+            if val_now is None:
+                debug_info['analysis_details'].append(analysis_debug)
+                continue  # Solo saltar si no hay valor actual
+
+            debug_info['analyses_with_values'] += 1
+
+            # ✅ CORRECCIÓN: Si no hay puntos de serie, crear uno con el valor actual
+            if not display_points:
+                current_dt = self._date_of_ar(ar)
+                if current_dt:
+                    iso_now = self._iso(current_dt).replace("Z", "")
+                    ddmmyy_now = self._fmt_ddmmyy(iso_now)
+                    ms_now = self._to_epoch_ms(iso_now)
+                    
+                    display_points.append({
+                        'date': iso_now,
+                        'value': float(val_now),
+                        'x': iso_now,
+                        'y': float(val_now),
+                        'ddmmyy': ddmmyy_now,
+                        'ms': ms_now,
+                        'raw': raw_now
+                    })
+                    analysis_debug['created_current_point'] = True
+
+            # Calcular deltas y tendencias (aunque sea solo con el punto actual)
             delta_data = self._calculate_delta_data(display_points, val_now, keys)
             trend_dir = self._calculate_trend(display_points)
 
-            # Construir fila de resultados
+            # Construir fila de resultados - ✅ SIEMPRE QUE TENGA val_now
             row = {
                 'uid': keys["uid"],
                 'name': keys["name"],
@@ -1049,9 +1149,10 @@ class InfolabsaDeltaCheck(BrowserView):
                 'trend_to_fmt': self._fmt_ddmmyy(display_points[-1]['date']) if display_points else u"—",
             }
             rows.append(row)
+            debug_info['analyses_with_series'] += 1
 
-            # Preparar datos para gráficos
-            if len(display_points) >= 2:
+            # Preparar datos para gráficos (aunque sea solo un punto)
+            if len(display_points) >= 1:  # ✅ CORREGIDO: ≥ 1 en lugar de ≥ 2
                 multi_series.append({
                     "name": keys["name"],
                     "unit": keys["unit"] or u"",
@@ -1067,6 +1168,8 @@ class InfolabsaDeltaCheck(BrowserView):
                     "data": [[pt['ms'], pt['value']] for pt in display_points if pt.get('ms') is not None],
                     "categories_ddmmyy": [pt['ddmmyy'] for pt in display_points],
                 })
+
+            debug_info['analysis_details'].append(analysis_debug)
 
         # Preparar payload final
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
@@ -1087,25 +1190,33 @@ class InfolabsaDeltaCheck(BrowserView):
                 'window_days': self.PERIOD_DAYS,
             },
             'has_chart': has_chart,
+            '_debug_info': debug_info,  # ✅ SIEMPRE INCLUIR DEBUG INFO
         }
 
-        # Debug opcional
+        # Debug adicional si se solicita
         if self.request.form.get("debug") or self.request.get("debug"):
-            payload["_debug"] = self._debug_summary(ar, patient, pkeys, prev_ars, current_analyses, multi_series)
+            payload["_detailed_debug"] = self._debug_summary(ar, patient, pkeys, prev_ars, current_analyses, multi_series)
 
         return payload
 
     def _calculate_delta_data(self, points, current_val, analyte_keys):
-        """Calcula datos delta optimizados."""
+        """VERSIÓN CORREGIDA - NO EXCLUYE PUNTOS VÁLIDOS"""
         if not points or current_val is None:
             return {'pct': u"N/A", 'dir': u"∙", 'abs_fmt': u"—", 'combo_fmt': u"—"}
 
-        # Encontrar punto anterior más relevante (excluyendo el actual si está)
+        # ✅ CORRECCIÓN: Buscar CUALQUIER punto anterior válido, no excluir el último
         prev_point = None
-        for point in reversed(points[:-1]):  # Excluir el último punto (podría ser el actual)
-            if point.get('value') is not None:
+        for point in reversed(points):  # ✅ BUSCAR EN TODOS LOS PUNTOS
+            if point.get('value') is not None and point.get('value') != current_val:
                 prev_point = point
                 break
+        
+        # Si no encontramos punto diferente, usar el primero (excepto el actual)
+        if prev_point is None and len(points) > 1:
+            for point in points[:-1]:  # Excluir el último si es el actual
+                if point.get('value') is not None:
+                    prev_point = point
+                    break
 
         if prev_point is None:
             return {'pct': u"N/A", 'dir': u"∙", 'abs_fmt': u"—", 'combo_fmt': u"—"}
