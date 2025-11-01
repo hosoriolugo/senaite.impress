@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- 
 from Products.Five import BrowserView
 from Products.CMFCore.utils import getToolByName
 
@@ -673,7 +673,7 @@ class InfolabsaDeltaCheck(BrowserView):
         # Aplicar estrategia de agrupamiento inteligente
         return self._apply_smart_grouping(series_by_analyte, target_analytes)
 
-    def _extract_analysis_data(self, brain, ar_metadata):
+    def _extract_analysis_data(self, brain, ar_metadata, target_analytes=None):
         """Extrae datos de análisis de forma optimizada."""
         try:
             rid = getattr(brain, "getRequestID", None)
@@ -717,6 +717,15 @@ class InfolabsaDeltaCheck(BrowserView):
             raw_val, num_val = self._parse_result_value(raw_result, formatted_result)
             if num_val is None:
                 return None
+
+            # Si se pasó un filtro de analitos, aseguremos que coincide por UID si está presente
+            if target_analytes:
+                try:
+                    target_uids = set([ta.get("svc_uid") for ta in target_analytes if ta.get("svc_uid")])
+                except Exception:
+                    target_uids = set()
+                if target_uids and service_uid and service_uid not in target_uids:
+                    return None
 
             return {
                 "date": iso_date,
@@ -762,25 +771,31 @@ class InfolabsaDeltaCheck(BrowserView):
         return u"—", None
 
     def _get_analyte_key(self, analyte_data):
-        """Genera clave única para analito."""
+        """Genera clave única para analito (Py2.7-safe, sin f-strings)."""
         if analyte_data.get("svc_uid"):
-            return f"uid:{analyte_data['svc_uid']}"
+            return u"uid:%s" % analyte_data['svc_uid']
         elif analyte_data.get("keyword"):
-            return f"kw:{analyte_data['keyword'].lower()}"
+            try:
+                return u"kw:%s" % analyte_data['keyword'].lower()
+            except Exception:
+                return u"kw:%s" % _u(analyte_data['keyword']).lower()
         elif analyte_data.get("title"):
-            return f"title:{_norm(analyte_data['title'])}"
+            return u"title:%s" % _norm(analyte_data['title'])
         return None
 
     def _get_analyte_key_from_service(self, service_uid):
-        """Obtiene clave de analito desde service UID."""
+        """Obtiene clave de analito desde service UID (Py2.7-safe)."""
         if not service_uid:
             return None
         service_info = self._get_service_info(service_uid)
         if service_info.get('keyword'):
-            return f"kw:{service_info['keyword'].lower()}"
+            try:
+                return u"kw:%s" % service_info['keyword'].lower()
+            except Exception:
+                return u"kw:%s" % _u(service_info['keyword']).lower()
         elif service_info.get('title'):
-            return f"title:{_norm(service_info['title'])}"
-        return f"uid:{service_uid}"
+            return u"title:%s" % _norm(service_info['title'])
+        return u"uid:%s" % service_uid
 
     def _apply_smart_grouping(self, series_by_analyte, target_analytes):
         """Aplica agrupamiento inteligente manteniendo puntos del mismo día."""
@@ -894,7 +909,7 @@ class InfolabsaDeltaCheck(BrowserView):
         # Si hay muchos puntos recientes, limitarlos
         if len(recent_points) > self.MAX_POINTS * 0.6:
             # Mantener distribución temporal de puntos recientes
-            step = max(1, len(recent_points) // (self.MAX_POINTS * 0.6))
+            step = max(1, int(len(recent_points) // (self.MAX_POINTS * 0.6)))
             recent_points = recent_points[::step]
             
         # Combinar con muestreo estratificado de históricos
@@ -930,7 +945,7 @@ class InfolabsaDeltaCheck(BrowserView):
             # Promedio por día
             daily_avg = []
             for day, values in sorted(daily_values.items()):
-                daily_avg.append(sum(values) / len(values))
+                daily_avg.append(sum(values) / float(len(values)))
                 
             if len(daily_avg) < 2:
                 return u"∙"
