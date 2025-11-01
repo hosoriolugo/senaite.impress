@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*- 
+# -*- coding: utf-8 -*-
 from Products.Five import BrowserView
 from Products.CMFCore.utils import getToolByName
 
@@ -14,7 +14,6 @@ import re
 import unicodedata
 import datetime
 import time
-from collections import defaultdict
 
 
 def _u(v):
@@ -62,62 +61,13 @@ def _norm(s):
 
 
 class InfolabsaDeltaCheck(BrowserView):
-    """Delta check optimizado con soporte para múltiples estudios del mismo día."""
+    """Delta check robusto por paciente y analito con fechas ISO-8601 + JSON crudo."""
 
     PERIOD_DAYS = 365
-    MAX_POINTS = 20
-    MAX_POINTS_PER_DAY = 3  # Máximo de puntos por día para evitar saturación
+    MAX_POINTS  = 8
     STATES_OK = set(("verified", "to_be_published", "published", "verified_duplicate"))
 
-    # ------------------ CACHE Y METADATOS ------------------
-    def __init__(self, context, request):
-        super(InfolabsaDeltaCheck, self).__init__(context, request)
-        self._service_cache = {}
-        self._ar_metadata_cache = {}
-        self._patient_cache = {}
-
-    def _get_service_info(self, service_uid):
-        """Cache de información de servicios de análisis."""
-        if service_uid not in self._service_cache:
-            service = self._get_obj_by_uid(service_uid)
-            if service:
-                self._service_cache[service_uid] = {
-                    'keyword': self._get(service, 'getKeyword'),
-                    'title': self._title_of(service),
-                    'code': self._service_code(service),
-                    'unit': self._get(service, 'getUnit')
-                }
-            else:
-                self._service_cache[service_uid] = {}
-        return self._service_cache[service_uid]
-
-    def _batch_get_service_info(self, service_uids):
-        """Obtiene información de múltiples servicios en lote."""
-        missing = [uid for uid in service_uids if uid not in self._service_cache]
-        if missing:
-            for uid in missing:
-                self._get_service_info(uid)
-
-    def _batch_ar_metadata(self, ar_list):
-        """Extrae metadatos de múltiples ARs eficientemente."""
-        metadata = {}
-        for ar in ar_list:
-            ar_uid = self._get(ar, "UID")
-            if not ar_uid or ar_uid in metadata:
-                continue
-                
-            metadata[ar_uid] = {
-                "obj": ar,
-                "rid": self._get(ar, "getRequestID") or self._get(ar, "getId"),
-                "date_received": self._received_date_of_ar(ar),
-                "date_verified": self._date_of_ar(ar),
-                "state": self._state_of(ar),
-                "patient_keys": self._patient_keys(ar, self._patient_obj(ar))
-            }
-        self._ar_metadata_cache.update(metadata)
-        return metadata
-
-    # ------------------ UTILS BASE OPTIMIZADAS ------------------
+    # ------------------ utils base ------------------
     def _get(self, obj, name, default=None):
         if not obj:
             return default
@@ -140,16 +90,6 @@ class InfolabsaDeltaCheck(BrowserView):
                     pass
         return _u(getattr(obj, "id", ""))
 
-    def _get_obj_by_uid(self, uid):
-        """Obtiene objeto por UID usando catálogo."""
-        try:
-            cat = self._cat()
-            brains = cat(UID=uid)
-            if brains:
-                return brains[0].getObject()
-        except Exception:
-            pass
-        return None
 
     def _cat(self):
         portal = self.context.portal_url.getPortalObject()
@@ -172,6 +112,13 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return False
 
+    def _list_indexes(self, analyses=False):
+        try:
+            cat = self._acat() if analyses else self._cat()
+            return sorted(list(cat.indexes()))
+        except Exception:
+            return []
+
     def _wftool(self):
         try:
             portal = self.context.portal_url.getPortalObject()
@@ -179,7 +126,7 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             return None
 
-    # ------------------ ESTADO ------------------
+    # ------------------ estado ------------------
     def _state_of(self, obj, brain=None):
         try:
             if brain is not None:
@@ -188,19 +135,11 @@ class InfolabsaDeltaCheck(BrowserView):
                     return _u(rs)
         except Exception:
             pass
-        
-        # Cache simple para estados
-        obj_uid = self._get(obj, "UID")
-        if hasattr(obj, '_cached_state') and obj_uid:
-            return obj._cached_state
-            
         for g in ("getReviewState", "review_state", "state"):
             try:
                 v = getattr(obj, g, None)
                 v = v() if callable(v) else v
                 if v:
-                    if obj_uid:
-                        obj._cached_state = _u(v)
                     return _u(v)
             except Exception:
                 continue
@@ -209,14 +148,12 @@ class InfolabsaDeltaCheck(BrowserView):
             if wftool:
                 v = wftool.getInfoFor(obj, "review_state", default=None)
                 if v:
-                    if obj_uid:
-                        obj._cached_state = _u(v)
                     return _u(v)
         except Exception:
             pass
         return None
 
-    # ------------------ FECHA / FORMATO OPTIMIZADOS ------------------
+    # ------------------ fecha / formato ------------------
     def _iso(self, dt):
         if not dt:
             return u""
@@ -227,7 +164,7 @@ class InfolabsaDeltaCheck(BrowserView):
             except Exception:
                 pass
         try:
-            return dt.ISO8601()
+            return dt.ISO8601()  # puede traer Z; la quitamos abajo si hace falta
         except Exception:
             return _u(dt)
 
@@ -259,17 +196,45 @@ class InfolabsaDeltaCheck(BrowserView):
             return re.sub(r"\D+", "", _u(iso))[:6] or _u(iso)
 
     def _to_epoch_ms(self, iso):
-        """Convierte ISO-8601 a epoch en milisegundos optimizado."""
+        """Convierte ISO-8601 a epoch en milisegundos (para charts)."""
         try:
-            clean_iso = _u(iso).replace("Z", "").split('+')[0]
+            # MEJORA: Manejo más robusto de diferentes formatos de fecha
+            clean_iso = _u(iso).replace("Z", "").split('+')[0]  # Remover timezone
             
-            if 'T' in clean_iso:
-                fmt = "%Y-%m-%dT%H:%M:%S"
-                dt = datetime.datetime.strptime(clean_iso, fmt)
-            else:
-                fmt = "%Y-%m-%d"
-                dt = datetime.datetime.strptime(clean_iso, fmt)
+            # Intentar diferentes formatos de fecha
+            formats = [
+                "%Y-%m-%dT%H:%M:%S",    # Formato completo con tiempo
+                "%Y-%m-%dT%H:%M",       # Formato sin segundos  
+                "%Y-%m-%d",             # Solo fecha
+                "%Y-%m-%d %H:%M:%S",    # Formato con espacio
+                "%Y-%m-%d %H:%M"        # Formato con espacio sin segundos
+            ]
             
+            dt = None
+            for fmt in formats:
+                try:
+                    dt = datetime.datetime.strptime(clean_iso, fmt)
+                    break
+                except ValueError:
+                    continue
+            
+            if dt is None:
+                # Si ningún formato funciona, intentar parsear fecha flexiblemente
+                try:
+                    # Extraer componentes de fecha usando regex
+                    date_parts = re.findall(r'\d+', clean_iso)
+                    if len(date_parts) >= 3:
+                        year = int(date_parts[0]) if len(date_parts[0]) == 4 else int(date_parts[2])
+                        month = int(date_parts[1])
+                        day = int(date_parts[2]) if len(date_parts[0]) == 4 else int(date_parts[0])
+                        dt = datetime.datetime(year, month, day)
+                except Exception:
+                    pass
+            
+            if dt is None:
+                return None
+                
+            # Convertir a timestamp en milisegundos
             timestamp = time.mktime(dt.timetuple()) * 1000
             return int(timestamp)
             
@@ -291,17 +256,13 @@ class InfolabsaDeltaCheck(BrowserView):
                 return v
         return None
 
-    # ------------------ AR / PACIENTE OPTIMIZADO ------------------
+    # ------------------ AR / Paciente ------------------
     def _patient_obj(self, ar):
-        if ar in self._patient_cache:
-            return self._patient_cache[ar]
-            
         for pa in ("getPatient", "Patient", "getRelatedPatient"):
             if hasattr(ar, pa):
                 try:
                     p = getattr(ar, pa)()
                     if p:
-                        self._patient_cache[ar] = p
                         return p
                 except Exception:
                     pass
@@ -365,9 +326,10 @@ class InfolabsaDeltaCheck(BrowserView):
                     return v
         return []
 
-    # ------------------ ANALITO KEYS OPTIMIZADO ------------------
+    # ------------------ Analito keys ------------------
     def _service_of(self, a):
         try:
+            # CORRECCIÓN: Usar getAnalysisService en lugar de getService (deprecated)
             return getattr(a, "getAnalysisService", lambda: None)()
         except Exception:
             return None
@@ -397,19 +359,11 @@ class InfolabsaDeltaCheck(BrowserView):
     def _analysis_keys(self, a):
         svc = self._service_of(a)
         svc_uid = self._get(svc, "UID") or self._service_uid_of(a)
-        
-        # Usar cache de servicio si está disponible
-        if svc_uid and svc_uid in self._service_cache:
-            svc_info = self._service_cache[svc_uid]
-            kw = svc_info.get('keyword')
-            title = svc_info.get('title')
-            code = svc_info.get('code')
-        else:
-            kw = self._get(svc, "getKeyword") if svc else None
-            if not kw:
-                kw = self._get(a, "getKeyword")
-            title = self._title_of(svc) if svc else (self._get(a, "Title") or u"")
-            code = self._service_code(svc) if svc else None
+        kw = self._get(svc, "getKeyword") if svc else None
+        if not kw:
+            kw = self._get(a, "getKeyword")
+        title = self._title_of(svc) if svc else (self._get(a, "Title") or u"")
+        code = self._service_code(svc) if svc else None
 
         uid = None
         if svc_uid:
@@ -429,10 +383,9 @@ class InfolabsaDeltaCheck(BrowserView):
             "name": _u(title or kw or self._get(a, "Title") or u""),
         }
 
-    # ===== EXTRACCIÓN NUMÉRICA ROBUSTA - VERSIÓN MEJORADA =====
+    # ===== Extraer numérico robusto =====
     def _result_value(self, a):
-        """VERSIÓN MEJORADA - Maneja más patrones y casos cualitativos"""
-        # 1) Intento directo con getResult
+        # 1) Intento directo
         for g in ("getResult", "Result", "result", "getValue"):
             v = self._get(a, g)
             if v not in (None, u"", ""):
@@ -440,114 +393,71 @@ class InfolabsaDeltaCheck(BrowserView):
                 if num is not None:
                     fr = self._get(a, "getFormattedResult")
                     return (fr if fr not in (None, u"", "") else _u(v)), float(num)
-        
-        # 2) FormattedResult con número - patrones más robustos
+        # 2) FormattedResult con número
         fr = self._get(a, "getFormattedResult")
         if fr not in (None, u"", ""):
             s = _u(fr)
-            
-            # Buscar patrones numéricos más complejos
-            patterns = [
-                r'[-<>]?\s*\d+[.,]\d+',  # decimales con coma o punto
-                r'[-<>]?\s*\d+',         # enteros
-                r'[-<>]?\s*\d+[.,]\d+[eE][-+]?\d+',  # notación científica
-            ]
-            
-            for pattern in patterns:
-                m = re.search(pattern, s)
-                if m:
-                    try:
-                        num = _to_num(m.group(0))
-                        if num is not None:
-                            return (s, float(num))
-                    except (ValueError, TypeError):
-                        continue
-            
-            # 3) Cualitativos - lista expandida
+            m = re.search(r'[-<>]?\s*\d+(?:[.,]\d+)?', s)
+            if m:
+                num = _to_num(m.group(0))
+                if num is not None:
+                    return (s, float(num))
+            # 3) Cualitativos
             sn = _norm(_strip_accents(s))
-            
-            # Valores numéricos para resultados cualitativos
-            qualitative_map = {
-                # Negativos/ausentes = 0
-                u"ausente": 0.0, u"no detectado": 0.0, u"no-detectado": 0.0, u"nd": 0.0,
-                u"negativo": 0.0, u"sin crecimiento": 0.0, u"no growth": 0.0,
-                u"absent": 0.0, u"none detected": 0.0, u"not detected": 0.0, u"no se detecta": 0.0,
-                u"negative": 0.0, u"not found": 0.0, u"not present": 0.0,
-                
-                # Positivos/presentes = 1
-                u"presente": 1.0, u"detectado": 1.0, u"positivo": 1.0, u"con crecimiento": 1.0,
-                u"present": 1.0, u"detected": 1.0, u"growth": 1.0, u"positive": 1.0,
-                u"found": 1.0, u"si": 1.0, u"yes": 1.0,
-                
-                # Valores intermedios
-                u"trace": 0.5, u"traza": 0.5, u"bajo": 0.3, u"low": 0.3,
-                u"alto": 2.0, u"high": 2.0, u"elevado": 2.0,
-            }
-            
-            for qual_key, qual_value in qualitative_map.items():
-                if qual_key in sn:
-                    return (s, qual_value)
-            
-            # Buscar palabras clave en el texto
-            neg_keywords = (u"ausente", u"no detectado", u"negativo", u"sin crecimiento", 
-                          u"absent", u"none detected", u"not detected", u"negative")
-            pos_keywords = (u"presente", u"detectado", u"positivo", u"con crecimiento",
-                          u"present", u"detected", u"positive", u"growth")
-            
-            if any(k in sn for k in neg_keywords):
+            neg = (u"ausente", u"no detectado", u"no-detectado", u"nd",
+                   u"negativo", u"sin crecimiento", u"no growth",
+                   u"absent", u"none detected", u"not detected", u"no se detecta")
+            pos = (u"presente", u"detectado", u"positivo", u"con crecimiento",
+                   u"present", u"detected", u"growth")
+            if any(k in sn for k in neg):
                 return (s, 0.0)
-            if any(k in sn for k in pos_keywords):
+            if any(k in sn for k in pos):
                 return (s, 1.0)
-        
-        # 4) Último intento: buscar cualquier número en el texto
-        text_to_search = _u(self._get(a, "getFormattedResult") or self._get(a, "getResult") or "")
-        if text_to_search:
-            patterns = [r'\d+[.,]\d+', r'\d+']
-            for pattern in patterns:
-                matches = re.findall(pattern, text_to_search)
-                if matches:
-                    try:
-                        # Tomar el primer número encontrado
-                        num = _to_num(matches[0])
-                        if num is not None:
-                            return (text_to_search, float(num))
-                    except (ValueError, TypeError):
-                        continue
-        
-        return (u"—", None)
+        return u"—", None
 
-    # ------------------ BÚSQUEDA OPTIMIZADA DE ARs PREVIOS ------------------
-    def _optimized_patient_query(self, pkeys):
-        """Consulta optimizada por paciente usando índices disponibles."""
-        cat = self._cat()
+    # ------------------ Búsqueda de AR previos ------------------
+    def _same_patient(self, other_ar, pkeys):
+        found = set()
+        for name in (
+            "getMedicalRecordNumberValue", "getMedicalRecordNumber", "getMRN",
+            "getClientPatientID", "getPatientID", "getIdentifier",
+        ):
+            v = self._get(other_ar, name)
+            if v:
+                found.add(_u(v).strip())
+        if found and pkeys.get("mrn"):
+            if pkeys["mrn"] in found:
+                return True
+
+        full = None
+        for name in ("getPatientFullName", "getFullname", "Title"):
+            v = self._get(other_ar, name)
+            if v:
+                full = _norm(v)
+                break
+        if full and pkeys.get("fullname") and full == pkeys["fullname"]:
+            return True
+        return False
+
+    def _best_patient_query_for_catalog(self, cat, pkeys):
         try:
             indexes = set(cat.indexes())
         except Exception:
             indexes = set()
 
-        # 1. Búsqueda más específica primero - UID de paciente
         puid = pkeys.get("patient_uid")
-        for idx in ("getPatientUID", "patient_uid", "PatientUID"):
+        for idx in ("getPatientUIDExact", "getPatientUID"):
             if puid and idx in indexes:
                 return {idx: puid}
 
-        # 2. MRN con índices disponibles
         mrn = pkeys.get("mrn")
-        mrn_indexes = ["getMedicalRecordNumber", "medical_record_number", 
-                      "getClientPatientID", "getPatientID", "getIdentifier"]
-        for idx in mrn_indexes:
+        for idx in ("getMedicalRecordNumber", "medical_record_number",
+                    "getClientPatientID", "getPatientID", "getIdentifier"):
             if mrn and idx in indexes:
                 return {idx: mrn}
-
-        # 3. Fallback por nombre (menos eficiente)
-        fullname = pkeys.get("fullname")
-        if fullname and "getPatientFullName" in indexes:
-            return {"getPatientFullName": fullname}
-
         return {}
 
     def _candidate_ars(self, current_ar, patient, pkeys):
-        """Busca ARs candidatos optimizados, incluyendo mismo día."""
         cat = self._cat()
         cur_uid = self._get(current_ar, "UID")
 
@@ -557,23 +467,18 @@ class InfolabsaDeltaCheck(BrowserView):
         except Exception:
             cutoff = None
 
-        # Query base optimizada
         query = {
             "portal_type": "AnalysisRequest",
             "sort_on": "created",
             "sort_order": "descending",
         }
-
-        # Filtro de paciente optimizado
-        patient_filter = self._optimized_patient_query(pkeys)
+        patient_filter = self._best_patient_query_for_catalog(cat, pkeys)
         query.update(patient_filter)
 
-        # Filtro temporal optimizado
         try:
             idxs = set(cat.indexes())
         except Exception:
             idxs = set()
-            
         if "getDateReceived" in idxs:
             if cutoff:
                 query["getDateReceived"] = {"query": cutoff, "range": "min"}
@@ -581,684 +486,302 @@ class InfolabsaDeltaCheck(BrowserView):
             if cutoff:
                 query["created"] = {"query": cutoff, "range": "min"}
 
-        # Búsqueda optimizada
         try:
             if patient_filter:
                 brains = cat.searchResults(**query)
             else:
-                # Sin filtro de paciente, limitar resultados
                 brains = cat.searchResults(
                     portal_type="AnalysisRequest",
                     sort_on="created",
                     sort_order="descending",
-                )[:1000]  # Aumentado para capturar más datos del mismo día
+                )[:500]
         except Exception:
             brains = []
 
         out = []
-        seen_uids = set([cur_uid])
+        seen = set([cur_uid])
 
         for b in brains:
-            if getattr(b, "UID", None) in seen_uids:
+            if getattr(b, "UID", None) in seen:
                 continue
-                
             try:
                 b_state = getattr(b, "review_state", None)
                 if b_state and _u(b_state) not in self.STATES_OK:
                     continue
             except Exception:
                 pass
-                
             try:
                 obj = b.getObject()
             except Exception:
                 continue
-                
-            # Verificación adicional de paciente si no hay filtro
+            if not getattr(b, "review_state", None):
+                st = self._state_of(obj)
+                if st and st not in self.STATES_OK:
+                    continue
             if not patient_filter:
                 if not self._same_patient(obj, pkeys):
                     continue
-                    
             out.append(obj)
-            seen_uids.add(b.UID)
-            
+            seen.add(b.UID)
         return out
 
-    def _same_patient(self, other_ar, pkeys):
-        """Verifica si es el mismo paciente de forma optimizada."""
-        # Cache de verificación
-        if hasattr(other_ar, '_patient_checked'):
-            return other_ar._patient_checked
-            
-        found = set()
-        for name in (
-            "getMedicalRecordNumberValue", "getMedicalRecordNumber", "getMRN",
-            "getClientPatientID", "getPatientID", "getIdentifier",
-        ):
-            v = self._get(other_ar, name)
-            if v:
-                found.add(_u(v).strip())
-                
-        if found and pkeys.get("mrn"):
-            if pkeys["mrn"] in found:
-                other_ar._patient_checked = True
-                return True
+    # ------------------ previo global ------------------
+    def _choose_prev_ar_global(self, current_ar, candidate_ars):
+        cur_recv = self._received_date_of_ar(current_ar)
+        if not cur_recv:
+            return None
+        dated = []
+        for ar in candidate_ars:
+            dt = self._received_date_of_ar(ar)
+            if not dt:
+                continue
+            try:
+                if dt >= cur_recv:
+                    continue
+            except Exception:
+                continue
+            st = self._state_of(ar)
+            if st and _u(st) not in self.STATES_OK:
+                continue
+            dated.append((dt, ar))
+        if not dated:
+            return None
+        dated.sort(key=lambda x: x[0])
+        return dated[-1][1]
 
-        full = None
-        for name in ("getPatientFullName", "getFullname", "Title"):
-            v = self._get(other_ar, name)
-            if v:
-                full = _norm(v)
-                break
-                
-        result = bool(full and pkeys.get("fullname") and full == pkeys["fullname"])
-        other_ar._patient_checked = result
-        return result
+    def _find_prev_value_in_ar(self, prev_ar, target_keys):
+        if not prev_ar:
+            return (u"—", None)
 
-    # ------------------ SERIE TEMPORAL OPTIMIZADA CON MISMO DÍA ------------------
-    def _build_analyte_series(self, ars_list, target_analytes):
-        """Construye series temporales para múltiples analitos optimizado."""
-        if not ars_list:
-            return {}
+        tgt_svc_uid = (target_keys or {}).get("svc_uid")
+        tgt_kw      = (target_keys or {}).get("keyword")
+        tgt_code    = (target_keys or {}).get("code")
+        tgt_title_n = _norm((target_keys or {}).get("title"))
+        tgt_name_n  = _norm((target_keys or {}).get("name"))
+        tgt_unit_n  = _norm((target_keys or {}).get("unit"))
 
-        # Metadatos batch de todos los ARs
-        ar_metadata = self._batch_ar_metadata(ars_list)
-        
-        # Preparar datos para búsqueda masiva
-        ar_ids = [meta["rid"] for meta in ar_metadata.values() if meta.get("rid")]
-        service_uids = set(analyte.get("svc_uid") for analyte in target_analytes if analyte.get("svc_uid"))
-        
-        # Precargar cache de servicios
-        self._batch_get_service_info(list(service_uids))
+        analyses = self._analyses_of(prev_ar)
 
-        # Búsqueda masiva de análisis
-        analysis_brains = self._bulk_analyses_search(ar_ids, list(service_uids))
-        
-        # Procesamiento optimizado
-        series_data = self._process_analysis_brains(analysis_brains, ar_metadata, target_analytes)
-        
-        return series_data
+        def _service_code(svc):
+            for g in ("getAnalysisCode", "getCode", "getServiceID", "getId", "id"):
+                v = self._get(svc, g)
+                if v:
+                    return _u(v)
+            return None
 
-    def _bulk_analyses_search(self, ar_ids, service_uids):
-        """Búsqueda masiva optimizada de análisis."""
+        def _kw_of(a):
+            svc = self._service_of(a)
+            return (self._get(svc, "getKeyword") or self._get(a, "getKeyword"))
+
+        def _match_and_return(a):
+            raw, num = self._result_value(a)
+            if (num is not None) or (raw not in (None, u"", "")):
+                return (raw if raw not in (None, u"", "") else u"—", num)
+            return None
+
+        if tgt_svc_uid:
+            for a in analyses:
+                svc = self._service_of(a)
+                svuid = self._get(svc, "UID") or self._service_uid_of(a)
+                if svuid and _u(svuid) == tgt_svc_uid:
+                    r = _match_and_return(a);  return r if r else (u"—", None)
+
+        if tgt_kw:
+            for a in analyses:
+                kw_other = _kw_of(a)
+                if kw_other and _u(kw_other).strip().lower() == _u(tgt_kw).strip().lower():
+                    r = _match_and_return(a);  return r if r else (u"—", None)
+
+        if tgt_code:
+            for a in analyses:
+                code_other = _service_code(self._service_of(a))
+                if code_other and _norm(code_other) == _norm(tgt_code):
+                    r = _match_and_return(a);  return r if r else (u"—", None)
+
+        if tgt_title_n:
+            for a in analyses:
+                t_other = self._title_of(self._service_of(a)) if self._service_of(a) else (self._get(a, "Title") or u"")
+                if _norm(t_other) == tgt_title_n:
+                    r = _match_and_return(a);  return r if r else (u"—", None)
+
+        for a in analyses:
+            unit_o = self._unit_of(a)
+            name_o = self._title_of(self._service_of(a)) if self._service_of(a) else (self._get(a, "Title") or u"")
+            if _norm(name_o) == tgt_name_n and _norm(unit_o) == tgt_unit_n:
+                r = _match_and_return(a);  return r if r else (u"—", None)
+
+        return (u"—", None)
+
+    # ------------------ Serie por analito ------------------
+    def _series_for_uid(self, ars, analito_uid, keyword, title):
         acat = self._acat()
-        if not acat or not ar_ids:
+
+        # AR -> (obj, fecha)
+        ar_by_id = {}
+        ar_ids = []
+        for ar in ars:
+            rid = self._get(ar, "getRequestID") or self._get(ar, "getId")
+            if not rid:
+                continue
+            ar_ids.append(rid)
+            ar_by_id[rid] = (ar, self._date_of_ar(ar))
+        if not ar_ids:
             return []
 
         query = {
             "portal_type": "Analysis",
             "getRequestID": ar_ids,
-            "review_state": list(self.STATES_OK)
         }
-
-        # Filtro por servicios si es específico
-        if service_uids and self._catalog_has_index("getServiceUID", analyses=True):
-            query["getServiceUID"] = list(service_uids)
+        sort_on = "getResultCaptureDate" if self._catalog_has_index("getResultCaptureDate", analyses=True) else "created"
 
         try:
-            return acat.searchResults(**query)
+            abrains = acat.searchResults(sort_on=sort_on, sort_order="ascending", **query)
         except Exception:
-            return []
+            abrains = []
 
-    def _process_analysis_brains(self, analysis_brains, ar_metadata, target_analytes):
-        """Procesa brains de análisis de forma optimizada."""
-        series_by_analyte = defaultdict(list)
-        
-        # Mapa de analitos objetivo para matching rápido
-        target_map = {}
-        for analyte in target_analytes:
-            key = self._get_analyte_key(analyte)
-            target_map[key] = analyte
+        pts = []
+        ok_states = self.STATES_OK
+        tgt_uid = analito_uid or u""
+        tgt_kw  = (keyword or u"").strip().lower()
+        tgt_title_n = _norm(title)
 
-        for brain in analysis_brains:
+        for ab in abrains:
             try:
-                # Extraer datos del brain eficientemente
-                analysis_data = self._extract_analysis_data(brain, ar_metadata)
-                if not analysis_data:
+                astate = getattr(ab, "review_state", None)
+                if astate and _u(astate) not in ok_states:
                     continue
+            except Exception:
+                pass
 
-                # Matching con analitos objetivo
-                analyte_key = self._get_analyte_key(analysis_data)
-                if analyte_key in target_map:
-                    series_by_analyte[analyte_key].append(analysis_data)
-                    
+            try:
+                aobj = ab.getObject()
             except Exception:
                 continue
 
-        # Aplicar estrategia de agrupamiento inteligente
-        return self._apply_smart_grouping(series_by_analyte, target_analytes)
+            svc = self._service_of(aobj)
+            svuid = self._get(svc, "UID") or self._service_uid_of(aobj)
+            kw_other = (self._get(svc, "getKeyword") or self._get(aobj, "getKeyword") or u"").strip().lower()
+            title_other = self._title_of(svc) if svc else (self._get(aobj, "Title") or u"")
+            title_other_n = _norm(title_other)
 
-    def _extract_analysis_data(self, brain, ar_metadata):
-        """Extrae datos de análisis de forma optimizada."""
-        try:
-            rid = getattr(brain, "getRequestID", None)
+            match = False
+            if tgt_uid and svuid and _u(svuid) == tgt_uid:
+                match = True
+            elif tgt_kw and kw_other and kw_other == tgt_kw:
+                match = True
+            elif tgt_title_n and title_other_n and title_other_n == tgt_title_n:
+                match = True
+            if not match:
+                continue
+
+            raw_val, fval = self._result_value(aobj)
+            if fval is None:
+                continue
+
+            rid = getattr(ab, "getRequestID", None)
             rid = rid() if callable(rid) else rid
-            if not rid:
-                return None
-
-            # Encontrar metadatos del AR
-            ar_info = None
-            for meta in ar_metadata.values():
-                if meta.get("rid") == rid:
-                    ar_info = meta
-                    break
-                    
-            if not ar_info:
-                return None
-
-            # Extraer datos básicos
-            service_uid = getattr(brain, "getServiceUID", None)
-            if callable(service_uid):
-                service_uid = service_uid()
-                
-            raw_result = getattr(brain, "getResult", None)
-            if callable(raw_result):
-                raw_result = raw_result()
-                
-            formatted_result = getattr(brain, "getFormattedResult", None)  
-            if callable(formatted_result):
-                formatted_result = formatted_result()
-
-            # Obtener fecha
-            date_field = getattr(brain, "getResultCaptureDate", None) or getattr(brain, "created", None)
-            if callable(date_field):
-                date_field = date_field()
-                
-            iso_date = self._iso(date_field).replace("Z", "") if date_field else None
-            if not iso_date:
-                return None
-
-            # Convertir valor numérico - VERSIÓN CORREGIDA
-            raw_val, num_val = self._parse_result_value(raw_result, formatted_result)
-            if num_val is None:
-                return None
-
-            return {
-                "date": iso_date,
-                "value": float(num_val),
-                "raw": _u(raw_val),
-                "ar": ar_info["obj"],
-                "rid": rid,
-                "service_uid": service_uid,
-                "analyte_key": self._get_analyte_key_from_service(service_uid)
-            }
-            
-        except Exception:
-            return None
-
-    def _parse_result_value(self, raw_result, formatted_result):
-        """VERSIÓN CORREGIDA - Maneja mejor los errores"""
-        try:
-            # Primero intentar con raw_result
-            if raw_result not in (None, u"", ""):
-                num = _to_num(raw_result)
-                if num is not None:
-                    result_text = formatted_result if formatted_result not in (None, u"", "") else _u(raw_result)
-                    return result_text, float(num)
-                    
-            # Luego con formatted_result
-            if formatted_result not in (None, u"", ""):
-                s = _u(formatted_result)
-                patterns = [
-                    r'[-<>]?\s*\d+[.,]\d+',
-                    r'[-<>]?\s*\d+',
-                    r'[-<>]?\s*\d+[.,]\d+[eE][-+]?\d+',
-                ]
-                
-                for pattern in patterns:
-                    m = re.search(pattern, s)
-                    if m:
-                        num = _to_num(m.group(0))
-                        if num is not None:
-                            return s, float(num)
-                
-                # Manejo cualitativo
-                sn = _norm(_strip_accents(s))
-                neg_keywords = (u"ausente", u"no detectado", u"negativo", u"sin crecimiento")
-                pos_keywords = (u"presente", u"detectado", u"positivo", u"con crecimiento")
-                
-                if any(k in sn for k in neg_keywords):
-                    return s, 0.0
-                if any(k in sn for k in pos_keywords):
-                    return s, 1.0
-                    
-        except Exception as e:
-            logger.warning("Error parseando resultado: %s" % str(e))
-            
-        return u"—", None
-
-    def _get_analyte_key(self, analyte_data):
-        """Genera clave única para analito (Py2.7-safe, sin f-strings)."""
-        if analyte_data.get("svc_uid"):
-            return u"uid:%s" % analyte_data['svc_uid']
-        elif analyte_data.get("keyword"):
-            try:
-                return u"kw:%s" % analyte_data['keyword'].lower()
-            except Exception:
-                return u"kw:%s" % _u(analyte_data['keyword']).lower()
-        elif analyte_data.get("title"):
-            return u"title:%s" % _norm(analyte_data['title'])
-        return None
-
-    def _get_analyte_key_from_service(self, service_uid):
-        """Obtiene clave de analito desde service UID (Py2.7-safe)."""
-        if not service_uid:
-            return None
-        service_info = self._get_service_info(service_uid)
-        if service_info.get('keyword'):
-            try:
-                return u"kw:%s" % service_info['keyword'].lower()
-            except Exception:
-                return u"kw:%s" % _u(service_info['keyword']).lower()
-        elif service_info.get('title'):
-            return u"title:%s" % _norm(service_info['title'])
-        return u"uid:%s" % service_uid
-
-    def _apply_smart_grouping(self, series_by_analyte, target_analytes):
-        """Aplica agrupamiento inteligente manteniendo puntos del mismo día."""
-        result_series = {}
-        
-        for analyte in target_analytes:
-            analyte_key = self._get_analyte_key(analyte)
-            points = series_by_analyte.get(analyte_key, [])
-            
-            if not points:
-                result_series[analyte_key] = []
+            ar_ref, ar_dt = ar_by_id.get(rid, (None, None))
+            dt = ar_dt or getattr(ab, "getResultCaptureDate", None) or getattr(ab, "created", None)
+            if not dt:
                 continue
 
-            # Agrupar por día
-            daily_groups = defaultdict(list)
-            for point in points:
-                day_key = point['date'][:10]  # YYYY-MM-DD
-                daily_groups[day_key].append(point)
+            iso = self._iso(dt).replace("Z", "")
+            pts.append({
+                "date": iso,
+                "value": float(fval),
+                "raw": _u(raw_val),
+                "ar": ar_ref or self.context,
+                "rid": rid
+            })
 
-            # Aplicar estrategia de selección por día
-            selected_points = []
-            for day, day_points in sorted(daily_groups.items()):
-                if len(day_points) <= self.MAX_POINTS_PER_DAY:
-                    selected_points.extend(day_points)
-                else:
-                    # Estrategia para días con muchos puntos
-                    selected_points.extend(self._select_daily_points(day_points))
+        # Fallback: actual
+        if not pts:
+            cur_ar = self.context
+            cur_rid = self._get(cur_ar, "getRequestID") or self._get(cur_ar, "getId")
+            dt = self._date_of_ar(cur_ar)
+            for a in self._analyses_of(cur_ar):
+                keys = self._analysis_keys(a)
+                ok = False
+                if analito_uid and keys["uid"] == analito_uid:
+                    ok = True
+                elif keyword and keys["keyword"] and keys["keyword"].lower() == (keyword or "").lower():
+                    ok = True
+                elif title and keys["title"] and keys["title"].lower() == (title or "").lower():
+                    ok = True
+                if not ok:
+                    continue
+                raw, f = self._result_value(a)
+                if f is None:
+                    continue
+                iso = self._iso(dt).replace("Z", "")
+                pts.append({"date": iso, "value": float(f), "raw": _u(raw), "ar": cur_ar, "rid": cur_rid})
+                break
 
-            # Ordenar por fecha y aplicar límite global
-            selected_points.sort(key=lambda x: x['date'])
-            if len(selected_points) > self.MAX_POINTS:
-                selected_points = self._smart_limit_points(selected_points)
-                
-            result_series[analyte_key] = selected_points
+        # Dedup por AR, último punto
+        by_rid = {}
+        for p in pts:
+            rid = p.get("rid")
+            if not rid:
+                continue
+            prev = by_rid.get(rid)
+            if prev is None or p["date"] > prev["date"]:
+                by_rid[rid] = p
 
-        return result_series
+        pts = list(by_rid.values())
+        pts.sort(key=lambda p: p["date"])
+        if len(pts) > self.MAX_POINTS:
+            pts = pts[-self.MAX_POINTS:]
+        return pts
 
-    def _select_daily_points(self, day_points):
-        """Selecciona puntos representativos para un día con muchos datos."""
-        strategies = {
-            'temporal': self._temporal_selection,
-            'extreme_values': self._extreme_values_selection,
-            'first_last': self._first_last_selection
-        }
-        
-        # Usar estrategia temporal por defecto
-        return strategies['temporal'](day_points)
-
-    def _temporal_selection(self, day_points):
-        """Selección basada en distribución temporal."""
-        if len(day_points) <= self.MAX_POINTS_PER_DAY:
-            return day_points
-            
-        # Ordenar por hora
-        day_points.sort(key=lambda x: x['date'])
-        
-        # Tomar primero, último y puntos intermedios distribuidos
-        selected = [day_points[0]]
-        if len(day_points) > 1:
-            selected.append(day_points[-1])
-            
-        # Puntos intermedios distribuidos
-        step = max(1, len(day_points) // (self.MAX_POINTS_PER_DAY - 2))
-        for i in range(step, len(day_points)-1, step):
-            if len(selected) < self.MAX_POINTS_PER_DAY:
-                selected.append(day_points[i])
-                
-        return selected
-
-    def _extreme_values_selection(self, day_points):
-        """Selección basada en valores mínimos y máximos."""
-        if len(day_points) <= self.MAX_POINTS_PER_DAY:
-            return day_points
-            
-        day_points.sort(key=lambda x: x['value'])
-        selected = [day_points[0]]  # mínimo
-        selected.append(day_points[-1])  # máximo
-        
-        # Si hay espacio, agregar mediana
-        if len(selected) < self.MAX_POINTS_PER_DAY and len(day_points) > 2:
-            median_idx = len(day_points) // 2
-            selected.append(day_points[median_idx])
-            
-        return selected
-
-    def _first_last_selection(self, day_points):
-        """Selección de primero y último punto del día."""
-        if len(day_points) <= self.MAX_POINTS_PER_DAY:
-            return day_points
-            
-        day_points.sort(key=lambda x: x['date'])
-        selected = [day_points[0], day_points[-1]]
-        
-        # Si hay espacio y puntos intermedios, agregar uno del medio
-        if len(selected) < self.MAX_POINTS_PER_DAY and len(day_points) > 2:
-            mid_idx = len(day_points) // 2
-            selected.append(day_points[mid_idx])
-            
-        return selected
-
-    def _smart_limit_points(self, points):
-        """Limita puntos manteniendo distribución temporal."""
-        if len(points) <= self.MAX_POINTS:
-            return points
-            
-        # Estrategia: mantener densidad reciente + muestreo histórico
-        recent_cutoff = self._get_recent_cutoff()
-        recent_points = [p for p in points if p['date'] >= recent_cutoff]
-        historical_points = [p for p in points if p['date'] < recent_cutoff]
-        
-        # Si hay muchos puntos recientes, limitarlos
-        if len(recent_points) > self.MAX_POINTS * 0.6:
-            # Mantener distribución temporal de puntos recientes
-            step = max(1, int(len(recent_points) // (self.MAX_POINTS * 0.6)))
-            recent_points = recent_points[::step]
-            
-        # Combinar con muestreo estratificado de históricos
-        total_needed = self.MAX_POINTS - len(recent_points)
-        if historical_points and total_needed > 0:
-            step = max(1, len(historical_points) // total_needed)
-            historical_points = historical_points[::step][:total_needed]
-            
-        result = recent_points + historical_points
-        result.sort(key=lambda x: x['date'])
-        return result[:self.MAX_POINTS]
-
-    def _get_recent_cutoff(self):
-        """Obtiene fecha de corte para puntos recientes."""
-        from datetime import datetime, timedelta
-        cutoff_date = datetime.now() - timedelta(days=30)
-        return cutoff_date.strftime("%Y-%m-%dT%H:%M:%S")
-
-    # ------------------ CÁLCULO DE TENDENCIA MEJORADO ------------------
-    def _calculate_trend(self, series_points):
-        """Calcula tendencia mejorada con soporte para múltiples puntos por día."""
+    # ------------------ Tendencia ------------------
+    def _trend_dir(self, series_points):
         try:
             n = len(series_points or [])
             if n < 2:
                 return u"∙"
-                
-            # Agrupar por día y promediar para cálculo de tendencia
-            daily_values = defaultdict(list)
-            for point in series_points:
-                day_key = point['date'][:10]
-                daily_values[day_key].append(point['value'])
-                
-            # Promedio por día
-            daily_avg = []
-            for day, values in sorted(daily_values.items()):
-                daily_avg.append(sum(values) / float(len(values)))
-                
-            if len(daily_avg) < 2:
+            import datetime
+            def _to_ts_days(iso):
+                try:
+                    dt = datetime.datetime.strptime(iso.replace("Z",""), "%Y-%m-%dT%H:%M:%S")
+                except Exception:
+                    try:
+                        dt = datetime.datetime.strptime(iso[:10], "%Y-%m-%d")
+                    except Exception:
+                        return None
+                return (dt - datetime.datetime(1970,1,1)).total_seconds() / 86400.0
+
+            pts = [( _to_ts_days(p["date"]), float(p["value"]) ) for p in series_points if p.get("date") and p.get("value") is not None]
+            pts = [p for p in pts if p[0] is not None]
+            if len(pts) < 2:
                 return u"∙"
-                
-            # Cálculo de pendiente con días promediados
-            xs = list(range(len(daily_avg)))
-            ys = daily_avg
-            
-            return self._compute_slope_direction(xs, ys)
-            
+
+            if len(pts) == 2:
+                return u"▲" if pts[-1][1] > pts[0][1] else (u"▼" if pts[-1][1] < pts[0][1] else u"∙")
+
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            xbar = sum(xs) / float(len(xs))
+            ybar = sum(ys) / float(len(ys))
+            sxy = sum((x - xbar)*(y - ybar) for x,y in pts)
+            sxx = sum((x - xbar)*(x - xbar) for x in xs) or 1.0
+            slope = sxy / sxx
+
+            t_span = max(xs) - min(xs) or 1.0
+            y_span = max(ys) - min(ys) or 1.0
+            rel = abs(slope) * t_span / y_span
+            if rel < 0.005:
+                return u"∙"
+            return u"▲" if slope > 0 else u"▼"
         except Exception:
             return u"∙"
 
-    def _compute_slope_direction(self, xs, ys):
-        """Computa dirección de la pendiente."""
-        xbar = sum(xs) / float(len(xs))
-        ybar = sum(ys) / float(len(ys))
-        sxy = sum((x - xbar) * (y - ybar) for x, y in zip(xs, ys))
-        sxx = sum((x - xbar) * (x - xbar) for x in xs) or 1.0
-        slope = sxy / sxx
-
-        # Determinar significancia
-        y_span = max(ys) - min(ys) or 1.0
-        rel_change = abs(slope) * len(xs) / y_span
-        
-        if rel_change < 0.01:  # Umbral de significancia
-            return u"∙"
-        return u"▲" if slope > 0 else u"▼"
-
-    # ------------------ VISTA PRINCIPAL CORREGIDA ------------------
-    def __call__(self):
-        """VISTA PRINCIPAL CORREGIDA - FILTROS MÁS PERMISIVOS"""
-        ar = self.context
-        patient = self._patient_obj(ar)
-        pkeys = self._patient_keys(ar, patient)
-
-        # Búsqueda optimizada de ARs
-        prev_ars = self._candidate_ars(ar, patient, pkeys)
-        all_ars = prev_ars + [ar]
-
-        # Preparar analitos actuales para búsqueda masiva
-        current_analyses = self._analyses_of(ar)
-        target_analytes = [self._analysis_keys(a) for a in current_analyses]
-
-        # Construir series temporales optimizadas
-        series_data = self._build_analyte_series(all_ars, target_analytes)
-
-        rows = []
-        multi_series = []
-        chart_v2_series = []
-
-        # Debug info para diagnóstico
-        debug_info = {
-            'total_analyses': len(current_analyses),
-            'analyses_with_values': 0,
-            'analyses_with_series': 0,
-            'analysis_details': []
-        }
-
-        for analysis in current_analyses:
-            keys = self._analysis_keys(analysis)
-            raw_now, val_now = self._result_value(analysis)
-            analyte_key = self._get_analyte_key(keys)
-
-            # Debug info para cada análisis
-            analysis_debug = {
-                'name': keys["name"],
-                'raw_now': raw_now,
-                'val_now': val_now,
-                'analyte_key': analyte_key,
-                'has_value': val_now is not None
-            }
-
-            # Obtener puntos de la serie optimizada
-            points = series_data.get(analyte_key, [])
-            analysis_debug['series_points'] = len(points)
-            
-            # Preparar puntos para visualización
-            display_points = []
-            for p in points:
-                iso = p.get('date')
-                val = p.get('value')
-                if iso is None or val is None:
-                    continue
-                    
-                ddmmyy = self._fmt_ddmmyy(iso)
-                ms = self._to_epoch_ms(iso)
-                display_points.append({
-                    'date': iso,
-                    'value': float(val),
-                    'x': iso,
-                    'y': float(val),
-                    'ddmmyy': ddmmyy,
-                    'ms': ms,
-                    'raw': p.get('raw', '')
-                })
-
-            analysis_debug['display_points'] = len(display_points)
-
-            # ✅ CORRECCIÓN CRÍTICA: Mostrar análisis aunque no tenga puntos históricos
-            if val_now is None:
-                debug_info['analysis_details'].append(analysis_debug)
-                continue  # Solo saltar si no hay valor actual
-
-            debug_info['analyses_with_values'] += 1
-
-            # ✅ CORRECCIÓN: Si no hay puntos de serie, crear uno con el valor actual
-            if not display_points:
-                current_dt = self._date_of_ar(ar)
-                if current_dt:
-                    iso_now = self._iso(current_dt).replace("Z", "")
-                    ddmmyy_now = self._fmt_ddmmyy(iso_now)
-                    ms_now = self._to_epoch_ms(iso_now)
-                    
-                    display_points.append({
-                        'date': iso_now,
-                        'value': float(val_now),
-                        'x': iso_now,
-                        'y': float(val_now),
-                        'ddmmyy': ddmmyy_now,
-                        'ms': ms_now,
-                        'raw': raw_now
-                    })
-                    analysis_debug['created_current_point'] = True
-
-            # Calcular deltas y tendencias (aunque sea solo con el punto actual)
-            delta_data = self._calculate_delta_data(display_points, val_now, keys)
-            trend_dir = self._calculate_trend(display_points)
-
-            # Construir fila de resultados - ✅ SIEMPRE QUE TENGA val_now
-            row = {
-                'uid': keys["uid"],
-                'name': keys["name"],
-                'unit': keys["unit"] or u'',
-                'value_now': raw_now if raw_now not in (None, u"", "") else u'—',
-                'delta_pct': delta_data['pct'],
-                'delta_dir': delta_data['dir'],
-                'delta_abs_fmt': delta_data['abs_fmt'],
-                'delta_combo_fmt': delta_data['combo_fmt'],
-                'delta_note': u'',
-                'trend_dir': trend_dir,
-                'series': [{'date': pt['date'], 'value': pt['value'], 'raw': pt.get('raw', '')} for pt in display_points],
-                'trend_from_fmt': self._fmt_ddmmyy(display_points[0]['date']) if display_points else u"—",
-                'trend_to_fmt': self._fmt_ddmmyy(display_points[-1]['date']) if display_points else u"—",
-            }
-            rows.append(row)
-            debug_info['analyses_with_series'] += 1
-
-            # Preparar datos para gráficos (aunque sea solo un punto)
-            if len(display_points) >= 1:  # ✅ CORREGIDO: ≥ 1 en lugar de ≥ 2
-                multi_series.append({
-                    "name": keys["name"],
-                    "unit": keys["unit"] or u"",
-                    "series": display_points,
-                    "xy": [{'x': pt['x'], 'y': pt['y']} for pt in display_points],
-                    "data": [[pt['ms'], pt['value']] for pt in display_points if pt.get('ms') is not None],
-                    "categories_ddmmyy": [pt['ddmmyy'] for pt in display_points],
-                })
-
-                chart_v2_series.append({
-                    "name": keys["name"],
-                    "unit": keys["unit"] or u"",
-                    "data": [[pt['ms'], pt['value']] for pt in display_points if pt.get('ms') is not None],
-                    "categories_ddmmyy": [pt['ddmmyy'] for pt in display_points],
-                })
-
-            debug_info['analysis_details'].append(analysis_debug)
-
-        # Preparar payload final
-        label = u'%d meses' % (self.PERIOD_DAYS // 30)
-        has_chart = bool(multi_series)
-
-        payload = {
-            'period_label': label,
-            'rows': rows,
-            'chart': {
-                'series': multi_series,
-                'max_points': self.MAX_POINTS,
-                'window_days': self.PERIOD_DAYS,
-            },
-            'chart_v2': {
-                'x_mode': 'ms',
-                'series': chart_v2_series,
-                'max_points': self.MAX_POINTS,
-                'window_days': self.PERIOD_DAYS,
-            },
-            'has_chart': has_chart,
-            '_debug_info': debug_info,  # ✅ SIEMPRE INCLUIR DEBUG INFO
-        }
-
-        # Debug adicional si se solicita
-        if self.request.form.get("debug") or self.request.get("debug"):
-            payload["_detailed_debug"] = self._debug_summary(ar, patient, pkeys, prev_ars, current_analyses, multi_series)
-
-        return payload
-
-    def _calculate_delta_data(self, points, current_val, analyte_keys):
-        """VERSIÓN CORREGIDA - NO EXCLUYE PUNTOS VÁLIDOS"""
-        if not points or current_val is None:
-            return {'pct': u"N/A", 'dir': u"∙", 'abs_fmt': u"—", 'combo_fmt': u"—"}
-
-        # ✅ CORRECCIÓN: Buscar CUALQUIER punto anterior válido, no excluir el último
-        prev_point = None
-        for point in reversed(points):  # ✅ BUSCAR EN TODOS LOS PUNTOS
-            if point.get('value') is not None and point.get('value') != current_val:
-                prev_point = point
-                break
-        
-        # Si no encontramos punto diferente, usar el primero (excepto el actual)
-        if prev_point is None and len(points) > 1:
-            for point in points[:-1]:  # Excluir el último si es el actual
-                if point.get('value') is not None:
-                    prev_point = point
-                    break
-
-        if prev_point is None:
-            return {'pct': u"N/A", 'dir': u"∙", 'abs_fmt': u"—", 'combo_fmt': u"—"}
-
-        prev_val = prev_point['value']
-        
-        try:
-            delta_abs = float(current_val) - float(prev_val)
-            abs_fmt = u"{:+.2f}".format(delta_abs)
-            
-            if prev_val != 0:
-                pct = (delta_abs / abs(float(prev_val))) * 100.0
-                pct_fmt = u"%.1f%%" % pct
-            else:
-                pct_fmt = u"N/A"
-                
-            if float(current_val) > float(prev_val):
-                direction = u"▲"
-            elif float(current_val) < float(prev_val):
-                direction = u"▼"
-            else:
-                direction = u"Δ"
-                
-            combo_fmt = u"%s (%s)" % (abs_fmt, pct_fmt) if pct_fmt != u"N/A" else abs_fmt
-            
-            return {
-                'pct': pct_fmt,
-                'dir': direction,
-                'abs_fmt': abs_fmt,
-                'combo_fmt': combo_fmt
-            }
-            
-        except Exception:
-            return {'pct': u"N/A", 'dir': u"∙", 'abs_fmt': u"—", 'combo_fmt': u"—"}
-
-    def _debug_summary(self, ar, patient, pkeys, prev_ars, now_analyses, multi_series):
-        """Resumen debug optimizado."""
+    # ------------------ DEBUG JSON ------------------
+    def _debug_summary(self, ar, patient, pkeys, prev_ars, now_analyses, multi_series, patient_filter):
         sample_indexes = self._list_indexes(analyses=False)
         analysis_indexes = self._list_indexes(analyses=True)
 
         prev_summary = []
-        for x in prev_ars[:20]:  # Limitar para debug
+        for x in prev_ars[:30]:
             rid = self._get(x, "getRequestID") or self._get(x, "getId") or u""
             dt = self._received_date_of_ar(x) or self._date_of_ar(x)
             rs = self._state_of(x)
@@ -1277,6 +800,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 "unit": k["unit"],
                 "svc_uid": k["svc_uid"],
                 "keyword": k["keyword"],
+                "code": k["code"],
             })
 
         msum = []
@@ -1292,22 +816,184 @@ class InfolabsaDeltaCheck(BrowserView):
 
         return {
             "patient_keys": pkeys,
+            "patient_uid_present": bool(pkeys.get("patient_uid")),
+            "mrn_present": bool(pkeys.get("mrn")),
             "sample_catalog_indexes": sample_indexes,
             "analysis_catalog_indexes": analysis_indexes,
+            "patient_filter_used_in_catalog_query": patient_filter,
             "period_days": self.PERIOD_DAYS,
             "max_points_per_analyte": self.MAX_POINTS,
             "candidate_ARs_found": len(prev_ars),
             "candidate_ARs_preview": prev_summary,
             "current_AR_id": self._get(ar, "getRequestID") or self._get(ar, "getId"),
             "current_AR_date": self._fmt_local(self._date_of_ar(ar)),
-            "current_analyses_count": len(now_analyses),
-            "multi_series_count": len(multi_series),
+            "current_analyses_meta": a_summ,
+            "multi_series_after_flow": msum,
         }
 
-    def _list_indexes(self, analyses=False):
-        """Lista índices disponibles optimizado."""
-        try:
-            cat = self._acat() if analyses else self._cat()
-            return sorted(list(cat.indexes()))
-        except Exception:
-            return []
+    # ------------------ Vista (SIEMPRE JSON) ------------------
+    def __call__(self):
+        ar = self.context
+        patient = self._patient_obj(ar)
+        pkeys = self._patient_keys(ar, patient)
+
+        prev_ars = self._candidate_ars(ar, patient, pkeys)
+        ars_for_series = list(prev_ars) + [ar]
+
+        rows = []
+        multi_series = []
+        now_analyses = self._analyses_of(ar)
+
+        prev_ar_global = self._choose_prev_ar_global(ar, prev_ars)
+
+        for a in now_analyses:
+            keys = self._analysis_keys(a)
+            raw_now, val_now = self._result_value(a)
+
+            series_pts = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
+
+            # puntos compatibles
+            points = []
+            for p in series_pts:
+                iso = p.get('date')
+                val = p.get('value')
+                if iso is None or val is None:
+                    continue
+                ddmmyy = self._fmt_ddmmyy(iso)
+                ms = self._to_epoch_ms(iso)
+                points.append({
+                    'date': iso,
+                    'value': float(val),
+                    'x': iso,
+                    'y': float(val),
+                    'ddmmyy': ddmmyy,
+                    'ms': ms,
+                })
+
+            # serie para el gráfico (solo si hay ≥ 2 puntos)
+            if len(points) >= 2:
+                multi_series.append({
+                    "name": keys["name"],
+                    "unit": keys["unit"] or u"",
+                    "series": points,  # objetos completos
+                    "xy": [{'x': pt['x'], 'y': pt['y']} for pt in points],
+                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],  # <- NUMÉRICO
+                    "categories_ddmmyy": [pt['ddmmyy'] for pt in points],
+                })
+
+            if len(points) < 2 or val_now is None:
+                continue
+
+            prev_raw, prev_num = self._find_prev_value_in_ar(prev_ar_global, keys)
+
+            delta_abs = None
+            delta_pct = u"N/A"
+            delta_dir = u"∙"
+
+            if prev_num is not None:
+                try:
+                    delta_abs = float(val_now) - float(prev_num)
+                    if prev_num != 0:
+                        pct = ((float(val_now) - float(prev_num)) / abs(float(prev_num))) * 100.0
+                        delta_pct = u"%.1f%%" % pct
+                    if float(val_now) > float(prev_num):
+                        delta_dir = u"▲"
+                    elif float(val_now) < float(prev_num):
+                        delta_dir = u"▼"
+                    else:
+                        delta_dir = u"Δ"
+                except Exception:
+                    pass
+
+            prev_id = u"—"
+            prev_date = u"—"
+            prev_date_fmt = u"—"
+            if prev_ar_global:
+                prev_id = (self._get(prev_ar_global, "getRequestID") or
+                           self._get(prev_ar_global, "getId") or u"—")
+                pdt = self._date_of_ar(prev_ar_global)
+                prev_date = self._iso(pdt).replace("Z","") if pdt else u"—"
+                prev_date_fmt = self._fmt_local(pdt) if pdt else u"—"
+
+            delta_abs_fmt = u"—"
+            try:
+                if delta_abs is not None:
+                    delta_abs_fmt = u"{:+.2f}".format(delta_abs)
+            except Exception:
+                pass
+            delta_combo_fmt = (u"%s (%s)" % (delta_abs_fmt, delta_pct)
+                               if delta_abs is not None
+                               else u"—")
+
+            trend_dir = self._trend_dir(points)
+
+            prev_value_raw = prev_raw if prev_raw not in (None, u"", "") else (u"%s" % prev_num if prev_num is not None else u"—")
+
+            trend_from_fmt = self._fmt_ddmmyy(points[0]['date']) if points else u"—"
+            trend_to_fmt   = self._fmt_ddmmyy(points[-1]['date']) if points else u"—"
+
+            rows.append({
+                'uid': keys["uid"],
+                'name': keys["name"],
+                'unit': keys["unit"] or u'',
+                'value_now': (raw_now if raw_now not in (None, u"", "") else u'—'),
+
+                'delta_pct': delta_pct,
+                'delta_dir': delta_dir,
+                'delta_abs_fmt': delta_abs_fmt,
+                'delta_combo_fmt': delta_combo_fmt,
+                'delta_note': u'',
+
+                'prev_sample_id': prev_id,
+                'prev_date': prev_date,
+                'prev_date_fmt': prev_date_fmt,
+                'prev_value': prev_value_raw,
+
+                'rcv_pct': None,
+                'trend_dir': trend_dir,
+
+                'series': [{'date': pt['date'], 'value': pt['value']} for pt in points],
+
+                'trend_from_fmt': trend_from_fmt,
+                'trend_to_fmt': trend_to_fmt,
+            })
+
+        # chart_v2 series numéricas
+        chart_v2_series = []
+        for s in multi_series:
+            chart_v2_series.append({
+                "name": s.get("name"),
+                "unit": s.get("unit") or u"",
+                "data": s.get("data") or [],  # [[ms, val], ...] NUMÉRICO
+                "categories_ddmmyy": s.get("categories_ddmmyy") or [],
+            })
+
+        label = u'%d meses' % (self.PERIOD_DAYS // 30)
+        has_chart = bool([s for s in multi_series if len(s.get("series") or []) >= 2])
+
+        # --- RETORNAR DICCIONARIO, NO JSON ---
+        payload = {
+            'period_label': label,
+            'rows': rows,
+            'chart': {
+                'series': multi_series,           # objetos completos
+                'max_points': self.MAX_POINTS,
+                'window_days': self.PERIOD_DAYS,
+            },
+            'chart_v2': {
+                'x_mode': 'ms',
+                'series': chart_v2_series,        # datos numéricos
+                'max_points': self.MAX_POINTS,
+                'window_days': self.PERIOD_DAYS,
+            },
+            'has_chart': bool(has_chart),
+        }
+
+        # Si piden debug, adjuntamos metadatos dentro del mismo JSON
+        if self.request.form.get("debug") or self.request.get("debug"):
+            cat = self._cat()
+            pf = self._best_patient_query_for_catalog(cat, pkeys)
+            payload["_debug"] = self._debug_summary(ar, patient, pkeys, prev_ars, now_analyses, multi_series, pf)
+
+        # RETORNAR DICCIONARIO DIRECTAMENTE - NO CONVERTIR A JSON
+        return payload
