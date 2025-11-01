@@ -552,12 +552,14 @@
       rows python:(delta and delta.get('rows') or []);
 
       _series_keys python:lambda r: [
-        (
-          (hasattr(p,'get') and ((p.get('ms') or p.get('date') or u''))) and
-          ((p.get('ms') or p.get('date') or u'') + u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u''))
-        )
+        (u'%s|%s' % (
+            (p.get('ms') or p.get('date') or u''),
+            unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
+         ))
         for p in (r.get('series') or [])
-        if (hasattr(p,'get') and (p.get('value') not in (None, u'', u'\u2014')))
+        if (hasattr(p,'get') and
+            (p.get('value') not in (None, u'', u'\u2014')) and
+            ((p.get('ms') or p.get('date') or u'') not in (None, u'', u'\u2014')))
       ];
 
       _row_two_distinct python:lambda r: (
@@ -625,7 +627,10 @@
                   _now_val_raw python:r.get('value_now');
                   _prev_val_raw python:r.get('prev_value');
                   _now_val python:((_now_val_raw not in (None, u'', u'\u2014')) and float(_now_val_raw) or None);
-                  _prev_val python:((_prev_val_raw not in (None, u'', u'\u2014')) and float(_prev_val_raw) or ( (n>=2 and has_distinct) and float(ser[-2].get('value')) or None ));
+                  _prev_val python:(
+                    (_prev_val_raw not in (None, u'', u'\u2014') and float(_prev_val_raw)) or
+                    ((n>=2 and has_distinct and hasattr(ser[-2],'get') and (ser[-2].get('value') not in (None, u'', u'\u2014'))) and float(ser[-2].get('value')) or None)
+                  );
 
                   delta_abs_val python:((_now_val is not None and _prev_val is not None) and (_now_val - _prev_val) or None);
                   delta_abs_val_norm python:((delta_abs_val is not None) and (abs(delta_abs_val) < 1e-9 and 0.0 or delta_abs_val) or None);
@@ -800,8 +805,10 @@
                  or
                  (hasattr(p,'get') and
                   (
-                    ( (p.get('ms') or p.get('x') or p.get('date') or u'') +
-                      u'|' + unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'') ),
+                    (u'%s|%s' % (
+                       (p.get('ms') or p.get('x') or p.get('date') or u''),
+                       unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
+                     )),
                     (p.get('y') if (p.get('y') not in (None, u'', u'\u2014')) else None)
                   ))
                  or
@@ -888,7 +895,7 @@
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
-            var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
+            var trendsData = <tal:span tal:replace="structure python:json.dumps(trends_data).replace('</', '<\\/')" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
             var seen = {};
