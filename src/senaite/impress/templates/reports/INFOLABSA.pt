@@ -564,7 +564,7 @@
         len([k for i,k in enumerate(_series_keys(r)) if (k not in (None, u'', u'\u2014')) and (k not in _series_keys(r)[:i])]) >= 2
       );
 
-      rows_valid python:[ r for r in rows if (_row_two_distinct(r) or len((r.get('trend_points') or [])) >= 2) ];
+      rows_valid python:[ r for r in rows if _row_two_distinct(r) ];
 
       _all_sids python:[
         unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
@@ -616,7 +616,7 @@
             <tbody>
               <tal:loop repeat="r rows_valid">
                 <tal:calc define="
-                  ser python:r.get('series') or r.get('trend_points') or [];
+                  ser python:r.get('series') or [];
                   n python:len(ser);
                   t_last python:(ser and ((hasattr(ser[-1],'get') and (ser[-1].get('ms') or ser[-1].get('date'))) or u'') or u'');
                   t_prev python:((n>=2) and ((hasattr(ser[-2],'get') and (ser[-2].get('ms') or ser[-2].get('date'))) or u'') or u'');
@@ -885,89 +885,64 @@
         </div>
       </div>
 
-      <!-- === JS Highcharts (categorías globales con fecha+hora y alineación por índice) === -->
       <script type="text/javascript">
         (function() {
           if (typeof window.WeasyPrint === 'undefined') {
             var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
             if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-            // 1) Lista global de MS y etiquetas (preferir lo que viene del backend)
-            var msList = (trendsData.categories_ms_global && trendsData.categories_ms_global.length)
-                           ? trendsData.categories_ms_global.slice(0)
-                           : null;
+            var seen = {};
+            var distinct = 0;
+            try {
+              trendsData.series.forEach(function(s){
+                var d = (s && s.data) ? s.data : [];
+                for (var i=0; i<d.length; i++){
+                  var p = d[i];
+                  var x = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
+                            : i;
+                  var y = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[1] : p.y)
+                            : p;
 
-            // Si no vino msList, la construimos a partir de todas las series
-            if (!msList) {
-              var xsMap = {};
-              (trendsData.series || []).forEach(function(s){
-                (s.data || []).forEach(function(p){
-                  var x = (Array.isArray(p) ? p[0] : (p && (p.x || p.ms || p.date)));
-                  if (x !== null && x !== undefined && x !== '') {
-                    xsMap[String(x)] = Number(x);
+                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
+                  var sid = (p && typeof p === 'object' && !Array.isArray(p))
+                              ? (p.sid || p.sample_id || p.id || '')
+                              : '';
+                  var key = String(x) + '|' + String(sid);
+
+                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
+                    if (!seen[key]) { seen[key] = true; distinct++; }
                   }
-                });
+                }
               });
-              msList = Object.keys(xsMap).map(function(k){ return xsMap[k]; });
-              msList.sort(function(a,b){ return a - b; });
-            }
+            } catch(e) { distinct = 0; }
+            if (distinct < 2) return;
 
-            // Necesitamos al menos 2 puntos globales
-            if (!msList || msList.length < 2) return;
-
-            // Etiquetas legibles (preferir categories_fmt_global)
-            var cats = (trendsData.categories_fmt_global && trendsData.categories_fmt_global.length)
-                         ? trendsData.categories_fmt_global.slice(0)
-                         : msList.map(function(ms){
-                             try {
-                               var d = new Date(ms);
-                               var dd=('0'+d.getDate()).slice(-2),
-                                   mm=('0'+(d.getMonth()+1)).slice(-2),
-                                   yyyy=d.getFullYear(),
-                                   hh=('0'+d.getHours()).slice(-2),
-                                   mi=('0'+d.getMinutes()).slice(-2),
-                                   ss=('0'+d.getSeconds()).slice(-2);
-                               return dd+'/'+mm+'/'+yyyy+' '+hh+':'+mi+':'+ss;
-                             } catch(e){ return String(ms); }
-                           });
-
-            // 2) Mapa ms -> índice global
-            var idxByMs = {};
-            for (var i=0;i<msList.length;i++) { idxByMs[String(msList[i])] = i; }
-
-            // 3) Normalizar cada serie a [índiceGlobal, y]
+            var cats = trendsData.categories || [];
+            var n = cats.length || 0;
             var series = (trendsData.series || []).map(function(s){
               var d = s.data || [];
-              var pts = d.map(function(p){
-                var x = Array.isArray(p) ? p[0] : (p && (p.x || p.ms || p.date));
-                var y = Array.isArray(p) ? p[1] : (p && p.y);
-                if (x === null || x === undefined || x === '' || y === null || y === undefined || y === '' || !isFinite(parseFloat(y))) {
-                  return null;
-                }
-                var idx = idxByMs[String(x)];
-                if (typeof idx === 'undefined') return null;
-                return [idx, parseFloat(y)];
-              }).filter(Boolean);
-              var copy = {};
-              for (var k in s){ if (Object.prototype.hasOwnProperty.call(s,k)) copy[k]=s[k]; }
-              copy.data = pts;
+              var mapped = d.map(function(p, i){
+                var y = (p && typeof p === 'object')
+                          ? (Array.isArray(p) ? p[1] : p.y)
+                          : p;
+                return [i, y];
+              });
+              var copy = Object.assign({}, s);
+              copy.data = mapped;
               return copy;
             });
 
-            // 4) Ejes y opciones
-            var n = msList.length;
             var step = (n <= 6) ? 1 : Math.ceil(n / 6);
-            var tickPositions = Array.from({length:n}, function(_,j){return j;});
-
-            var maxPts = (typeof trendsData.max_points !== 'undefined') ? trendsData.max_points : 6;
-            var winDays = (typeof trendsData.window_days !== 'undefined') ? trendsData.window_days : 365;
+            var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
 
             var options = {
               chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
               title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
                        style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
-              subtitle: { text: 'Hasta ' + maxPts + ' puntos dentro de los últimos ' + winDays + ' días.',
-                          y: 30, style: { color: '#6c757d', fontSize: '12px' } },
+              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+                          style: { color: '#6c757d', fontSize: '12px' } },
               xAxis: {
                 categories: cats,
                 tickPositions: tickPositions,
@@ -1018,9 +993,15 @@
             };
 
             if (typeof Highcharts !== 'undefined') {
-              Highcharts.chart('trends-chart-container', options);
+              var chart = Highcharts.chart('trends-chart-container', options);
               var el = document.getElementById('trends-chart-container');
               if (el) { el.style.display = 'block'; }
+              if (Highcharts.charts && Highcharts.charts.length) {
+                var c = Highcharts.charts[Highcharts.charts.length - 1];
+                if (c && c.reflow) c.reflow();
+              }
+              var fb = document.querySelector('.section-trends .weasy-fallback');
+              if (fb) fb.style.display = 'none';
               try { document.body.classList.add('has-highcharts'); } catch(e){}
             }
           }
