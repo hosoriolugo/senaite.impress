@@ -1313,8 +1313,8 @@ class InfolabsaResultsWithState(BrowserView):
         reference_range_with_unit = _format_ref_text_with_unit(ref_text, unit)
 
         # Tendencia: solo permitir gráfico si hay 2+ puntos
-        tpoints = self._trend_points(a)
-        can_plot_trend = bool(tpoints and len(tpoints) >= 2)
+        \1
+        tpoints = _normalize_trend_points(tpoints)can_plot_trend = bool(tpoints and len(tpoints) >= 2)
 
         return {
             # Display
@@ -1388,3 +1388,21 @@ class InfolabsaResultsWithState(BrowserView):
 
 # Compatibilidad
 InfolabsaResults = InfolabsaResultsWithState
+
+
+# --- INFOLABSA: helper to normalize/ensure trend_points are list-like ---
+def _normalize_trend_points(tpoints):
+    """Return a safe list for trend_points. No mutation of existing dicts.
+    This is intentionally conservative for Python 2.7 in SENAITE 2.6.
+    """
+    if tpoints is None:
+        return []
+    if isinstance(tpoints, (list, tuple)):
+        return list(tpoints)
+    # Some adapters may return a dict with 'data'
+    if isinstance(tpoints, dict) and 'data' in tpoints:
+        data = tpoints.get('data')
+        if isinstance(data, (list, tuple)):
+            return list(data)
+    # Fallback: wrap single value
+    return [tpoints]
