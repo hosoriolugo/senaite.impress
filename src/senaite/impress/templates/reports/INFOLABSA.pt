@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<tal:report i18n:domain="senaite.impress" tal:define="json python:modules['json']">
+<tal:report i18n:domain="senaite.impress">
   <!-- INFOLABSA.pt :: FINAL -->
 
   <!-- Assets estándar de Impress -->
@@ -1020,101 +1020,4 @@ var copy = Object.assign({}, s);
     </tal:attachments_end>
 
   </div> <!-- cierre del contenedor que define 'ar' -->
-<!-- =====================  TENDENCIAS  ===================== -->
-<div class="section section-trends"
-     tal:define="
-       _delta python:context.restrictedTraverse('@@infolabsa-delta-check')(context);
-       rows python:_delta.get('rows', []);
-       rows_valid python:[ r for r in rows if (r.get('series') and len(r.get('series')) >= 2) ];
-       trends_data python:_delta.get('chart_v2') or _delta.get('chart') or {};
-     "
-     tal:condition="python:bool(rows_valid) or (_delta and _delta.get('has_chart'))">
-
-  <h3 i18n:translate="">Tendencias</h3>
-
-  <div id="trends-chart-container"
-       style="width:100%;height:300px;display:none;border-top:1px solid #eee;margin-top:8px;padding-top:8px;"></div>
-
-  <script type="application/json" id="trends-json">
-    <tal:json tal:replace="structure python:json.dumps(trends_data)" />
-  </script>
-
-  <script type="text/javascript">
-  (function(){
-    if (typeof window.WeasyPrint !== 'undefined') return;
-
-    var el = document.getElementById('trends-json');
-    var raw = el ? (el.textContent || el.innerText || '') : '';
-    if (raw && raw.charCodeAt(0) === 65279) raw = raw.slice(1);
-    var s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-    if (s === -1 || e === -1) {
-      console.error('Tendencias: JSON inválido. Inicio:', (raw||'').slice(0,80));
-      return;
-    }
-    var jsonText = raw.slice(s, e+1);
-    var trendsData = {};
-    try { trendsData = JSON.parse(jsonText); }
-    catch(err){ console.error('Tendencias: JSON.parse falló', err, 'inicio:', jsonText.slice(0,80)); return; }
-
-    var series = [];
-    var items = (trendsData && trendsData.series) ? trendsData.series : [];
-    for (var i=0; i<items.length; i++) {
-      var sers = items[i] || {};
-      var data = sers.data || [];
-      var mapped = [];
-      for (var j=0; j<data.length; j++) {
-        var p = data[j];
-        if (p && p.constructor === Array) {
-          mapped.push([p[0], p[1]]);
-        } else if (p && typeof p === 'object') {
-          var hasX = (Object.prototype.hasOwnProperty.call(p, 'ms') ||
-                      Object.prototype.hasOwnProperty.call(p, 'x'));
-          var x = Object.prototype.hasOwnProperty.call(p, 'ms') ? p.ms : (hasX ? p.x : j);
-          var y = Object.prototype.hasOwnProperty.call(p, 'y') ? p.y :
-                  (Object.prototype.hasOwnProperty.call(p, 'value') ? p.value : null);
-          mapped.push([x, y]);
-        } else {
-          mapped.push([j, p]);
-        }
-      }
-      series.push({ name: sers.name, data: mapped, tooltip: { valueSuffix: (sers.unit ? (' ' + sers.unit) : '') }});
-    }
-
-    var isMs = !!(trendsData && trendsData.x_mode === 'ms');
-    var xAxisCfg = isMs ? {
-      type: 'datetime',
-      labels: { style: { color: '#333' } },
-      title: { text: 'Fecha/hora', style: { color: '#000', fontWeight: 'bold' } }
-    } : {
-      categories: (trendsData.categories || []),
-      labels: { style: { color: '#333' } },
-      title: { text: 'Muestras', style: { color: '#000', fontWeight: 'bold' } }
-    };
-
-    if (typeof Highcharts === 'undefined') {
-      console.warn('Highcharts no cargó: ++plone++/senaite.impress.static/modules/highcharts/highcharts.js');
-      var ctr = document.getElementById('trends-chart-container');
-      if (ctr) ctr.style.display = 'block';
-      return;
-    }
-
-    var container = document.getElementById('trends-chart-container');
-    if (!container) return;
-    container.style.display = 'block';
-
-    Highcharts.chart('trends-chart-container', {
-      chart: { type: 'line', backgroundColor: 'transparent' },
-      title: { text: 'Tendencias de Resultados en el Tiempo' },
-      xAxis: xAxisCfg,
-      yAxis: { title: { text: '' }, labels: { style: { color: '#333' } } },
-      tooltip: { shared: true },
-      legend: { enabled: true },
-      series: series,
-      credits: { enabled: false }
-    });
-  })();
-  </script>
-</div>
-<!-- ===================  /TENDENCIAS  =================== -->
-
 </tal:report>
