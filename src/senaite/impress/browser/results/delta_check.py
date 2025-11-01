@@ -61,7 +61,15 @@ def _norm(s):
 
 
 class InfolabsaDeltaCheck(BrowserView):
-    """Delta check robusto por paciente y analito con fechas ISO-8601 + JSON crudo."""
+    """Delta check robusto por paciente y analito con fechas ISO-8601 + estructuras listas para Highcharts.
+
+    Claves de este ajuste:
+      - Considera **dos SIDs del mismo día** como dos puntos distintos (ordena por hora:min:seg).
+      - `has_chart` se calcula con **≥2 puntos totales**, NO con “fechas distintas”.
+      - Consulta catálogo correcto de Análisis (`senaite_catalog_analysis`) con fallback seguro.
+      - Dedup por RequestID conservando **el punto más reciente** de cada AR.
+      - Entrega tanto `chart.series` (objetos) como `chart_v2.series[].data` ([[ms, valor]]).
+    """
 
     PERIOD_DAYS = 365
     MAX_POINTS  = 6  # Ajustado a 6 como solicitaste
@@ -100,6 +108,10 @@ class InfolabsaDeltaCheck(BrowserView):
     def _acat(self):
         portal = self.context.portal_url.getPortalObject()
         acat = getToolByName(portal, "senaite_catalog_analysis", None)
+        if acat:
+            return acat
+        # Fallback muy conservador
+        acat = getToolByName(portal, "bika_analysis_catalog", None)
         if acat:
             return acat
         return getToolByName(portal, "portal_catalog")
@@ -197,22 +209,15 @@ class InfolabsaDeltaCheck(BrowserView):
     def _to_epoch_ms(self, iso):
         """Convierte ISO-8601 a epoch en milisegundos (para charts)."""
         try:
-            # CORRECCIÓN: Limpiar correctamente el string ISO
-            clean_iso = _u(iso).replace("Z", "").split('+')[0]  # Solo quitar timezone, no dividir por guiones
-            
+            clean_iso = _u(iso).replace("Z", "").split('+')[0]
             if 'T' in clean_iso:
-                # Formato con tiempo: "2025-10-04T04:04:47"
                 fmt = "%Y-%m-%dT%H:%M:%S"
                 dt = datetime.datetime.strptime(clean_iso, fmt)
             else:
-                # Solo fecha: "2025-10-04"
                 fmt = "%Y-%m-%d"
                 dt = datetime.datetime.strptime(clean_iso, fmt)
-            
-            # Convertir a timestamp en milisegundos
-            timestamp = time.mktime(dt.timetuple()) * 1000
+            timestamp = time.mktime(dt.timetuple()) * 1000.0
             return int(timestamp)
-            
         except Exception as e:
             logger.error("Error convirtiendo fecha %s a epoch: %s" % (iso, str(e)))
             return None
@@ -304,7 +309,6 @@ class InfolabsaDeltaCheck(BrowserView):
     # ------------------ Analito keys ------------------
     def _service_of(self, a):
         try:
-            # Usar getAnalysisService si está disponible
             return getattr(a, "getAnalysisService", lambda: None)()
         except Exception:
             return None
@@ -656,7 +660,7 @@ class InfolabsaDeltaCheck(BrowserView):
             rid = getattr(ab, "getRequestID", None)
             rid = rid() if callable(rid) else rid
             ar_ref, ar_dt = ar_by_id.get(rid, (None, None))
-            # Prioridad: usar fecha/hora del análisis; luego created; al final fecha del AR
+            # Prioridad: fecha/hora del análisis; luego created; al final fecha del AR
             dt = getattr(ab, "getResultCaptureDate", None) or getattr(ab, "created", None) or ar_dt
             if not dt:
                 continue
@@ -670,7 +674,7 @@ class InfolabsaDeltaCheck(BrowserView):
                 "rid": rid
             })
 
-        # Dedup por AR, último punto
+        # Dedup por AR, conservar el punto más reciente
         by_rid = {}
         for p in pts:
             rid = p.get("rid")
@@ -686,7 +690,7 @@ class InfolabsaDeltaCheck(BrowserView):
             pts = pts[-self.MAX_POINTS:]
         return pts
 
-    # ------------------ Vista (SIEMPRE JSON) ------------------
+    # ------------------ Vista (SIEMPRE estructuras Python) ------------------
     def __call__(self):
         ar = self.context
         patient = self._patient_obj(ar)
@@ -707,7 +711,7 @@ class InfolabsaDeltaCheck(BrowserView):
 
             series_pts = self._series_for_uid(ars_for_series, keys["uid"], keys["keyword"], keys["title"])
 
-            # puntos compatibles
+            # Puntos compatibles
             points = []
             for p in series_pts:
                 iso = p.get('date')
@@ -726,15 +730,17 @@ class InfolabsaDeltaCheck(BrowserView):
                     'sid': p.get('rid') or p.get('sid') or u''  # Propagar SID/RID
                 })
 
-            # serie para el gráfico (solo si hay ≥ 2 puntos)
+            # Serie para el gráfico (solo si hay ≥ 2 puntos)
             if len(points) >= 2:
                 multi_series.append({
                     "name": keys["name"],
                     "unit": keys["unit"] or u"",
                     "series": points,  # objetos completos
                     "xy": [{'x': pt['x'], 'y': pt['y']} for pt in points],
-                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],  # <- NUMÉRICO
+                    "data": [[pt['ms'], pt['value']] for pt in points if pt.get('ms') is not None],  # NUMÉRICO
                     "categories_ddmmyy": [pt['ddmmyy'] for pt in points],
+                    "total_points": len(points),
+                    "unique_day_count": len(set(pt['ddmmyy'] for pt in points)),
                 })
 
             if len(points) < 2 or val_now is None:
@@ -859,12 +865,14 @@ class InfolabsaDeltaCheck(BrowserView):
                 "unit": s.get("unit") or u"",
                 "data": s.get("data") or [],  # [[ms, val], ...] NUMÉRICO
                 "categories_ddmmyy": s.get("categories_ddmmyy") or [],
+                "total_points": s.get("total_points") or 0,
+                "unique_day_count": s.get("unique_day_count") or 0,
             })
 
         label = u'%d meses' % (self.PERIOD_DAYS // 30)
         has_chart = bool([s for s in multi_series if len(s.get("series") or []) >= 2])
 
-        # --- RETORNAR DICCIONARIO, NO JSON ---
+        # --- RETORNAR DICCIONARIO (render server-side en la plantilla) ---
         payload = {
             'period_label': label,
             'rows': rows,
@@ -882,20 +890,22 @@ class InfolabsaDeltaCheck(BrowserView):
             'has_chart': bool(has_chart),
         }
 
-        # Si piden debug, adjuntamos metadatos dentro del mismo JSON
-        if self.request.form.get("debug") or self.request.get("debug"):
-            cat = self._cat()
-            pf = self._best_patient_query_for_catalog(cat, pkeys)
-            payload["_debug"] = {
-                "patient_keys": pkeys,
-                "sample_catalog_indexes": self._list_indexes(analyses=False),
-                "analysis_catalog_indexes": self._list_indexes(analyses=True),
-                "patient_filter_used_in_catalog_query": pf,
-                "period_days": self.PERIOD_DAYS,
-                "max_points_per_analyte": self.MAX_POINTS,
-                "candidate_ARs_found": len(prev_ars),
-                "current_AR_id": self._get(ar, "getRequestID") or self._get(ar, "getId"),
-            }
+        # Debug opcional
+        try:
+            if self.request.form.get("debug") or self.request.get("debug"):
+                cat = self._cat()
+                pf = self._best_patient_query_for_catalog(cat, pkeys)
+                payload["_debug"] = {
+                    "patient_keys": pkeys,
+                    "sample_catalog_indexes": self._list_indexes(analyses=False),
+                    "analysis_catalog_indexes": self._list_indexes(analyses=True),
+                    "patient_filter_used_in_catalog_query": pf,
+                    "period_days": self.PERIOD_DAYS,
+                    "max_points_per_analyte": self.MAX_POINTS,
+                    "candidate_ARs_found": len(prev_ars),
+                    "current_AR_id": self._get(ar, "getRequestID") or self._get(ar, "getId"),
+                }
+        except Exception:
+            pass
 
-        # RETORNAR DICCIONARIO DIRECTAMENTE - NO CONVERTIR A JSON
         return payload
