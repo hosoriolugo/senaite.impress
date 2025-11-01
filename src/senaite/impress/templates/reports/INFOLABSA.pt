@@ -564,7 +564,7 @@
         len([k for i,k in enumerate(_series_keys(r)) if (k not in (None, u'', u'\u2014')) and (k not in _series_keys(r)[:i])]) >= 2
       );
 
-      rows_valid python:[ r for r in rows if _row_two_distinct(r) ];
+      rows_valid python:[ r for r in rows if (_row_two_distinct(r) or len((r.get('trend_points') or [])) >= 2) ];
 
       _all_sids python:[
         unicode(p.get('sid') or p.get('sample_id') or p.get('id') or u'')
@@ -616,7 +616,7 @@
             <tbody>
               <tal:loop repeat="r rows_valid">
                 <tal:calc define="
-                  ser python:r.get('series') or [];
+                  ser python:r.get('series') or r.get('trend_points') or [];
                   n python:len(ser);
                   t_last python:(ser and ((hasattr(ser[-1],'get') and (ser[-1].get('ms') or ser[-1].get('date'))) or u'') or u'');
                   t_prev python:((n>=2) and ((hasattr(ser[-2],'get') and (ser[-2].get('ms') or ser[-2].get('date'))) or u'') or u'');
@@ -886,84 +886,127 @@
       </div>
 
       <script type="text/javascript">
-  (function() {
-    // If WeasyPrint is rendering, do nothing (static image will be shown)
-    if (typeof window.WeasyPrint !== 'undefined') {
-      return;
-    }
+        (function() {
+          if (typeof window.WeasyPrint === 'undefined') {
+            var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
+            if (!trendsData || !trendsData.series || !trendsData.series.length) return;
 
-    // Raw data from server (safe JSON)
-    var trendsData = <tal:span tal:replace="python:json.dumps(trends_data)" />;
+            var seen = {};
+            var distinct = 0;
+            try {
+              trendsData.series.forEach(function(s){
+                var d = (s && s.data) ? s.data : [];
+                for (var i=0; i<d.length; i++){
+                  var p = d[i];
+                  var x = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[0] : (p.x || p.ms || p.date || i))
+                            : i;
+                  var y = (p && typeof p === 'object')
+                            ? (Array.isArray(p) ? p[1] : p.y)
+                            : p;
 
-    // Normalize into a single chronological series with deduplication by (timestamp|sid)
-    function normalizeSeries(td) {
-      var all = [];
-      var seen = {};
-      var series = (td && td.series) || [];
-      for (var i = 0; i < series.length; i++) {
-        var data = series[i].data || [];
-        for (var j = 0; j < data.length; j++) {
-          var p = data[j]; // [ms, value, sid, sample_id]
-          if (!p || p.length < 2) continue;
-          var key = String(p[0]) + '|' + (p[2] || '');
-          if (!seen[key]) {
-            seen[key] = true;
-            all.push([p[0], p[1], p[2] || null, p[3] || null]);
+                  // NUEVO: desempate por ID de muestra para distinguir puntos del mismo día
+                  var sid = (p && typeof p === 'object' && !Array.isArray(p))
+                              ? (p.sid || p.sample_id || p.id || '')
+                              : '';
+                  var key = String(x) + '|' + String(sid);
+
+                  if (y !== null && y !== undefined && y !== '' && isFinite(parseFloat(y))) {
+                    if (!seen[key]) { seen[key] = true; distinct++; }
+                  }
+                }
+              });
+            } catch(e) { distinct = 0; }
+            if (distinct < 2) return;
+
+            var cats = trendsData.categories || [];
+            var n = cats.length || 0;
+            var series = (trendsData.series || []).map(function(s){
+              var d = s.data || [];
+              var mapped = d.map(function(p, i){
+                var y = (p && typeof p === 'object')
+                          ? (Array.isArray(p) ? p[1] : p.y)
+                          : p;
+                return [i, y];
+              });
+              var copy = Object.assign({}, s);
+              copy.data = mapped;
+              return copy;
+            });
+
+            var step = (n <= 6) ? 1 : Math.ceil(n / 6);
+            var tickPositions = n ? Array.from({length:n}, function(_,i){return i;}) : undefined;
+
+            var options = {
+              chart: { type: 'line', height: 560, backgroundColor: 'transparent', spacingTop: 60, spacingBottom: 16, marginTop: 60 },
+              title: { text: (trendsData.title || 'Tendencias de Resultados'), margin: 12,
+                       style: { color: '#000', fontWeight: 'bold', fontSize: '16px', fontFamily: 'Arial, sans-serif' } },
+              subtitle: { text: 'Se muestran hasta 6 puntos dentro de los últimos 365 días (máximo).', y: 30,
+                          style: { color: '#6c757d', fontSize: '12px' } },
+              xAxis: {
+                categories: cats,
+                tickPositions: tickPositions,
+                labels: { style: { color: '#333' }, rotation: -45, step: step },
+                title: { text: 'Fecha de Análisis', style: { color: '#000', fontWeight: 'bold' } },
+                tickmarkPlacement: 'on'
+              },
+              yAxis: {
+                title: { text: 'Valores' + (trendsData.unit ? ' (' + trendsData.unit + ')' : ''), style: { color: '#000', fontWeight: 'bold' } },
+                labels: { style: { color: '#333' } },
+                min: trendsData.yMin,
+                max: trendsData.yMax,
+                gridLineColor: '#f0f0f0'
+              },
+              legend: { enabled: true, layout: 'horizontal', align: 'center', verticalAlign: 'bottom', y: 0,
+                        itemStyle: { color: '#333', fontWeight: 'normal', fontFamily: 'Arial, sans-serif' } },
+              plotOptions: {
+                line: {
+                  marker: { enabled: true, radius: 4 },
+                  dataLabels: {
+                    enabled: true,
+                    formatter: function(){
+                      var u = (this.series && this.series.userOptions && this.series.userOptions.unit) ? (' ' + this.series.userOptions.unit) : '';
+                      return (this.y != null) ? Highcharts.numberFormat(this.y, 2).replace(/\.00$/, '') + u : '';
+                    },
+                    style: { textOutline: '1px contrast' }
+                  },
+                  enableMouseTracking: true
+                }
+              },
+              tooltip: {
+                shared: true, crosshairs: true,
+                formatter: function() {
+                  var idx = (this.points && this.points.length) ? this.points[0].point.x : (this.point && this.point.x);
+                  var fecha = cats && cats[idx] ? cats[idx] : (this.x || '');
+                  var s = '<b>' + fecha + '</b>';
+                  this.points.forEach(function(p) {
+                    var u = (p.series.userOptions && p.series.userOptions.unit) ? (' ' + p.series.userOptions.unit) : '';
+                    s += '<br/><span style="color:' + p.color + '">●</span> ' + p.series.name +
+                         ': <b>' + Highcharts.numberFormat(p.y, 2).replace(/\.00$/, '') + u + '</b>';
+                  });
+                  return s;
+                }
+              },
+              series: series,
+              credits: { enabled: false },
+              exporting: { enabled: false }
+            };
+
+            if (typeof Highcharts !== 'undefined') {
+              var chart = Highcharts.chart('trends-chart-container', options);
+              var el = document.getElementById('trends-chart-container');
+              if (el) { el.style.display = 'block'; }
+              if (Highcharts.charts && Highcharts.charts.length) {
+                var c = Highcharts.charts[Highcharts.charts.length - 1];
+                if (c && c.reflow) c.reflow();
+              }
+              var fb = document.querySelector('.section-trends .weasy-fallback');
+              if (fb) fb.style.display = 'none';
+              try { document.body.classList.add('has-highcharts'); } catch(e){}
+            }
           }
-        }
-      }
-      all.sort(function(a, b) { return a[0] - b[0]; });
-      return [{
-        name: (td && td.title) || 'Resultados',
-        data: all
-      }];
-    }
-
-    var series = normalizeSeries(trendsData);
-
-    // Count distinct points to decide visibility
-    (function() {
-      var set = {};
-      for (var i = 0; i < series.length; i++) {
-        var s = series[i].data || [];
-        for (var j = 0; j < s.length; j++) {
-          var pt = s[j];
-          var key = String(pt[0]) + '|' + (pt[2] || '');
-          set[key] = 1;
-        }
-      }
-      var count = 0;
-      for (var k in set) if (set.hasOwnProperty(k)) count++;
-
-      var chartEl = document.getElementById('trends-chart');
-      var msgEl = document.getElementById('trends-empty-msg');
-      var staticImg = document.getElementById('trends-static');
-
-      if (count < 2) {
-        if (chartEl) chartEl.style.display = 'none';
-        if (msgEl) msgEl.style.display = 'block';
-        return;
-      } else {
-        if (staticImg) staticImg.style.display = 'none';
-        if (msgEl) msgEl.style.display = 'none';
-      }
-    })();
-
-    // Render Highcharts
-    if (typeof Highcharts !== 'undefined') {
-      Highcharts.chart('trends-chart', {
-        chart: { type: 'line', height: 260, backgroundColor: 'transparent' },
-        title: { text: null },
-        xAxis: { type: 'datetime' },
-        yAxis: { title: { text: null } },
-        legend: { enabled: false },
-        tooltip: { shared: true, xDateFormat: '%d/%m/%Y %H:%M' },
-        credits: { enabled: false },
-        series: series
-      });
-    }
-  })();
-</script>
+        })();
+      </script>
     </div>
 
     <!-- =========== Anexos (al final, solo si hay contenido) =========== -->
