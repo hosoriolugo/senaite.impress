@@ -185,24 +185,35 @@ class InfolabsaDeltaCheck(BrowserView):
             return u"—"
 
     def _fmt_ddmmyy(self, iso):
-        """Devuelve DDMMYY sin hora, a partir de ISO-8601."""
+        """Devuelve DDMMYY con hora si es del mismo día, para distinguir muestras."""
         try:
             s = _u(iso).replace("Z", "")
-            fmt = "%Y-%m-%dT%H:%M:%S" if "T" in s else "%Y-%m-%d"
-            dt = datetime.datetime.strptime(s, fmt)
-            return dt.strftime("%d%m%y")
+            if "T" in s:
+                # Incluir hora para muestras del mismo día
+                fmt = "%Y-%m-%dT%H:%M:%S"
+                dt = datetime.datetime.strptime(s, fmt)
+                # Si hay múltiples muestras el mismo día, mostrar hora
+                return dt.strftime("%d%m%y-%H%M")
+            else:
+                fmt = "%Y-%m-%d"
+                dt = datetime.datetime.strptime(s, fmt)
+                return dt.strftime("%d%m%y")
         except Exception:
             return re.sub(r"\D+", "", _u(iso))[:6] or _u(iso)
 
     def _to_epoch_ms(self, iso):
         """Convierte ISO-8601 a epoch en milisegundos (para charts)."""
         try:
-            # CORRECCIÓN: Limpiar correctamente el string ISO
-            clean_iso = _u(iso).replace("Z", "").split('+')[0]  # Solo quitar timezone, no dividir por guiones
+            # Limpiar el string ISO manteniendo la precisión temporal
+            clean_iso = _u(iso).replace("Z", "").split('+')[0]
             
+            # Manejar diferentes formatos de fecha/hora
             if 'T' in clean_iso:
-                # Formato con tiempo: "2025-10-04T04:04:47"
-                fmt = "%Y-%m-%dT%H:%M:%S"
+                # Formato con tiempo: "2025-10-04T04:04:47" o "2025-10-04T04:04:47.123"
+                if '.' in clean_iso:
+                    fmt = "%Y-%m-%dT%H:%M:%S.%f"
+                else:
+                    fmt = "%Y-%m-%dT%H:%M:%S"
                 dt = datetime.datetime.strptime(clean_iso, fmt)
             else:
                 # Solo fecha: "2025-10-04"
@@ -211,6 +222,10 @@ class InfolabsaDeltaCheck(BrowserView):
             
             # Convertir a timestamp en milisegundos
             timestamp = time.mktime(dt.timetuple()) * 1000
+            # Agregar milisegundos si existen
+            if hasattr(dt, 'microsecond'):
+                timestamp += dt.microsecond / 1000.0
+                
             return int(timestamp)
             
         except Exception as e:
@@ -692,17 +707,21 @@ class InfolabsaDeltaCheck(BrowserView):
                 pts.append({"date": iso, "value": float(f), "raw": _u(raw), "ar": cur_ar, "rid": cur_rid})
                 break
 
-        # Dedup por AR, último punto
-        by_rid = {}
+        # MODIFICACIÓN: En lugar de deduplicar solo por AR, considerar fecha + AR para permitir múltiples muestras el mismo día
+        by_date_ar = {}
         for p in pts:
             rid = p.get("rid")
-            if not rid:
+            date_key = p.get("date")  # Usar la fecha ISO completa
+            if not rid or not date_key:
                 continue
-            prev = by_rid.get(rid)
+                
+            # Crear clave única por fecha y AR
+            unique_key = f"{date_key}|{rid}"
+            prev = by_date_ar.get(unique_key)
             if prev is None or p["date"] > prev["date"]:
-                by_rid[rid] = p
+                by_date_ar[unique_key] = p
 
-        pts = list(by_rid.values())
+        pts = list(by_date_ar.values())
         pts.sort(key=lambda p: p["date"])
         if len(pts) > self.MAX_POINTS:
             pts = pts[-self.MAX_POINTS:]
